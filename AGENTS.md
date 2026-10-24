@@ -63,9 +63,11 @@ wulfquest-msx/
   DEVELOPER.md       for developers: toolchain, build, test, release
   wulfquest/         git submodule: the Java game, pinned to a release tag
   msxgl/             git submodule: MSXgl, pinned to a release
-  convert/           the converter (Java, on wulfquest's core module)
-  src/               the game in C
-  test/              openMSX scripts and their expected results
+  build.sh           build the ROM; `./build.sh test` runs every test
+  convert/           the converter (Java, on wulfquest's core module), from M1
+  src/               the game in C, and MSXgl's project_config.js and msxgl_config.h
+  tools/             the binaries gate; helpers until the converter replaces them
+  test/              openMSX scripts and their checks
   build/             build output: never committed
 ```
 
@@ -224,6 +226,24 @@ v0.7.2; the converter's reports are the truth if they change.
 **Accept when:** a clean clone with the submodules builds the ROM with one
 command; the openMSX test passes on both machines; an MSX1 shows the
 "needs an MSX2" message; the gate fails on a planted `.rom` in git.
+
+**Landed (2026-10-24).** All of the above, with these specifics:
+
+- Pinned: wulfquest **v0.7.2**, MSXgl **v1.5.0** (its SDCC 4.6.0 builds the
+  game; the system's SDCC is not used). MSXgl builds from `src/` with nothing
+  in `msxgl/` edited; its deploy step is off so all output stays in `build/`.
+- The machines are openMSX's **C-BIOS** ones (`C-BIOS_MSX2_EU` at 50 Hz,
+  `C-BIOS_MSX2_JP` at 60 Hz, `C-BIOS_MSX1_EU`): free, so any machine and CI
+  can run the tests. Real system ROMs come in M13.
+- **The screenshot** is drawn by `test/check_boot.py` from the screen memory
+  and the palette, not by openMSX: openMSX needs a display to take one, and
+  its offscreen renderer gives a black picture.
+- The test waits 10 emulated seconds for C-BIOS's logo before the ROM runs.
+- On an MSX1 the message is MSXgl's: "Error: A MSX2 is required!", with its
+  "press C to continue anyway" for developers.
+- **Slipped to M1:** the palette is written by `tools/gen_palette.py`, a
+  stand-in until the converter. The converter needs wulfquest's `core`
+  module, which no released tag has yet (it came after v0.7.2).
 
 ### M1 — The converter: the data checked and turned into tables
 

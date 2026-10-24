@@ -1,0 +1,6 @@
+[submodule "wulfquest"]
+	path = wulfquest
+	url = https://github.com/boaglio/wulfquest.git
+[submodule "msxgl"]
+	path = msxgl
+	url = https://github.com/aoineko-fr/MSXgl.git

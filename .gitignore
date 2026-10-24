@@ -1,0 +1,15 @@
+# Build output: the ROM, disk images, generated headers, test dumps and
+# screenshots. Never committed (AGENTS.md §2).
+build/
+
+# MSXgl's build tool writes these when it runs from src/
+src/emul/
+src/out/
+
+# Python bytecode from tools/ and test/
+__pycache__/
+*.pyc
+
+# Editors
+.idea/
+.vscode/

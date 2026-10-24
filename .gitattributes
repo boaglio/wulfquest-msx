@@ -1,0 +1,3 @@
+# Text everywhere, LF line endings: the binaries gate (AGENTS.md §2) and the
+# MSXgl build both expect it.
+* text=auto eol=lf
