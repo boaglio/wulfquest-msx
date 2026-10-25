@@ -42,6 +42,19 @@ Moving a pin is its own commit: `git -C wulfquest checkout vX.Y.Z`, then
 ./build.sh clean    # remove build/
 ```
 
+To play the build:
+
+```bash
+./run.sh                 # build, then open it in openMSX on a 50 Hz MSX2
+./run.sh jp              # ... on a 60 Hz MSX2
+./run.sh Philips_NMS_8245  # ... on any openMSX machine you have the ROMs for
+./run.sh -n              # the last build, without building
+./run.sh -- -ext debugdevice   # anything after -- goes to openMSX
+```
+
+The default machines are C-BIOS ones, which ship with openMSX. C-BIOS shows
+its logo for a few seconds before the cartridge starts.
+
 `build.sh` runs the binaries gate, generates `build/gen/` (today only
 `palette.h`, from `wulfquest/data/art/palette.json`), then runs MSXgl's build
 tool from `src/`. MSXgl's log is `build/msxgl.log`.
@@ -87,6 +100,7 @@ AGENTS.md        the contract
 DEVELOPER.md     this file
 README.md        for players
 build.sh         build and test
+run.sh           build, then play it in openMSX
 src/             the game: wulfquest.c, MSXgl's project_config.js and msxgl_config.h
 tools/           check-no-binaries.sh; gen_palette.py (until the converter, M1)
 test/            boot.sh, boot.tcl, check_boot.py, gate.sh
