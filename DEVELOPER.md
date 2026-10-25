@@ -9,9 +9,9 @@ decisions, the rules and the milestones. Read it first.
 |---|---|---|
 | git | the two submodules | — |
 | Node.js | runs MSXgl's build tool | 22 |
-| Python 3 | the palette generator and the test checks | 3.14 |
+| Python 3 | the test checks | 3.14 |
 | openMSX | the tests; its C-BIOS machines are enough | 21.0 |
-| a JDK 21+ and Maven | the converter, from M1 | — |
+| a JDK 21+ and Maven | the converter | JDK 25, Maven 3.9 |
 
 SDCC is **not** needed on the system: MSXgl brings its own (4.6.0 in MSXgl
 1.5.0), and the build uses that one, so the compiler is pinned with the
@@ -27,12 +27,13 @@ git submodule update --init
 
 | Submodule | Pinned to | What we take from it |
 |---|---|---|
-| `wulfquest/` | v0.7.2 | `data/`: every number, word, map and picture |
+| `wulfquest/` | 3172aee (main; the next tag when there is one) | `data/`, and `core` to read it with |
 | `msxgl/` | v1.5.0 | the library, its build tool, SDCC and MSXtk |
 
 Moving a pin is its own commit: `git -C wulfquest checkout vX.Y.Z`, then
-`git add wulfquest`. M1's converter needs a wulfquest tag that has the
-`core` module (after v0.7.2).
+`git add wulfquest`. The converter needs the `core` module, which came after
+v0.7.2; no tag has it yet, so the pin is a commit on wulfquest's `main` until
+the next release.
 
 ## Build and test
 
@@ -55,9 +56,25 @@ To play the build:
 The default machines are C-BIOS ones, which ship with openMSX. C-BIOS shows
 its logo for a few seconds before the cartridge starts.
 
-`build.sh` runs the binaries gate, generates `build/gen/` (today only
-`palette.h`, from `wulfquest/data/art/palette.json`), then runs MSXgl's build
-tool from `src/`. MSXgl's log is `build/msxgl.log`.
+`build.sh` runs the binaries gate, then the converter, then MSXgl's build
+tool from `src/`. The logs are `build/convert.log` and `build/msxgl.log`.
+Options for Maven (an offline flag, a local repository) go in `MAVEN_ARGS`.
+
+**The converter** (`convert/`, AGENTS.md §4) is a Maven module whose parent
+is the Java game's own parent POM, so Java, Jackson and JUnit follow the
+submodule. The top `pom.xml` builds it together with `wulfquest/core`,
+straight from the submodule, with no install step. It loads the data with
+the Java game's `Content.load` and writes `build/gen/`:
+
+| File | What |
+|---|---|
+| `palette.h` | the 16 colours as V9938 registers |
+| `constants.h` | the game's numbers; the list, with where each comes from, is `convert/src/main/resources/wulfmsx/convert/constants.json` |
+| `scenery.h`, `scenery_N.bin` | the scenery atlas for video RAM pages 2–3, in 16 KB ROM segments, and each object's place in it |
+| `rooms.h`, `rooms.bin` | the 256 rooms: template of each, placements, collision masks |
+| `report.txt` | how far each colour moved, the atlas size, and the ROM budget |
+
+To run it alone: `mvn -q -pl convert -am package -DskipTests exec:java`.
 
 **How MSXgl is used without touching it.** MSXgl's build tool takes the
 folder it is run from as the project, so `src/` holds `project_config.js` and
@@ -69,6 +86,13 @@ ignores it, so the submodule stays clean.
 
 ## The tests
 
+- **The converter's tests** (JUnit, `convert/src/test/`): every room's
+  collision mask equals `RoomBaker`'s; every room's scenery is the Java
+  game's, in order; the atlas reads back to the same pixels; every constant
+  has a source; changing a speed in a scratch copy of the data changes the
+  constant; a data error stops the converter with the Java game's message.
+  `./build.sh test` runs them as `mvn -q -pl convert -am verify
+  -Dtest='wulfmsx.**'` (the filter keeps the Java game's own tests out).
 - **`test/boot.sh`** runs the ROM in openMSX on three C-BIOS machines: an
   MSX2 at 50 Hz (`C-BIOS_MSX2_EU`), an MSX2 at 60 Hz (`C-BIOS_MSX2_JP`) and
   an MSX1 (`C-BIOS_MSX1_EU`). `test/boot.tcl` drives openMSX: it waits for
@@ -102,7 +126,9 @@ README.md        for players
 build.sh         build and test
 run.sh           build, then play it in openMSX
 src/             the game: wulfquest.c, MSXgl's project_config.js and msxgl_config.h
-tools/           check-no-binaries.sh; gen_palette.py (until the converter, M1)
+pom.xml          builds wulfquest/core and convert/ together
+convert/         the converter (Java)
+tools/           check-no-binaries.sh
 test/            boot.sh, boot.tcl, check_boot.py, gate.sh
 wulfquest/       submodule: the Java game, for its data/
 msxgl/           submodule: MSXgl

@@ -1,0 +1,44 @@
+{
+  "comment": "AGENTS.md §4: every number the C uses, and where in wulfquest/data/ it comes from. The converter writes them to build/gen/constants.h. Add a constant here when the C first needs it.",
+  "constants": [
+    { "name": "TICK_HZ",                   "from": "config/game#/tickHz" },
+    { "name": "FIXED_SHIFT",               "from": "java:wulf.engine.Fixed.SHIFT" },
+
+    { "name": "GRID_W",                    "from": "world/original_map#/gridW" },
+    { "name": "GRID_H",                    "from": "world/original_map#/gridH" },
+    { "name": "START_COL",                 "from": "world/original_map#/startCol" },
+    { "name": "START_ROW",                 "from": "world/original_map#/startRow" },
+
+    { "name": "PLAYFIELD_W",               "from": "config/display#/playfield/w" },
+    { "name": "PLAYFIELD_H",               "from": "config/display#/playfield/h" },
+    { "name": "CELL",                      "from": "config/display#/playfield/cell" },
+    { "name": "CELL_COLS",                 "from": "config/display#/playfield/cols" },
+    { "name": "CELL_ROWS",                 "from": "config/display#/playfield/rows" },
+
+    { "name": "TRANSITION_FREEZE_TICKS",   "from": "config/game#/transition/freezeTicks" },
+    { "name": "CONTINUES",                 "from": "config/game#/continues" },
+
+    { "name": "PLAYER_BOX_X",              "from": "entities/player#/collisionBox/x" },
+    { "name": "PLAYER_BOX_Y",              "from": "entities/player#/collisionBox/y" },
+    { "name": "PLAYER_BOX_W",              "from": "entities/player#/collisionBox/w" },
+    { "name": "PLAYER_BOX_H",              "from": "entities/player#/collisionBox/h" },
+    { "name": "PLAYER_SPEED_X_FP",         "from": "entities/player#/speed/xFp" },
+    { "name": "PLAYER_SPEED_Y_FP",         "from": "entities/player#/speed/yFp" },
+    { "name": "PLAYER_DIAGONAL_SCALE_FP",  "from": "entities/player#/speed/diagonalScaleFp" },
+    { "name": "PLAYER_MOMENTUM_TICKS_PER_FRAME", "from": "entities/player#/momentum/ticksPerFrame" },
+    { "name": "PLAYER_MOMENTUM_ACCEL",     "from": "entities/player#/momentum/accel" },
+    { "name": "PLAYER_MOMENTUM_MAX",       "from": "entities/player#/momentum/max" },
+    { "name": "PLAYER_MOMENTUM_DECAY",     "from": "entities/player#/momentum/decay" },
+    { "name": "PLAYER_MOMENTUM_STEP",      "from": "entities/player#/momentum/step" },
+    { "name": "PLAYER_MOMENTUM_FIGHT",     "from": "entities/player#/momentum/fight" },
+    { "name": "PLAYER_LIVES_START",        "from": "entities/player#/lives/start" },
+    { "name": "PLAYER_LIVES_MAX",          "from": "entities/player#/lives/max" },
+    { "name": "PLAYER_SPAWN_INVULN_TICKS", "from": "entities/player#/spawn/invulnTicks" },
+    { "name": "PLAYER_SPAWN_BLINK_TICKS",  "from": "entities/player#/spawn/blinkPeriodTicks" },
+    { "name": "PLAYER_SPAWN_INSIDE_LEFT",  "from": "entities/player#/spawn/insideRoomPx/left" },
+    { "name": "PLAYER_SPAWN_INSIDE_RIGHT", "from": "entities/player#/spawn/insideRoomPx/right" },
+    { "name": "PLAYER_SPAWN_INSIDE_TOP",   "from": "entities/player#/spawn/insideRoomPx/top" },
+    { "name": "PLAYER_SPAWN_INSIDE_BOTTOM", "from": "entities/player#/spawn/insideRoomPx/bottom" },
+    { "name": "PLAYER_WALK_TICKS_PER_FRAME", "from": "entities/player#/animations/walk_side/ticksPerFrame" }
+  ]
+}

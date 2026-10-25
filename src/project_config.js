@@ -18,7 +18,7 @@ ProjName    = "wulfquest";
 ProjModules = [ ProjName ];
 LibModules  = [ "system", "bios", "vdp", "print", "input", "memory" ];
 
-//-- Headers the build generates (tools/gen_palette.py now; the converter from M1)
+//-- Headers the converter generates (build/gen/, AGENTS.md §4)
 CompileOpt = `-I${ProjDir}../build/gen`;
 
 //-- §1: MSX2 only, on a MegaROM cartridge

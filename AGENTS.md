@@ -61,12 +61,13 @@ wulfquest-msx/
   AGENTS.md          this file
   README.md          for players: what it is, how to get it and play it
   DEVELOPER.md       for developers: toolchain, build, test, release
-  wulfquest/         git submodule: the Java game, pinned to a release tag
+  wulfquest/         git submodule: the Java game, pinned to a release tag (§10, M1)
   msxgl/             git submodule: MSXgl, pinned to a release
   build.sh           build the ROM; `./build.sh test` runs every test
-  convert/           the converter (Java, on wulfquest's core module), from M1
+  pom.xml            builds wulfquest/core and convert/ together
+  convert/           the converter (Java, on wulfquest's core module)
   src/               the game in C, and MSXgl's project_config.js and msxgl_config.h
-  tools/             the binaries gate; helpers until the converter replaces them
+  tools/             the binaries gate
   test/              openMSX scripts and their checks
   build/             build output: never committed
 ```
@@ -90,7 +91,10 @@ binary blobs for the ROM, and does everything heavy on the PC, once:
 - **Art**: scenery as 4-bit bitmaps for video RAM; sprites cut into hardware
   sprite layers with per-line colours (§5). It reports every sprite it had to
   simplify, and how.
-- **Palette**: our 16 colours, each as the nearest of the V9938's 512.
+- **Palette**: our 16 colours, each as the nearest of the V9938's 512. Colour 0
+  is transparent to the blitter and to sprites, so art is written with
+  palette colour 0 as its twin (another colour that is the same on the
+  V9938), and transparent pixels as 0.
 - **Sound**: every note and effect as PSG register values.
 - **Numbers and text**: every speed, timing, score and string the game uses,
   as constants generated from the data. **No game number is typed into the C.**
@@ -241,7 +245,7 @@ command; the openMSX test passes on both machines; an MSX1 shows the
 - The test waits 10 emulated seconds for C-BIOS's logo before the ROM runs.
 - On an MSX1 the message is MSXgl's: "Error: A MSX2 is required!", with its
   "press C to continue anyway" for developers.
-- **Slipped to M1:** the palette is written by `tools/gen_palette.py`, a
+- **Slipped to M1** (and done there): the palette is written by `tools/gen_palette.py`, a
   stand-in until the converter. The converter needs wulfquest's `core`
   module, which no released tag has yet (it came after v0.7.2).
 
@@ -272,6 +276,30 @@ command; the openMSX test passes on both machines; an MSX1 shows the
 **Accept when:** the converter runs from the build command; its tests pass;
 the budget report fits in a 256 KB ROM with room to spare; changing a speed
 in `wulfquest/data/` (in a scratch checkout) changes the generated constant.
+
+**Landed (2026-10-24).** All of the above, with these specifics:
+
+- **The pin** is wulfquest commit 3172aee on `main`, the first with `core`:
+  no tag has it yet. It moves to the next wulfquest tag.
+- **The build:** a top `pom.xml` builds `wulfquest/core` from the submodule
+  and `convert/` in one reactor; `convert/`'s parent is the Java game's
+  parent POM, so versions follow the submodule. `build.sh` runs it with
+  `exec:java`; `tools/gen_palette.py` is gone.
+- **Output** (`build/gen/`): `palette.h`, `constants.h` (35 constants for
+  M2–M3; more are added to `constants.json` as the C needs them), `scenery.h`
+  with `scenery_0..2.bin`, `rooms.h` with `rooms.bin`, `report.txt`.
+- **Rooms** are stored by template, as the original does: 48 templates,
+  a byte a room for its template, at most 26 placements in one, and one
+  88-byte mask a template. `rooms.bin` is 7 381 bytes.
+- **Colour 0** is the V9938's transparent colour, so art never uses it:
+  palette colour 0 (black) is written as colour 8 (bright black), which is
+  the same on the V9938. The converter fails if colour 0 ever loses its twin.
+- **The atlas** takes 328 of the 512 lines of pages 2–3: 41 objects, packed
+  in shelves, every one starting on a byte.
+- **The budget:** 49 365 bytes of data in 4 of the 14 data segments; 10
+  segments (160 KB) free. Segments 0–1 are left to the program.
+- **Palette drift:** at most 16 of 255 on a channel (green, cyan, yellow).
+- 15 converter tests, among them the scratch-copy speed change.
 
 ### M2 — One room on screen: 8,10 in SCREEN 5
 

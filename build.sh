@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Builds build/wulfquest.rom (AGENTS.md §10, M0). Needs Node.js; MSXgl's own
-# SDCC and tools come from the msxgl submodule. Everything it writes is under
-# build/, which is never committed.
+# Builds build/wulfquest.rom (AGENTS.md §10). Needs Java 21+, Maven and
+# Node.js; MSXgl's own SDCC and tools come from the msxgl submodule.
+# Everything it writes is under build/ (and Maven's target/ folders), which
+# is never committed. Maven options can be passed in MAVEN_ARGS.
 #
-#   ./build.sh          build the ROM
-#   ./build.sh test     build, then run every test in test/
+#   ./build.sh          convert the data, then build the ROM
+#   ./build.sh test     the same, then the converter's tests and every test in test/
 #   ./build.sh clean    remove build/
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
@@ -20,11 +21,16 @@ esac
 [[ -f msxgl/engine/script/js/build.js && -d wulfquest/data ]] \
     || die "the submodules are missing: git submodule update --init"
 command -v node >/dev/null || die "Node.js is needed to run MSXgl's build tool"
+command -v mvn >/dev/null || die "Maven (and Java 21+) is needed to run the converter"
 
 tools/check-no-binaries.sh
 
-mkdir -p build/gen
-python3 tools/gen_palette.py wulfquest/data/art/palette.json build/gen/palette.h
+# The converter (AGENTS.md §4): wulfquest/data/ into build/gen/, through the
+# Java game's own core, built from the submodule.
+mkdir -p build
+mvn -q -pl convert -am package -DskipTests exec:java > build/convert.log 2>&1 \
+    || { tail -30 build/convert.log >&2; die "the converter failed (build/convert.log)"; }
+echo "build.sh: build/gen/ ($(tail -1 build/gen/report.txt); see build/gen/report.txt)"
 
 # MSXgl takes the folder it is run from as the project.
 (cd src && node ../msxgl/engine/script/js/build.js) > build/msxgl.log 2>&1 \
@@ -36,6 +42,9 @@ cp "$rom" build/wulfquest.rom
 echo "build.sh: build/wulfquest.rom ($(stat -c %s build/wulfquest.rom) bytes)"
 
 if [[ "${1:-}" == test ]]; then
+    echo "build.sh: the converter's tests"
+    mvn -q -pl convert -am verify -Dtest='wulfmsx.**' > build/convert-test.log 2>&1 \
+        || { tail -40 build/convert-test.log >&2; die "the converter's tests failed (build/convert-test.log)"; }
     for t in test/*.sh; do
         echo "build.sh: $t"
         "$t" || die "$t failed"

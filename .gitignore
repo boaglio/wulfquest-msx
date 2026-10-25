@@ -13,3 +13,6 @@ __pycache__/
 # Editors
 .idea/
 .vscode/
+
+# Maven: the converter (and wulfquest/core, inside the submodule)
+target/
