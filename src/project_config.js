@@ -15,11 +15,17 @@ Linker    = `${SDCCPath}bin/sdcc`;
 MakeLib   = `${SDCCPath}bin/sdar`;
 
 ProjName    = "wulfquest";
-ProjModules = [ ProjName ];
+// data first: it must sit in ROM segment 0 (see data.c; build.sh checks it)
+ProjModules = [ "data", ProjName, "room" ];
 LibModules  = [ "system", "bios", "vdp", "print", "input", "memory" ];
 
 //-- Headers the converter generates (build/gen/, AGENTS.md §4)
 CompileOpt = `-I${ProjDir}../build/gen`;
+
+//-- The converter's blobs, each in the ROM segment it chose (build/gen/rawfiles.json).
+// MSXgl also writes a wulfquest_rawdef.h here; the game uses build/gen/rom.h instead.
+const GenDir = `${ProjDir}../build/gen/`;
+RawFiles = require(`${GenDir}rawfiles.json`).map(r => ({ segment: r.segment, file: GenDir + r.file }));
 
 //-- §1: MSX2 only, on a MegaROM cartridge
 Machine  = "2";

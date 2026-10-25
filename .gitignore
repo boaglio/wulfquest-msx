@@ -5,6 +5,7 @@ build/
 # MSXgl's build tool writes these when it runs from src/
 src/emul/
 src/out/
+src/wulfquest_rawdef.h
 
 # Python bytecode from tools/ and test/
 __pycache__/

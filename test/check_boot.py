@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Checks what test/boot.tcl saw (AGENTS.md §10, M0), and draws it.
+"""Checks what test/boot.tcl saw (AGENTS.md §10, M0, M2), and draws it.
 
     check_boot.py DUMP WANT PALETTE_H SHOT_PREFIX
 
@@ -38,9 +38,9 @@ def rgb(palette, i):
     return scale(rb >> 4 & 7), scale(g & 7), scale(rb & 7)
 
 
-def write_png(path, vram, palette):
+def write_png(path, vram, palette, height=H):
     rows = bytearray()
-    for y in range(H):
+    for y in range(height):
         rows.append(0)
         for x in range(W):
             byte = vram[y * 128 + x // 2]
@@ -50,7 +50,7 @@ def write_png(path, vram, palette):
         return struct.pack(">I", len(data)) + c + struct.pack(">I", zlib.crc32(c))
     with open(path, "wb") as f:
         f.write(b"\x89PNG\r\n\x1a\n")
-        f.write(chunk(b"IHDR", struct.pack(">IIBBBBB", W, H, 8, 2, 0, 0, 0)))
+        f.write(chunk(b"IHDR", struct.pack(">IIBBBBB", W, height, 8, 2, 0, 0, 0)))
         f.write(chunk(b"IDAT", zlib.compress(bytes(rows), 9)))
         f.write(chunk(b"IEND", b""))
 
@@ -86,12 +86,16 @@ def main(dump, want, palette_h, shot):
         before, after = seen[("before", "vram")], seen[("after", "vram")]
         write_png(shot + "-before.png", before, palette)
         write_png(shot + "-after.png", after, palette)
-        if lit(before, 8, 16) == 0 or lit(before, 24, 32) == 0:
-            problems.append("the two lines of text are not on screen")
-        if lit(before, 40, 48) != 0:
-            problems.append("'OK' is on screen before any key")
-        if lit(after, 40, 48) == 0:
-            problems.append("Space did not get an answer")
+        gen = palette_h.rsplit("/", 1)[0]
+        PLAYFIELD_H = int(re.search(r"#define PLAYFIELD_H\t(\d+)", open(gen + "/constants.h").read())[1])
+        # M2: a room in the playfield, the panel below it blank, and Space
+        # shows another room (test/rooms.sh checks the rooms themselves).
+        if lit(before, 0, PLAYFIELD_H) == 0:
+            problems.append("no room in the playfield")
+        if lit(before, PLAYFIELD_H, H) != 0:
+            problems.append("the panel area is not blank")
+        if after == before:
+            problems.append("Space did not show another room")
     for p in problems:
         print(f"FAIL {name}: {p}")
     if not problems:

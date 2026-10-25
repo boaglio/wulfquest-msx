@@ -39,6 +39,13 @@ echo "build.sh: build/gen/ ($(tail -1 build/gen/report.txt); see build/gen/repor
 rom=$(find build/msxgl -name 'wulfquest.rom' -newer build/gen/palette.h 2>/dev/null | head -1)
 [[ -n "$rom" ]] || { tail -30 build/msxgl.log >&2; die "MSXgl wrote no wulfquest.rom"; }
 cp "$rom" build/wulfquest.rom
+
+# src/data.c maps blobs into bank 1 (8000h), so it must run from segment 0,
+# below 8000h. It is linked first and wulfquest.c's main comes after it, so
+# main below 8000h means all of data.c is.
+main_at=$(awk '$2 == "_main" { print $1 }' build/msxgl/wulfquest.map)
+[[ -n "$main_at" ]] && (( 16#$main_at < 16#8000 )) \
+    || die "src/data.c no longer fits in ROM segment 0 (main at ${main_at:-?}h)"
 echo "build.sh: build/wulfquest.rom ($(stat -c %s build/wulfquest.rom) bytes)"
 
 if [[ "${1:-}" == test ]]; then

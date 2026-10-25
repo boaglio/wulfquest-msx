@@ -71,6 +71,58 @@ public final class Budget {
         return n;
     }
 
+    /**
+     * MSXgl's RawFiles list (src/project_config.js reads it): each blob and its
+     * segment, in the order MSXgl lays them out, so its offsets are ours.
+     */
+    public String rawFilesJson() {
+        StringBuilder sb = new StringBuilder("[\n");
+        for (int i = 0; i < places.size(); i++) {
+            Place p = places.get(i);
+            sb.append("  { \"segment\": ").append(p.segment()).append(", \"file\": \"").append(p.blob().file())
+                    .append("\" }").append(i + 1 < places.size() ? ",\n" : "\n");
+        }
+        return sb.append("]\n").toString();
+    }
+
+    /** Where each blob is in the ROM, for the C: its segment, offset and size. */
+    public String header() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(Gen.banner("data/ (the ROM layout of the converter's blobs)"));
+        sb.append("#pragma once\n\n");
+        sb.append("// Map a blob's segment in bank 1 (8000h) and read it at 8000h + _REL.\n");
+        sb.append("#define ROM_DATA_BANK\t1\n");
+        sb.append("#define ROM_DATA_ADDR\t0x8000\n");
+        sb.append("// The segment bank 1 holds when no blob is mapped: the program's second one.\n");
+        sb.append("#define ROM_CODE_SEGMENT_1\t").append(CODE_SEGMENTS - 1).append("\n\n");
+        List<Place> scenery = new ArrayList<>();
+        for (Place p : places) {
+            String n = Gen.cName(p.blob().file());
+            sb.append("#define ").append(n).append("_SEG\t").append(p.segment()).append('\n');
+            sb.append("#define ").append(n).append("_REL\t").append(p.offset()).append('\n');
+            sb.append("#define ").append(n).append("_SIZE\t").append(p.blob().bytes()).append('\n');
+            if (p.blob().file().startsWith("scenery_")) {
+                scenery.add(p);
+            }
+        }
+        scenery.sort(Comparator.comparing(p -> p.blob().file()));
+        sb.append("\n// The scenery atlas, chunk by chunk.\n");
+        sb.append("static const unsigned char g_SceneryChunkSeg[] = {");
+        for (Place p : scenery) {
+            sb.append(' ').append(p.segment()).append(',');
+        }
+        sb.append(" };\nstatic const unsigned short g_SceneryChunkRel[] = {");
+        for (Place p : scenery) {
+            sb.append(' ').append(p.offset()).append(',');
+        }
+        sb.append(" };\nstatic const unsigned short g_SceneryChunkSize[] = {");
+        for (Place p : scenery) {
+            sb.append(' ').append(p.blob().bytes()).append(',');
+        }
+        sb.append(" };\n");
+        return sb.toString();
+    }
+
     public String report() {
         int segBytes = SceneryAtlas.CHUNK_BYTES;
         StringBuilder sb = new StringBuilder();

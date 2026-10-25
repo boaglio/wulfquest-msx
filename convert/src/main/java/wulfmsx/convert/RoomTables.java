@@ -33,8 +33,11 @@ public final class RoomTables {
     private final int placementsAt;
     private final int masksAt;
     private final int maxPlacements;
+    private final int ground;
 
-    public RoomTables(RoomBaker rooms, SceneryAtlas atlas) {
+    /** {@code ground} is the colour number the playfield is filled with before the scenery. */
+    public RoomTables(RoomBaker rooms, SceneryAtlas atlas, int ground) {
+        this.ground = ground;
         OriginalMapRepository map = rooms.map();
         this.templateIds = new ArrayList<>(map.templateIds());
         int rooms256 = map.roomCount();
@@ -115,6 +118,7 @@ public final class RoomTables {
         return Gen.banner("data/world/original_map.json and data/world/scenery.json")
                 + "#pragma once\n\n"
                 + "// rooms.bin: see convert/.../RoomTables.java for the layout.\n"
+                + "#define ROOM_GROUND_COLOUR\t" + ground + '\n'
                 + "#define ROOM_TEMPLATES\t\t" + templateIds.size() + '\n'
                 + "#define ROOM_MAX_PLACEMENTS\t" + maxPlacements + '\n'
                 + "#define ROOM_MASK_ROW_BYTES\t" + MASK_ROW_BYTES + '\n'

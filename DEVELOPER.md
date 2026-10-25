@@ -53,6 +53,9 @@ To play the build:
 ./run.sh -- -ext debugdevice   # anything after -- goes to openMSX
 ```
 
+In the ROM, for now, the cursor keys walk the map a room at a time and Space
+goes to the next room by number.
+
 The default machines are C-BIOS ones, which ship with openMSX. C-BIOS shows
 its logo for a few seconds before the cartridge starts.
 
@@ -72,6 +75,7 @@ the Java game's `Content.load` and writes `build/gen/`:
 | `constants.h` | the game's numbers; the list, with where each comes from, is `convert/src/main/resources/wulfmsx/convert/constants.json` |
 | `scenery.h`, `scenery_N.bin` | the scenery atlas for video RAM pages 2–3, in 16 KB ROM segments, and each object's place in it |
 | `rooms.h`, `rooms.bin` | the 256 rooms: template of each, placements, collision masks |
+| `rom.h`, `rawfiles.json` | which ROM segment each blob goes in: `rawfiles.json` for MSXgl (`src/project_config.js` reads it), `rom.h` for the C |
 | `report.txt` | how far each colour moved, the atlas size, and the ROM budget |
 
 To run it alone: `mvn -q -pl convert -am package -DskipTests exec:java`.
@@ -100,12 +104,23 @@ ignores it, so the submodule stays clean.
   a fraction of a second), saves the video registers, the palette and the
   screen memory, presses Space, and saves the screen again.
   `test/check_boot.py` checks them: SCREEN 5, the right refresh rate, the
-  game's palette, the text, the answer to Space; on the MSX1, the "MSX2 is
+  game's palette, a room in the playfield with the panel area blank, and
+  another room after Space; on the MSX1, the "MSX2 is
   required" message.
 - **Pictures.** openMSX can't take a screenshot without a display, so
   `check_boot.py` draws its own from the screen memory and the palette:
   `build/shots/boot-<machine>-before.png` and `-after.png`, 256×212, exact to
   the pixel.
+- **`test/rooms.sh`** checks every room against the Java game. The
+  converter's `RenderRooms` (`mvn ... exec:java@render-rooms`) draws the 256
+  playfields with the Java game's `RoomPainter` into
+  `build/test/rooms_expected.bin`; `test/rooms.tcl` walks the ROM through
+  every room with Space and saves the page on show; `test/check_rooms.py`
+  compares them pixel for pixel, checks the panel area is blank and the
+  slowest room draws in under half a second. The ROM's counters (`g_Room`,
+  `g_DrawCount`, `g_DrawFrames`) are found through the symbol map. The start
+  room, both ways, goes to `build/shots/room-8-10-msx.png` and `-java.png`;
+  a room that differs gets the same pair.
 - **`test/gate.sh`** checks the binaries gate in a scratch repository: it
   passes on text and fails on a ROM, an image, and a binary file with a text
   name.
@@ -125,11 +140,12 @@ DEVELOPER.md     this file
 README.md        for players
 build.sh         build and test
 run.sh           build, then play it in openMSX
-src/             the game: wulfquest.c, MSXgl's project_config.js and msxgl_config.h
+src/             the game: wulfquest.c (main), data.c (the ROM's data; stays in
+                 segment 0), room.c (drawing); MSXgl's project_config.js and msxgl_config.h
 pom.xml          builds wulfquest/core and convert/ together
 convert/         the converter (Java)
 tools/           check-no-binaries.sh
-test/            boot.sh, boot.tcl, check_boot.py, gate.sh
+test/            boot.*, rooms.*, check_boot.py, check_rooms.py, gate.sh
 wulfquest/       submodule: the Java game, for its data/
 msxgl/           submodule: MSXgl
 build/           everything the build writes; never committed

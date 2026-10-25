@@ -52,6 +52,19 @@
             <argument>${project.basedir}/../build/gen</argument>
           </arguments>
         </configuration>
+        <executions>
+          <!-- test/rooms.sh: exec:java@render-rooms, every room as the Java game draws it. -->
+          <execution>
+            <id>render-rooms</id>
+            <configuration>
+              <mainClass>wulfmsx.convert.RenderRooms</mainClass>
+              <arguments>
+                <argument>${project.basedir}/../wulfquest/data</argument>
+                <argument>${project.basedir}/../build/test/rooms_expected.bin</argument>
+              </arguments>
+            </configuration>
+          </execution>
+        </executions>
       </plugin>
     </plugins>
   </build>

@@ -22,7 +22,7 @@ class RoomTablesTest {
     static void load() {
         content = Content.load(ConvertTest.DATA);
         atlas = new SceneryAtlas(content.scenery(), content.sprites().all(), new VdpPalette(content.palette()));
-        tables = new RoomTables(content.rooms(), atlas);
+        tables = new RoomTables(content.rooms(), atlas, 8);
     }
 
     @Test

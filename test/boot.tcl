@@ -1,4 +1,4 @@
-# openMSX script for test/boot.sh (AGENTS.md §10, M0). It does not judge:
+# openMSX script for test/boot.sh (AGENTS.md §10, M0, M2). It does not judge:
 # it writes what the machine shows to $env(BOOT_OUT), and boot.sh checks it.
 #
 #   before   video registers, palette and screen memory once the ROM has started
@@ -12,11 +12,16 @@ set throttle off
 proc dump {f tag} {
     puts $f "$tag regs [binary encode hex [debug read_block {VDP regs} 0 24]]"
     puts $f "$tag palette [binary encode hex [debug read_block {VDP palette} 0 32]]"
-    # SCREEN 5 page 0: 212 lines of 128 bytes. On an MSX1 this is the text
-    # screen instead, which is what the MSX1 check reads.
+    # The SCREEN 5 page on show: 212 lines of 128 bytes. On an MSX1 this is
+    # the text screen instead, which is what the MSX1 check reads.
     set size [debug size VRAM]
-    if {$size > 27136} { set size 27136 }
-    puts $f "$tag vram [binary encode hex [debug read_block VRAM 0 $size]]"
+    if {$size > 27136} {
+        set start [expr {([debug read {VDP regs} 2] >> 5 & 3) * 32768}]
+        set size 27136
+    } else {
+        set start 0
+    }
+    puts $f "$tag vram [binary encode hex [debug read_block VRAM $start $size]]"
 }
 
 # Any error ends the run at once, so boot.sh never waits for its timeout.

@@ -16,7 +16,8 @@ import wulf.data.DataException;
  * Loads the data with the Java game's own {@link Content#load}, so a data
  * error stops the MSX build with the Java game's message, then writes:
  * palette.h, constants.h, rooms.h and rooms.bin, scenery.h and
- * scenery_N.bin, and report.txt (the palette's drift and the ROM budget).
+ * scenery_N.bin, rom.h and rawfiles.json (where each blob goes in the ROM),
+ * and report.txt (the palette's drift and the ROM budget).
  */
 public final class Convert {
 
@@ -42,7 +43,8 @@ public final class Convert {
         Content c = Content.load(dataDir);
         VdpPalette palette = new VdpPalette(c.palette());
         SceneryAtlas atlas = new SceneryAtlas(c.scenery(), c.sprites().all(), palette);
-        RoomTables rooms = new RoomTables(c.rooms(), atlas);
+        // The ground is the Java game's: GamePainter fills the playfield with "black".
+        RoomTables rooms = new RoomTables(c.rooms(), atlas, palette.vdpColour(c.palette().indexOf("black")));
         Constants constants = new Constants(dataDir);
 
         Gen.write(out.resolve("palette.h"), palette.header());
@@ -60,6 +62,8 @@ public final class Convert {
         Gen.write(out.resolve("rooms.bin"), rooms.blob());
         blobs.add(new Budget.Blob("rooms.bin", rooms.blob().length));
         Budget budget = new Budget(blobs);
+        Gen.write(out.resolve("rom.h"), budget.header());
+        Gen.write(out.resolve("rawfiles.json"), budget.rawFilesJson());
 
         StringBuilder r = new StringBuilder();
         r.append("Palette on the V9938 (colour 0 is written as ").append(palette.twinOfZero()).append("):\n");

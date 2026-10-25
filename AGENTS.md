@@ -319,6 +319,27 @@ openMSX screenshot with the Java render of the same room, colours mapped);
 all 256 rooms draw without corruption; the slowest room draws in under half a
 second, and the time is written in this section.
 
+**Landed (2026-10-24).** All of the above, with these specifics:
+
+- **The ROM's data:** the converter places its blobs in ROM segments and
+  writes `rawfiles.json`, which `src/project_config.js` hands to MSXgl, and
+  `rom.h`, where the C finds them. `src/data.c` maps a blob into bank 1
+  (8000h) only while it copies from it, talking to the VDP through its ports;
+  so it must run from segment 0, and `build.sh` fails if it does not.
+- **Drawing:** a room is copied from the ROM to RAM (`RoomData`: placements
+  and mask), the hidden page is filled with the ground (HMMV), each object
+  is copied from the atlas with LMMM and TIMP, and the pages swap at the
+  next frame.
+- **Debug keys:** the cursor keys go to the next room that way, Space to the
+  next room by number. `./run.sh` shows it.
+- **`test/rooms.sh`** walks the ROM through all 256 rooms on a 50 Hz MSX2 and
+  compares each with the Java game's drawing of it (`RenderRooms`, from
+  `RoomPainter`): **all 256 equal, pixel for pixel**, colours mapped. The
+  start room's two pictures go to `build/shots/room-8-10-msx.png` and
+  `-java.png`. The M0 boot test now expects a room instead of text.
+- **Timing**, measured by the ROM in frames on a 50 Hz MSX2, the copy from
+  ROM included: **slowest room 0,13 at 320 ms (16 frames)**, median 280 ms.
+
 ### M3 — Ranger Vale walks: input, movement and collision
 
 **For:** the feel of the game, which everything else is built on.
