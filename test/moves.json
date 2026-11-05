@@ -1,0 +1,23 @@
+{
+  "comment": "AGENTS.md §10, M3: Ranger Vale's moves, played in the Java game (convert's MoveTraces) and on the MSX2 (test/moves.tcl), compared tick by tick by test/check_moves.py. 'room' is col,row; 'open' puts him in a world with no scenery, only the map's edge; 'at' is a world pixel, or 'start' for the Java game's spawn spot nearest the room's centre. 'keys' are held for so many ticks: U D L R, and F for fire.",
+  "scenarios": [
+    { "name": "across", "room": "3,3", "open": true, "at": [1000, 1000],
+      "check": "across", "keys": [["R", 109], ["", 60]] },
+    { "name": "down", "room": "3,5", "open": true, "at": [1000, 1000],
+      "check": "down", "keys": [["D", 83], ["", 60]] },
+    { "name": "back", "room": "3,3", "open": true, "at": [1500, 1000],
+      "keys": [["L", 40], ["R", 30], ["UL", 30], ["LR", 10], ["UD", 10], ["", 40]] },
+    { "name": "slide", "room": "15,5", "open": true, "at": [4080, 1000],
+      "check": "slide", "keys": [["DR", 80], ["", 40]] },
+
+    { "name": "room-8-10", "room": "8,10", "at": "start",
+      "keys": [["R", 40], ["DR", 30], ["D", 40], ["", 20], ["L", 60], ["UL", 30], ["U", 50],
+               ["F", 1], ["", 12], ["RF", 30], ["F", 20], ["DLF", 25], ["U", 30], ["", 30]] },
+    { "name": "room-5-6", "room": "5,6", "at": "start",
+      "keys": [["L", 60], ["UL", 30], ["U", 50], ["R", 70], ["DR", 40], ["D", 50], ["", 20],
+               ["F", 1], ["", 12], ["LF", 30], ["F", 20], ["URF", 25], ["L", 30], ["", 30]] },
+    { "name": "room-11-3", "room": "11,3", "at": "start",
+      "keys": [["U", 50], ["UR", 30], ["R", 60], ["D", 50], ["DL", 40], ["L", 70], ["", 20],
+               ["F", 1], ["", 12], ["DF", 30], ["F", 20], ["ULF", 25], ["R", 30], ["", 30]] }
+  ]
+}

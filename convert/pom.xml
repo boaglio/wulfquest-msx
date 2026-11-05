@@ -64,6 +64,18 @@
               </arguments>
             </configuration>
           </execution>
+          <!-- test/moves.sh: exec:java@move-traces, Vale as the Java game moves him. -->
+          <execution>
+            <id>move-traces</id>
+            <configuration>
+              <mainClass>wulfmsx.convert.MoveTraces</mainClass>
+              <arguments>
+                <argument>${project.basedir}/../wulfquest/data</argument>
+                <argument>${project.basedir}/../test/moves.json</argument>
+                <argument>${project.basedir}/../build/test/moves</argument>
+              </arguments>
+            </configuration>
+          </execution>
         </executions>
       </plugin>
     </plugins>

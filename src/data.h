@@ -19,3 +19,6 @@ void Data_LoadScenery();
 
 // Copy room 0..255 (row * GRID_W + col) into RAM.
 void Data_LoadRoom(u8 room, RoomData* out);
+
+// Copy one of Vale's frames (player.h) to video RAM: two 16x16 sprite patterns.
+void Data_LoadValeFrame(u8 frame, u8 vramHigh, u16 vramLow);

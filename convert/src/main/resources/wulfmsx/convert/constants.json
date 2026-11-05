@@ -2,6 +2,7 @@
   "comment": "AGENTS.md §4: every number the C uses, and where in wulfquest/data/ it comes from. The converter writes them to build/gen/constants.h. Add a constant here when the C first needs it.",
   "constants": [
     { "name": "TICK_HZ",                   "from": "config/game#/tickHz" },
+    { "name": "MAX_CATCHUP_TICKS",         "from": "config/game#/maxCatchupTicks" },
     { "name": "FIXED_SHIFT",               "from": "java:wulf.engine.Fixed.SHIFT" },
 
     { "name": "GRID_W",                    "from": "world/original_map#/gridW" },
@@ -39,6 +40,16 @@
     { "name": "PLAYER_SPAWN_INSIDE_RIGHT", "from": "entities/player#/spawn/insideRoomPx/right" },
     { "name": "PLAYER_SPAWN_INSIDE_TOP",   "from": "entities/player#/spawn/insideRoomPx/top" },
     { "name": "PLAYER_SPAWN_INSIDE_BOTTOM", "from": "entities/player#/spawn/insideRoomPx/bottom" },
-    { "name": "PLAYER_WALK_TICKS_PER_FRAME", "from": "entities/player#/animations/walk_side/ticksPerFrame" }
+    { "name": "PLAYER_WALK_TICKS_PER_FRAME", "from": "entities/player#/animations/walk_side/ticksPerFrame" },
+
+    { "name": "SABRE_WINDUP_TICKS",        "from": "entities/player#/sabre/windupTicks" },
+    { "name": "SABRE_ACTIVE_TICKS",        "from": "entities/player#/sabre/activeTicks" },
+    { "name": "SABRE_RECOVER_TICKS",       "from": "entities/player#/sabre/recoverTicks" },
+    { "name": "SABRE_COOLDOWN_TICKS",      "from": "entities/player#/sabre/cooldownTicks" },
+    { "name": "SABRE_HOLD_REPEAT_TICKS",   "from": "entities/player#/sabre/holdRepeatTicks" },
+    { "name": "SABRE_REACH_PX",            "from": "entities/player#/sabre/reachPx" },
+    { "name": "SABRE_THICKNESS_PX",        "from": "entities/player#/sabre/thicknessPx" },
+    { "name": "SABRE_DIAGONAL_OFFSET_PX",  "from": "entities/player#/sabre/diagonalOffsetPx" },
+    { "name": "SABRE_FENCE_EVERY_TICKS",   "from": "entities/player#/sabre/fence/everyTicks" }
   ]
 }

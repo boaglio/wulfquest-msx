@@ -21,7 +21,7 @@ class ConvertTest {
     void writesEveryFileTheCBuildReads(@TempDir Path out) {
         String report = Convert.run(DATA, out);
         for (String f : List.of("palette.h", "constants.h", "scenery.h", "rooms.h", "rooms.bin",
-                "scenery_0.bin", "report.txt")) {
+                "player.h", "player_frames.bin", "rom.h", "rawfiles.json", "scenery_0.bin", "report.txt")) {
             assertThat(out.resolve(f)).as(f).isNotEmptyFile();
         }
         assertThat(report).contains("ROM: 256 KB").contains("free");

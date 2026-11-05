@@ -362,6 +362,52 @@ full speed; walls stop him exactly where the Java game stops him in three
 chosen rooms; the loop never misses a tick in a room with nothing else
 moving.
 
+**Landed (2026-11-04).** All of the above, with these specifics:
+
+- **The loop** (`src/wulfquest.c`) waits for the BIOS's frame counter,
+  `JIFFY`, runs a tick a frame (none in every sixth frame at 60 Hz, from the
+  VDP's 50/60 Hz bit), at most `maxCatchupTicks` (`game.json`) at once, then
+  draws Vale. A frame that passes while the loop is busy is counted as late.
+- **Input:** the cursor keys and `Q A O P` at once (the choice between them
+  is M10), Space, joystick 1 and its first button; one state a tick.
+  **Space is now the sabre, so the M2 debug keys changed:** F5 shows the
+  next room by number, Vale standing at the same place in it; the cursor
+  keys walk.
+- **Vale** (`src/vale.c`) follows the Java game's `Simulation.updateSwing`,
+  `move` and `computeSabre` line by line: world positions in 8.8 fixed point
+  (`i32`), the momentum of §11.3, the diagonal scale, the axis-separated
+  resolve and its wall slide, facing, the walk counter, the sabre's stroke,
+  cooldown and hit box. The whole room's cells are unpacked to a byte each
+  when he enters it. **Until M4, outside the room on screen is solid.**
+- **Drawn** as two 16×16 sprites, one above the other, in **bright white with
+  the black outline left out**: the Java game's own one-colour look. The
+  converter writes all 76 frames he can show while walking and fighting
+  (`player_frames.bin`, 64 bytes each, frames mirrored for the left), and the
+  ROM copies a frame's patterns to video RAM when it changes. The frame is
+  picked as `PlayerPainter.frameFor` picks it. The blade itself is not drawn
+  yet; the pose and the hit box are. **Slipped to M5:** the blade line.
+- **`test/moves.sh`:** the Java game's `Simulation` (convert's `MoveTraces`)
+  and the ROM play the same keys; **all 1 946 ticks of the 7 scenarios are
+  equal, at 50 and at 60 Hz**: position to the 1/256 px, facing, stroke, walk
+  counter and the sabre's hit box. The movement numbers are at the top of
+  the run-up (§11.3's inertia came after this milestone was written), as
+  the Java game's `MovementFeelTest` measures them: after 24 ticks of run-up,
+  **85 ticks right move 255 px, 59 ticks down move 177 px**; down-right
+  along the map's edge slides down at full speed on all 56 ticks after the
+  run-up. **Walls stop him where the Java game stops him** in rooms 8,10,
+  5,6 and 11,3: 166, 200 and 200 ticks pressed against a wall, every one
+  equal. The loop is never late, and runs 50 ticks a second on both
+  machines.
+- **Timing:** the busiest frame, Vale pushing into a corner, takes **30 356
+  Z80 cycles, 42% of a 50 Hz frame** (50% of a 60 Hz one). A profile of the
+  frames: the box test 30%, `Move` 20%, the wall search 15%, drawing about
+  10%. That is a lot for one walker. M6 must measure again before it adds
+  creatures, and may need the box test in assembly (§9, rule 6).
+- **`test/boot.sh`** now also checks Vale is on screen where a new game
+  starts him, in his first frame, and its pictures include the sprites.
+- **Found:** MSXgl's start-up does not clear RAM, so every global has an
+  initial value (DEVELOPER.md).
+
 ### M4 — Flip-screen: every room, every edge
 
 **For:** the whole map, walkable end to end.

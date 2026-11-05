@@ -2,7 +2,8 @@
 # it writes what the machine shows to $env(BOOT_OUT), and boot.sh checks it.
 #
 #   before   video registers, palette and screen memory once the ROM has started
-#   after    the screen memory again, after Space has been pressed
+#            (and on an MSX2 the first 64 KB of video RAM, for the sprites)
+#   after    the screen memory again, after F5 (the debug key for the next room) has been pressed
 #
 # C-BIOS shows its own logo for a few seconds before it starts a cartridge,
 # hence the wait. Emulated time, with the throttle off: it takes a moment.
@@ -22,6 +23,10 @@ proc dump {f tag} {
         set start 0
     }
     puts $f "$tag vram [binary encode hex [debug read_block VRAM $start $size]]"
+    # The first 64 KB on an MSX2, where the sprite tables are.
+    if {[debug size VRAM] > 65536} {
+        puts $f "$tag vram64 [binary encode hex [debug read_block VRAM 0 65536]]"
+    }
 }
 
 # Any error ends the run at once, so boot.sh never waits for its timeout.
@@ -38,9 +43,9 @@ after time 10 { step {
     set f [open $env(BOOT_OUT) w]
     dump $f before
     close $f
-    keymatrixdown 8 0x01
+    keymatrixdown 7 0x02
     after time 0.2 { step {
-        keymatrixup 8 0x01
+        keymatrixup 7 0x02
         after time 0.5 { step {
             set f [open $env(BOOT_OUT) a]
             dump $f after

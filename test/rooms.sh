@@ -2,7 +2,7 @@
 # AGENTS.md §10, M2: every room the MSX2 draws is the Java game's drawing of
 # it, pixel for pixel, and the slowest takes under half a second on a 50 Hz
 # MSX2. The Java game draws the expected rooms (convert's RenderRooms);
-# openMSX walks the ROM through all 256 (test/rooms.tcl); check_rooms.py
+# openMSX walks the ROM through all 256 with F5 (test/rooms.tcl); check_rooms.py
 # compares. Pictures of the start room, both ways, go to build/shots/.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."

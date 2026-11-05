@@ -9,6 +9,7 @@
 #include "data.h"
 #include "rom.h"
 #include "scenery.h"
+#include "player.h"
 
 __sfr __at(0x98) s_VdpData;
 __sfr __at(0x99) s_VdpCtrl;
@@ -59,5 +60,15 @@ void Data_LoadRoom(u8 room, RoomData* out)
 	for (u8 i = 0; i < ROOM_MASK_BYTES; i++)
 		out->Mask[i] = m[i];
 
+	SET_BANK_SEGMENT(ROM_DATA_BANK, ROM_CODE_SEGMENT_1);
+}
+
+void Data_LoadValeFrame(u8 frame, u8 vramHigh, u16 vramLow)
+{
+	const u8* src = (const u8*)(ROM_DATA_ADDR + PLAYER_FRAMES_BIN_REL) + (u16)frame * PLAYER_FRAME_BYTES;
+	SET_BANK_SEGMENT(ROM_DATA_BANK, PLAYER_FRAMES_BIN_SEG);
+	VramWriteAt(vramHigh, vramLow);
+	for (u8 n = PLAYER_FRAME_BYTES; n; n--)
+		s_VdpData = *src++;
 	SET_BANK_SEGMENT(ROM_DATA_BANK, ROM_CODE_SEGMENT_1);
 }

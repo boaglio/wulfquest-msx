@@ -53,8 +53,10 @@ To play the build:
 ./run.sh -- -ext debugdevice   # anything after -- goes to openMSX
 ```
 
-In the ROM, for now, the cursor keys walk the map a room at a time and Space
-goes to the next room by number.
+In the ROM, for now, Ranger Vale walks the room he starts in: the cursor keys
+or `Q A O P`, or joystick 1, and Space or the fire button for the sabre. The
+room's edges are walls until M4. F5 (a debug key) shows the next room by
+number, with Vale standing at the same place in it.
 
 The default machines are C-BIOS ones, which ship with openMSX. C-BIOS shows
 its logo for a few seconds before the cartridge starts.
@@ -75,10 +77,15 @@ the Java game's `Content.load` and writes `build/gen/`:
 | `constants.h` | the game's numbers; the list, with where each comes from, is `convert/src/main/resources/wulfmsx/convert/constants.json` |
 | `scenery.h`, `scenery_N.bin` | the scenery atlas for video RAM pages 2–3, in 16 KB ROM segments, and each object's place in it |
 | `rooms.h`, `rooms.bin` | the 256 rooms: template of each, placements, collision masks |
+| `player.h`, `player_frames.bin` | Ranger Vale: every frame he can be shown in, as two 16x16 sprite patterns, the frame table's layout, his colour, and where a new game starts him |
 | `rom.h`, `rawfiles.json` | which ROM segment each blob goes in: `rawfiles.json` for MSXgl (`src/project_config.js` reads it), `rom.h` for the C |
 | `report.txt` | how far each colour moved, the atlas size, and the ROM budget |
 
 To run it alone: `mvn -q -pl convert -am package -DskipTests exec:java`.
+
+**MSXgl's start-up does not clear RAM.** A C global with no initial value
+starts as whatever the RAM held, which on openMSX is not zero. Give every
+global an initial value (`u8 g_Room = 0;`), or set it before it is read.
 
 **How MSXgl is used without touching it.** MSXgl's build tool takes the
 folder it is run from as the project, so `src/` holds `project_config.js` and
@@ -108,7 +115,7 @@ ignores it, so the submodule stays clean.
   another room after Space; on the MSX1, the "MSX2 is
   required" message.
 - **Pictures.** openMSX can't take a screenshot without a display, so
-  `check_boot.py` draws its own from the screen memory and the palette:
+  `check_boot.py` draws its own from the video memory and the palette:
   `build/shots/boot-<machine>-before.png` and `-after.png`, 256×212, exact to
   the pixel.
 - **`test/rooms.sh`** checks every room against the Java game. The
@@ -121,6 +128,21 @@ ignores it, so the submodule stays clean.
   `g_DrawCount`, `g_DrawFrames`) are found through the symbol map. The start
   room, both ways, goes to `build/shots/room-8-10-msx.png` and `-java.png`;
   a room that differs gets the same pair.
+- **`test/moves.sh`** checks Vale moves as the Java game moves him (M3).
+  `test/moves.json` lists the scenarios: a room and a start, and the keys
+  held for so many ticks. The converter's `MoveTraces`
+  (`exec:java@move-traces`) plays them in the Java game's own `Simulation`
+  and writes the plan and the expected state after every tick;
+  `test/moves.tcl` plays the same keys through the ROM on a 50 Hz and a 60 Hz
+  MSX2, from a breakpoint on `Test_BeforeTick` that writes each tick's keys
+  and reads Vale's state; `test/check_moves.py` compares them tick by tick and
+  checks the speeds, the wall slide, that each room scenario walks into
+  walls, that the loop is never late, and 50 ticks a second on both. It also
+  reports the busiest frame in Z80 cycles, from breakpoints on
+  `Test_FrameStart` and `Test_FrameEnd`.
+- **`test/boot.sh`** also checks Vale is on screen where a new game starts
+  him, in his first frame; its pictures draw the sprites from the sprite
+  tables (`sprite_pixels` in `check_boot.py`).
 - **`test/gate.sh`** checks the binaries gate in a scratch repository: it
   passes on text and fails on a ROM, an image, and a binary file with a text
   name.
@@ -141,11 +163,12 @@ README.md        for players
 build.sh         build and test
 run.sh           build, then play it in openMSX
 src/             the game: wulfquest.c (main), data.c (the ROM's data; stays in
-                 segment 0), room.c (drawing); MSXgl's project_config.js and msxgl_config.h
+                 segment 0), room.c (drawing), vale.c (Ranger Vale); MSXgl's
+                 project_config.js and msxgl_config.h
 pom.xml          builds wulfquest/core and convert/ together
 convert/         the converter (Java)
 tools/           check-no-binaries.sh
-test/            boot.*, rooms.*, check_boot.py, check_rooms.py, gate.sh
+test/            boot.*, rooms.*, moves.*, check_*.py, gate.sh
 wulfquest/       submodule: the Java game, for its data/
 msxgl/           submodule: MSXgl
 build/           everything the build writes; never committed

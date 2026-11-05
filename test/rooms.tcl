@@ -1,5 +1,5 @@
 # openMSX script for test/rooms.sh (AGENTS.md §10, M2). It does not judge: it
-# walks the ROM through every room with its Space key and writes what the
+# walks the ROM through every room with its debug key, F5, and writes what the
 # MSX2 shows to $env(ROOMS_OUT): for each room a line in ROOMS_OUT.txt
 # ("room drawFrames page") and the shown page's 212 lines in ROOMS_OUT.bin.
 # The RAM addresses of the ROM's counters come from the symbol map, in
@@ -45,8 +45,8 @@ proc poll {} {
         # The key went up while the ROM was drawing; it reads keys once a
         # frame, so let it see the key up before the next press.
         after time 0.06 { step {
-            keymatrixdown 8 0x01
-            after time 0.06 { step { keymatrixup 8 0x01; after time 0.02 { step poll } } }
+            keymatrixdown 7 0x02
+            after time 0.06 { step { keymatrixup 7 0x02; after time 0.02 { step poll } } }
         } }
     } elseif {[machine_info time] > $::deadline} {
         finish "timeout waiting for drawing $::want"

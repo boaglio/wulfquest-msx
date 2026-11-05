@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # AGENTS.md §10, M0 and M2: the ROM boots on a 50 Hz and a 60 Hz MSX2, in
-# SCREEN 5 with the game's palette, draws a room, shows another on Space
+# SCREEN 5 with the game's palette, draws a room, shows another on F5
 # (test/rooms.sh checks the rooms themselves); on an MSX1 it says
 # an MSX2 is needed. Uses C-BIOS, the free MSX BIOS that ships with openMSX.
 # Pictures of what each MSX2 showed go to build/shots/.

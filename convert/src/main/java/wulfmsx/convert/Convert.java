@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.List;
 import wulf.Content;
 import wulf.data.DataException;
+import wulf.world.WorldGrid;
 
 /**
  * The converter (AGENTS.md §4): wulfquest/data/ in, build/gen/ out.
@@ -15,7 +16,8 @@ import wulf.data.DataException;
  *
  * Loads the data with the Java game's own {@link Content#load}, so a data
  * error stops the MSX build with the Java game's message, then writes:
- * palette.h, constants.h, rooms.h and rooms.bin, scenery.h and
+ * palette.h, constants.h, rooms.h and rooms.bin, player.h and
+ * player_frames.bin, scenery.h and
  * scenery_N.bin, rom.h and rawfiles.json (where each blob goes in the ROM),
  * and report.txt (the palette's drift and the ROM budget).
  */
@@ -46,11 +48,14 @@ public final class Convert {
         // The ground is the Java game's: GamePainter fills the playfield with "black".
         RoomTables rooms = new RoomTables(c.rooms(), atlas, palette.vdpColour(c.palette().indexOf("black")));
         Constants constants = new Constants(dataDir);
+        PlayerSprite vale = new PlayerSprite(c.player(), c.sprites().get(c.player().sprite()), c.palette(), palette,
+                new WorldGrid(c.rooms()), c.map().startRoom());
 
         Gen.write(out.resolve("palette.h"), palette.header());
         Gen.write(out.resolve("constants.h"), constants.header());
         Gen.write(out.resolve("scenery.h"), atlas.header());
         Gen.write(out.resolve("rooms.h"), rooms.header());
+        Gen.write(out.resolve("player.h"), vale.header());
 
         List<Budget.Blob> blobs = new ArrayList<>();
         List<byte[]> chunks = atlas.chunks();
@@ -61,6 +66,8 @@ public final class Convert {
         }
         Gen.write(out.resolve("rooms.bin"), rooms.blob());
         blobs.add(new Budget.Blob("rooms.bin", rooms.blob().length));
+        Gen.write(out.resolve("player_frames.bin"), vale.blob());
+        blobs.add(new Budget.Blob("player_frames.bin", vale.blob().length));
         Budget budget = new Budget(blobs);
         Gen.write(out.resolve("rom.h"), budget.header());
         Gen.write(out.resolve("rawfiles.json"), budget.rawFilesJson());
@@ -72,6 +79,8 @@ public final class Convert {
         }
         r.append(String.format("Scenery: %d objects in %d lines of video RAM pages 2-3 (of %d)%n",
                 atlas.slots().size(), atlas.lines(), SceneryAtlas.MAX_LINES));
+        r.append(String.format("Vale: %d frames, %d bytes, one colour (M3); starts at %d,%d%n",
+                vale.ids().size(), vale.blob().length, vale.startXFp() >> 8, vale.startYFp() >> 8));
         r.append(String.format("Constants: %d%n", constants.entries().size()));
         r.append(budget.report());
         Gen.write(out.resolve("report.txt"), r.toString());
