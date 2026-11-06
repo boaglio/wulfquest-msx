@@ -14,14 +14,15 @@ import wulf.input.InputState;
 import wulf.sim.Player;
 import wulf.sim.PixelRect;
 import wulf.sim.Simulation;
+import wulf.tools.MapAudit;
 import wulf.world.CollisionMask;
 import wulf.world.CollisionWorld;
 import wulf.world.RoomAddress;
 import wulf.world.WorldGrid;
 
 /**
- * The test oracle for M3 (AGENTS.md §10): Ranger Vale as the Java game moves
- * him, tick by tick, for test/moves.sh to compare with the MSX2.
+ * The test oracle for M3 and M4 (AGENTS.md §10): Ranger Vale as the Java game
+ * moves him, tick by tick, for test/moves.sh to compare with the MSX2.
  *
  * <pre>
  *   MoveTraces DATA_DIR SCENARIOS_JSON OUT_PREFIX
@@ -29,23 +30,39 @@ import wulf.world.WorldGrid;
  *
  * Each scenario in the JSON is a start and a list of keys held for so many
  * ticks. It runs in the Java game's own {@link Simulation}, with no creatures,
- * in one of two worlds: a room of the map with everything outside it solid
- * (the MSX2 has only the room on screen until M4), or the open world, where
- * only the map's edge is. Writes:
+ * on the whole map, flips and their frozen ticks included; or, with
+ * {@code "open": true}, in a world with only the map's edge solid and no
+ * frozen ticks, where the movement numbers are measured. Two entries are
+ * made here instead of written out:
+ *
+ * <ul>
+ *   <li>{@code "route": N}: a walk from the start across at least N rooms,
+ *       steered tick by tick along a path through the map ({@link Route});
+ *   <li>{@code "seams": true}: one scenario per edge between two rooms that
+ *       {@link MapAudit} finds the player's box fits through: Vale stands at
+ *       the crossing, walks into the next room and back again.
+ * </ul>
+ *
+ * Writes:
  *
  * <ul>
  *   <li>{@code OUT_PREFIX_plan.txt}, for test/moves.tcl: per scenario
- *       {@code scenario NAME ROOM OPEN X_FP Y_FP}, then {@code keys} and a
- *       key byte a tick (up 1, down 2, left 4, right 8, fire 16);
+ *       {@code scenario NAME ROOM OPEN X_FP Y_FP CHECK}, then {@code keys} and
+ *       a key byte a tick (up 1, down 2, left 4, right 8, fire 16);
  *   <li>{@code OUT_PREFIX_expected.txt}: per scenario {@code scenario NAME},
- *       then after each tick {@code X_FP Y_FP FACING SWING WALK SX SY SW SH}:
+ *       then after each tick {@code X_FP Y_FP FACING SWING WALK SX SY SW SH ROOM FREEZE}:
  *       the feet, the facing (Direction8's order), the tick into the stroke
- *       (-1 none), ticks walked, and the sabre's hit box (all 0 when none).
+ *       (-1 none), ticks walked, the sabre's hit box (all 0 when none), the
+ *       room (row * 16 + col) and the frozen ticks left.
  * </ul>
  */
 public final class MoveTraces {
 
     private MoveTraces() {
+    }
+
+    /** A start, a key byte a tick, and what test/check_moves.py checks on top of equality ("-" nothing). */
+    record Scenario(String name, RoomAddress room, boolean open, int xFp, int yFp, List<Integer> keys, String check) {
     }
 
     public static void main(String[] args) throws IOException {
@@ -55,10 +72,20 @@ public final class MoveTraces {
         }
         Content c = Content.load(Path.of(args[0]));
         JsonNode list = JsonMapper.builder().build().readTree(Files.readString(Path.of(args[1])));
+        WorldGrid grid = new WorldGrid(c.rooms());
+        List<Scenario> scenarios = new ArrayList<>();
+        for (JsonNode s : list.get("scenarios")) {
+            if (s.has("seams")) {
+                scenarios.addAll(seams(c, grid));
+            } else {
+                scenarios.add(scenario(c, grid, s));
+            }
+        }
         StringBuilder plan = new StringBuilder();
         StringBuilder expected = new StringBuilder();
-        for (JsonNode s : list.get("scenarios")) {
-            run(c, s, plan, expected);
+        for (Scenario s : scenarios) {
+            plan(s, plan);
+            trace(c, grid, s, expected);
         }
         Gen.write(Path.of(args[2] + "_plan.txt"), plan.toString());
         Gen.write(Path.of(args[2] + "_expected.txt"), expected.toString());
@@ -66,26 +93,41 @@ public final class MoveTraces {
 
     static final CollisionWorld OPEN = (gx, gy) -> gx < 0 || gy < 0 || gx >= WorldGrid.COLS || gy >= WorldGrid.ROWS;
 
-    static void run(Content c, JsonNode s, StringBuilder plan, StringBuilder expected) {
+    static Simulation simulation(Content c, WorldGrid grid, boolean open, int xFp, int yFp) {
+        return open ? Simulation.at(c.player(), OPEN, 0, xFp, yFp)
+                : Simulation.at(c.player(), grid, c.game().transition().freezeTicks(), xFp, yFp);
+    }
+
+    static Scenario scenario(Content c, WorldGrid grid, JsonNode s) {
         String name = s.get("name").asString();
         PlayerData rules = c.player();
         boolean open = s.has("open") && s.get("open").asBoolean();
         String[] cr = s.get("room").asString().split(",");
         RoomAddress room = new RoomAddress(Integer.parseInt(cr[0]), Integer.parseInt(cr[1]));
-        CollisionWorld world = open ? OPEN : roomOnly(new WorldGrid(c.rooms()), room);
 
         int xFp;
         int yFp;
         JsonNode at = s.get("at");
         if (at.isString() && at.asString().equals("start")) {
-            Simulation spot = Simulation.startingIn(rules, world, 0, room);
+            Simulation spot = Simulation.startingIn(rules, open ? OPEN : grid, 0, room);
             xFp = spot.player().xFp();
             yFp = spot.player().yFp();
         } else {
             xFp = Fixed.fp(at.get(0).asInt());
             yFp = Fixed.fp(at.get(1).asInt());
         }
+        if (!Route.roomOf(rules.collisionBox(), Fixed.px(xFp), Fixed.px(yFp)).equals(room)) {
+            throw new ConvertException("scenario " + name + ": " + Fixed.px(xFp) + "," + Fixed.px(yFp)
+                    + " is not in room " + room.col() + "," + room.row());
+        }
+        String check = s.has("check") ? s.get("check").asString() : "-";
 
+        if (s.has("route")) {
+            int rooms = s.get("route").asInt();
+            Route route = Route.plan(c, grid, xFp, yFp, rooms);
+            return new Scenario(name, room, false, xFp, yFp, route.keys(),
+                    "route:" + rooms + ":" + route.target().index());
+        }
         List<Integer> keys = new ArrayList<>();
         for (JsonNode k : s.get("keys")) {
             int bits = bits(name, k.get(0).asString());
@@ -93,36 +135,106 @@ public final class MoveTraces {
                 keys.add(bits);
             }
         }
+        return new Scenario(name, room, open, xFp, yFp, keys, check);
+    }
 
-        plan.append("scenario ").append(name).append(' ').append(room.index()).append(' ').append(open ? 1 : 0)
-                .append(' ').append(xFp).append(' ').append(yFp).append("\nkeys");
-        for (int k : keys) {
+    /**
+     * Every edge between two rooms the player's box fits through ({@link MapAudit}'s
+     * crossings, stranded ones included): from a crossing in the middle of it, walk
+     * into the next room and back.
+     */
+    static List<Scenario> seams(Content c, WorldGrid grid) {
+        List<Scenario> out = new ArrayList<>();
+        PlayerData.Box box = c.player().collisionBox();
+        for (MapAudit.Seam seam : MapAudit.run(c.rooms()).seams()) {
+            if (seam.crossings() == 0) {
+                continue;
+            }
+            boolean eastWest = seam.to().col() != seam.from().col();
+            List<int[]> cells = new ArrayList<>();
+            for (int i = 0; i < (eastWest ? CollisionMask.ROWS : CollisionMask.COLS) - 1; i++) {
+                int gx = eastWest ? seam.to().col() * CollisionMask.COLS - 1 : seam.from().col() * CollisionMask.COLS + i;
+                int gy = eastWest ? seam.from().row() * CollisionMask.ROWS + i : seam.to().row() * CollisionMask.ROWS - 1;
+                int nx = eastWest ? gx + 1 : gx;
+                int ny = eastWest ? gy : gy + 1;
+                if (grid.blockPassable(gx, gy) && grid.blockPassable(nx, ny)) {
+                    cells.add(new int[] {gx, gy});
+                }
+            }
+            if (cells.size() != seam.crossings()) {
+                throw new ConvertException("seam " + seam.from() + "-" + seam.to() + ": " + cells.size()
+                        + " crossings here, MapAudit has " + seam.crossings());
+            }
+            int[] cell = cells.get(cells.size() / 2);
+            // The box's top-left in the crossing's last cell on this side; across the seam, centred in it.
+            int left = cell[0] * Simulation.CELL_PX + (eastWest ? 0 : 3);
+            int top = cell[1] * Simulation.CELL_PX + (eastWest ? 3 : 0);
+            int xFp = Fixed.fp(left - box.x());
+            int yFp = Fixed.fp(top - box.y());
+            int there = eastWest ? 8 : 2;
+            int back = eastWest ? 4 : 1;
+            String name = "seam-" + seam.from().col() + "-" + seam.from().row() + (eastWest ? "-E" : "-S");
+            List<Integer> keys = crossAndBack(c, grid, name, xFp, yFp, there, back, seam.to().index(),
+                    seam.from().index());
+            out.add(new Scenario(name, seam.from(), false, xFp, yFp, keys,
+                    "seam:" + seam.from().index() + ":" + seam.to().index()));
+        }
+        return out;
+    }
+
+    /** Hold one way until the Java game is in the next room, the other way until it is back, then rest. */
+    static List<Integer> crossAndBack(Content c, WorldGrid grid, String name, int xFp, int yFp, int there, int back,
+            int to, int from) {
+        Simulation sim = simulation(c, grid, false, xFp, yFp);
+        List<Integer> keys = new ArrayList<>();
+        for (int[] leg : new int[][] {{there, to}, {back, from}}) {
+            int ticks = 0;
+            while (sim.room().index() != leg[1]) {
+                if (++ticks > 120) {
+                    throw new ConvertException(name + ": the Java game does not reach room " + leg[1]);
+                }
+                keys.add(leg[0]);
+                sim.tick(input(leg[0], false));
+            }
+        }
+        for (int i = 0; i < c.game().transition().freezeTicks() + 4; i++) {
+            keys.add(0);
+        }
+        return keys;
+    }
+
+    static void plan(Scenario s, StringBuilder plan) {
+        plan.append("scenario ").append(s.name()).append(' ').append(s.room().index()).append(' ')
+                .append(s.open() ? 1 : 0).append(' ').append(s.xFp()).append(' ').append(s.yFp()).append(' ')
+                .append(s.check()).append("\nkeys");
+        for (int k : s.keys()) {
             plan.append(' ').append(k);
         }
         plan.append('\n');
+    }
 
-        expected.append("scenario ").append(name).append('\n');
-        Simulation sim = Simulation.at(rules, world, 0, xFp, yFp);
+    static void trace(Content c, WorldGrid grid, Scenario s, StringBuilder expected) {
+        expected.append("scenario ").append(s.name()).append('\n');
+        Simulation sim = simulation(c, grid, s.open(), s.xFp(), s.yFp());
         boolean fireWas = false;
-        for (int k : keys) {
+        for (int k : s.keys()) {
             boolean fire = (k & 16) != 0;
-            sim.tick(new InputState((k & 1) != 0, (k & 2) != 0, (k & 4) != 0, (k & 8) != 0,
-                    fire, fire && !fireWas, false, false, false, false, false));
+            sim.tick(input(k, fireWas));
             fireWas = fire;
             Player p = sim.player();
             PixelRect b = sim.sabre();
             expected.append(p.xFp()).append(' ').append(p.yFp()).append(' ').append(p.facing().ordinal())
                     .append(' ').append(p.swingTick()).append(' ').append(p.walkTicks()).append(' ')
-                    .append(b.isEmpty() ? "0 0 0 0" : b.x() + " " + b.y() + " " + b.w() + " " + b.h()).append('\n');
+                    .append(b.isEmpty() ? "0 0 0 0" : b.x() + " " + b.y() + " " + b.w() + " " + b.h())
+                    .append(' ').append(sim.room().index()).append(' ').append(sim.freezeRemaining()).append('\n');
         }
     }
 
-    /** The map with everything outside one room solid: the MSX2 until M4 flips rooms. */
-    static CollisionWorld roomOnly(CollisionWorld map, RoomAddress room) {
-        int x0 = room.col() * CollisionMask.COLS;
-        int y0 = room.row() * CollisionMask.ROWS;
-        return (gx, gy) -> gx < x0 || gy < y0 || gx >= x0 + CollisionMask.COLS || gy >= y0 + CollisionMask.ROWS
-                || map.isSolid(gx, gy);
+    /** The keys as the Java game's input; fire is pressed when it was not held the tick before. */
+    static InputState input(int k, boolean fireWas) {
+        boolean fire = (k & 16) != 0;
+        return new InputState((k & 1) != 0, (k & 2) != 0, (k & 4) != 0, (k & 8) != 0,
+                fire, fire && !fireWas, false, false, false, false, false);
     }
 
     /** "UL", "RF", "": the keys held, as the bits test/moves.tcl writes to the ROM. */

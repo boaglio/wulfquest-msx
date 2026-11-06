@@ -60,8 +60,6 @@ def main(dump, expected_path, constants_h, palette_h, shot):
                                 f"{at % LINE * 2},{at // LINE}")
                 write_png(f"{shot}-{room % grid_w}-{room // grid_w}-msx.png", vram, palette, SHOWN)
                 write_png(f"{shot}-{room % grid_w}-{room // grid_w}-java.png", want, palette, c["PLAYFIELD_H"])
-        if any(vram[field:]):
-            problems.append(f"room {name(room)}: the panel area below the playfield is not blank")
         seen.add(room)
         if room == start:
             write_png(f"{shot}-{room % grid_w}-{room // grid_w}-msx.png", vram, palette, SHOWN)

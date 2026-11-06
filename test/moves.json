@@ -1,11 +1,11 @@
 {
-  "comment": "AGENTS.md §10, M3: Ranger Vale's moves, played in the Java game (convert's MoveTraces) and on the MSX2 (test/moves.tcl), compared tick by tick by test/check_moves.py. 'room' is col,row; 'open' puts him in a world with no scenery, only the map's edge; 'at' is a world pixel, or 'start' for the Java game's spawn spot nearest the room's centre. 'keys' are held for so many ticks: U D L R, and F for fire.",
+  "comment": "AGENTS.md §10, M3 and M4: Ranger Vale's moves, played in the Java game (convert's MoveTraces) and on the MSX2 (test/moves.tcl), compared tick by tick by test/check_moves.py. 'room' is col,row, the room 'at' is in; 'open' puts him in a world with no scenery, only the map's edge, and no frozen ticks after a flip; 'at' is a world pixel, or 'start' for the Java game's spawn spot nearest the room's centre. 'keys' are held for so many ticks: U D L R, and F for fire.",
   "scenarios": [
-    { "name": "across", "room": "3,3", "open": true, "at": [1000, 1000],
+    { "name": "across", "room": "3,5", "open": true, "at": [1000, 1000],
       "check": "across", "keys": [["R", 109], ["", 60]] },
     { "name": "down", "room": "3,5", "open": true, "at": [1000, 1000],
       "check": "down", "keys": [["D", 83], ["", 60]] },
-    { "name": "back", "room": "3,3", "open": true, "at": [1500, 1000],
+    { "name": "back", "room": "5,5", "open": true, "at": [1500, 1000],
       "keys": [["L", 40], ["R", 30], ["UL", 30], ["LR", 10], ["UD", 10], ["", 40]] },
     { "name": "slide", "room": "15,5", "open": true, "at": [4080, 1000],
       "check": "slide", "keys": [["DR", 80], ["", 40]] },

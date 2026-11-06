@@ -1,12 +1,14 @@
-// Wulf Quest for MSX2: Ranger Vale, walking and fighting (AGENTS.md §10, M3).
+// Wulf Quest for MSX2: Ranger Vale, walking and fighting, from room to room
+// (AGENTS.md §10, M3 and M4).
 //
 // The Java game's rules, in the Java game's order (its Simulation.updateSwing,
-// move and computeSabre; AGENTS.md §7.4, §11): integers and 8.8 fixed point
-// only, so the MSX2 moves him exactly as the Java game does, tick for tick.
-// test/moves.sh holds the two to that.
+// move, updateRoom and computeSabre; AGENTS.md §7.4, §7.5, §11): integers and
+// 8.8 fixed point only, so the MSX2 moves him exactly as the Java game does,
+// tick for tick. test/moves.sh holds the two to that.
 //
-// For now the room on screen is the only room: outside it is solid. Flipping
-// to the next room is M4.
+// He walks in world pixels, never room-local ones, so leaving a room by an
+// edge enters the next one at the same place across it (§7.5); the room is
+// the one his feet box's centre is in.
 
 #include "vale.h"
 #include "constants.h"
@@ -19,6 +21,16 @@
 #define WORLD_ROWS	(GRID_H * CELL_ROWS)
 #if PLAYER_WALK_TICKS_PER_FRAME < 1 || PLAYER_MOMENTUM_TICKS_PER_FRAME < 1
 #error "vale.c counts walk and momentum frames, so both must be at least a tick"
+#endif
+// While his box's centre is in the room, the box reaches past its edge by at
+// most half the box; a tick's move looks a step further, and the diagonal
+// test a pixel more. All of that must be in the cells around the room.
+#define STEP_PX		((PLAYER_SPEED_X_FP > PLAYER_SPEED_Y_FP ? PLAYER_SPEED_X_FP : PLAYER_SPEED_Y_FP) / ONE + 1)
+#if (PLAYER_BOX_W + 1) / 2 + STEP_PX + 1 > CELLS_MARGIN * CELL || (PLAYER_BOX_H + 1) / 2 + STEP_PX + 1 > CELLS_MARGIN * CELL
+#error "Vale's box can reach past the cells around the room: CELLS_MARGIN (data.h) must grow"
+#endif
+#if PLAYFIELD_W != CELL_COLS * CELL || PLAYFIELD_H != CELL_ROWS * CELL
+#error "vale.c takes a room's edges to be cell edges"
 #endif
 
 i32 g_ValeX;
@@ -33,6 +45,8 @@ i16 g_SabreX;
 i16 g_SabreY;
 u8  g_SabreW;
 u8  g_SabreH;
+u8  g_ValeRoom = 0;
+u8  g_ValeFreeze = 0;
 u8  g_ValeOpen = 0;   // the rest are set by Vale_Init and Vale_Place
 
 static i8 s_LevelX;
@@ -42,6 +56,8 @@ static u8 s_GaitTick;     // g_ValeWalk % PLAYER_WALK_TICKS_PER_FRAME
 static u8 s_Gait;         // g_ValeWalk / PLAYER_WALK_TICKS_PER_FRAME % PLAYER_GAIT
 static i16 s_RoomX;       // the room's top-left, world pixels
 static i16 s_RoomY;
+static i16 s_CellsX;      // the top-left of the cells around it, world pixels
+static i16 s_CellsY;
 
 // Worked out once, so a tick needs no multiplication or division (the Z80
 // has neither): a speed level's pace on each axis, straight and on a
@@ -58,22 +74,18 @@ static const u8 c_FaceOf[9] = { FACE_NW, FACE_N, FACE_NE, FACE_W, 0xFF, FACE_E, 
 static const i8 c_FaceDX[8] = { 0, 1, 1, 1, 0, -1, -1, -1 };
 static const i8 c_FaceDY[8] = { -1, -1, 0, 1, 1, 1, 0, -1 };
 
-// The room's cells, a byte each, unpacked from its mask when he is placed:
-// a byte is quicker to test than a bit.
-static u8 s_Cells[CELL_ROWS * CELL_COLS];
+// The cells of his room and a margin around it, a byte each, unpacked when
+// he enters it: a byte is quicker to test than a bit.
+static u8 s_Cells[CELLS_H * CELLS_W];
 
-static void UnpackCells(const u8* mask)
+static void EnterRoom(u8 room)
 {
-	u8* c = s_Cells;
-	for (u8 i = 0; i < ROOM_MASK_BYTES; i++)
-	{
-		u8 m = mask[i];
-		for (u8 b = 0; b < 8; b++)
-		{
-			*c++ = (m & 0x80) ? 1 : 0;
-			m <<= 1;
-		}
-	}
+	g_ValeRoom = room;
+	s_RoomX = (i16)(room % GRID_W) * PLAYFIELD_W;
+	s_RoomY = (i16)(room / GRID_W) * PLAYFIELD_H;
+	s_CellsX = s_RoomX - CELLS_MARGIN * CELL;
+	s_CellsY = s_RoomY - CELLS_MARGIN * CELL;
+	Data_LoadCells(room, s_Cells);
 }
 
 void Vale_Init()
@@ -95,7 +107,7 @@ void Vale_Init()
 			: ((t - SABRE_WINDUP_TICKS) / SABRE_FENCE_EVERY_TICKS) % 2;
 }
 
-void Vale_Place(i32 x, i32 y, const RoomData* room, u8 roomIndex)
+void Vale_Place(i32 x, i32 y)
 {
 	g_ValeX = x;
 	g_ValeY = y;
@@ -112,17 +124,24 @@ void Vale_Place(i32 x, i32 y, const RoomData* room, u8 roomIndex)
 	s_FramePhase = 0;
 	s_GaitTick = 0;
 	s_Gait = 0;
-	UnpackCells(room->Mask);
-	s_RoomX = (i16)(roomIndex % GRID_W) * PLAYFIELD_W;
-	s_RoomY = (i16)(roomIndex / GRID_W) * PLAYFIELD_H;
+	g_ValeFreeze = 0;
+	// Simulation.roomColOf, roomRowOf
+	i16 cx = FP_PX(x) + (PLAYER_BOX_X + PLAYER_BOX_W / 2);
+	i16 cy = FP_PX(y) + (PLAYER_BOX_Y + PLAYER_BOX_H / 2);
+	u8 col = cx < 0 ? 0 : cx / PLAYFIELD_W >= GRID_W ? GRID_W - 1 : (u8)(cx / PLAYFIELD_W);
+	u8 row = cy < 0 ? 0 : cy / PLAYFIELD_H >= GRID_H ? GRID_H - 1 : (u8)(cy / PLAYFIELD_H);
+	EnterRoom(row * GRID_W + col);
 }
 
 //-----------------------------------------------------------------------------
 // Collision (§7.4): the feet box against the cells.
 
 // Whether the feet box, with his feet at whole pixel (x, y) of the world,
-// overlaps a solid cell. The room's edges are cell edges, so a box outside
-// the room in pixels is in a cell outside it, which is solid until M4.
+// overlaps a solid cell: one of the cells around the room. Outside those,
+// which the margin is wide enough never to need, it counts as solid.
+#if CELL != 8
+#error "Blocked divides by CELL with a shift"
+#endif
 static bool Blocked(i16 x, i16 y)
 {
 	i16 left = x + PLAYER_BOX_X;
@@ -131,24 +150,27 @@ static bool Blocked(i16 x, i16 y)
 		return left < 0 || top < 0
 			|| left + (PLAYER_BOX_W - 1) >= WORLD_COLS * CELL
 			|| top + (PLAYER_BOX_H - 1) >= WORLD_ROWS * CELL;
-	left -= s_RoomX;
-	top -= s_RoomY;
-	if (left < 0 || top < 0 || left + (PLAYER_BOX_W - 1) >= PLAYFIELD_W || top + (PLAYER_BOX_H - 1) >= PLAYFIELD_H)
+	left -= s_CellsX;
+	top -= s_CellsY;
+	if (left < 0 || top < 0 || left + (PLAYER_BOX_W - 1) >= CELLS_W * CELL || top + (PLAYER_BOX_H - 1) >= CELLS_H * CELL)
 		return TRUE;
-	u8 cx0 = (u8)left >> 3;
-	u8 cx1 = (u8)(left + (PLAYER_BOX_W - 1)) >> 3;
-	u8 cy0 = (u8)top >> 3;
+	u8 cx0 = (u8)((u16)left >> 3);
+	u8 cx1 = (u8)((u16)(left + (PLAYER_BOX_W - 1)) >> 3);
+	u8 cy0 = (u8)top >> 3;   // CELLS_H * CELL fits a byte
 	u8 cy1 = (u8)(top + (PLAYER_BOX_H - 1)) >> 3;
-	const u8* row = s_Cells + (u16)cy0 * CELL_COLS;
+	const u8* row = s_Cells + (u16)cy0 * CELLS_W;
 	for (u8 cy = cy0; cy <= cy1; cy++)
 	{
 		for (u8 cx = cx0; cx <= cx1; cx++)
 			if (row[cx])
 				return TRUE;
-		row += CELL_COLS;
+		row += CELLS_W;
 	}
 	return FALSE;
 }
+#if CELLS_H * CELL > 255
+#error "Blocked keeps a row of the cells in a byte"
+#endif
 
 // A whole pixel as 8.8 fixed point, without a 32-bit shift.
 static i32 FixedOf(i16 px)
@@ -341,11 +363,49 @@ static void Move(u8 keys)
 	}
 }
 
-void Vale_Tick(u8 keys)
+// Simulation.updateRoom: the room his feet box's centre is in. He moves
+// less than a room a tick, so it is this one or a neighbour; the map's edge
+// is a wall, but the room is kept on the map as the Java game keeps it.
+static bool UpdateRoom()
 {
+	i16 cx = FP_PX(g_ValeX) + (PLAYER_BOX_X + PLAYER_BOX_W / 2) - s_RoomX;
+	i16 cy = FP_PX(g_ValeY) + (PLAYER_BOX_Y + PLAYER_BOX_H / 2) - s_RoomY;
+	u8 room = g_ValeRoom;
+	u8 col = room % GRID_W;
+	if (cx < 0 && col > 0)
+		room--;
+	else if (cx >= PLAYFIELD_W && col < GRID_W - 1)
+		room++;
+	if (cy < 0 && room >= GRID_W)
+		room -= GRID_W;
+	else if (cy >= PLAYFIELD_H && room < (GRID_H - 1) * GRID_W)
+		room += GRID_W;
+	if (room == g_ValeRoom)
+		return FALSE;
+	// §7.5: the position is untouched; the new room is current at once, and
+	// the next ticks are frozen.
+	g_ValeFreeze = g_ValeOpen ? 0 : TRANSITION_FREEZE_TICKS;
+	EnterRoom(room);
+	return TRUE;
+}
+
+bool Vale_Tick(u8 keys)
+{
+	if (g_ValeFreeze)
+	{
+		g_ValeFreeze--;   // the flip's hitch: nothing moves
+		return FALSE;
+	}
 	UpdateSwing((keys & VALE_FIRE) != 0);
 	Move(keys);
+	if (UpdateRoom())
+	{
+		g_SabreW = 0;   // no blade on the tick he changes rooms
+		g_SabreH = 0;
+		return TRUE;
+	}
 	ComputeSabre();
+	return FALSE;
 }
 
 //-----------------------------------------------------------------------------

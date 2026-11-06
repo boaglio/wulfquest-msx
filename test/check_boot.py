@@ -157,12 +157,13 @@ def main(dump, want, palette_h, shot):
             # M3: Vale, standing; F5 keeps him at the same place in the next room.
             problems += vale_problems(tag, regs_t, vram64, gen)
         PLAYFIELD_H = int(re.search(r"#define PLAYFIELD_H\t(\d+)", open(gen + "/constants.h").read())[1])
-        # M2: a room in the playfield, the panel below it blank, and F5
-        # shows another room (test/rooms.sh checks the rooms themselves).
+        # M2: a room in the playfield, and F5 shows another room
+        # (test/rooms.sh checks the rooms themselves). M4: the debug overlay
+        # on the panel below it.
         if lit(before, 0, PLAYFIELD_H) == 0:
             problems.append("no room in the playfield")
-        if lit(before, PLAYFIELD_H, H) != 0:
-            problems.append("the panel area is not blank")
+        if lit(before, PLAYFIELD_H, H) == 0:
+            problems.append("the panel has no debug overlay")
         if after == before:
             problems.append("F5 did not show another room")
     for p in problems:

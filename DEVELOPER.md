@@ -53,10 +53,11 @@ To play the build:
 ./run.sh -- -ext debugdevice   # anything after -- goes to openMSX
 ```
 
-In the ROM, for now, Ranger Vale walks the room he starts in: the cursor keys
-or `Q A O P`, or joystick 1, and Space or the fire button for the sabre. The
-room's edges are walls until M4. F5 (a debug key) shows the next room by
-number, with Vale standing at the same place in it.
+In the ROM, for now, Ranger Vale walks the whole map, flipping from room to
+room: the cursor keys or `Q A O P`, or joystick 1, and Space or the fire
+button for the sabre. The panel shows a debug line: his room (col,row) and
+his feet in world pixels. F5 (a debug key) shows the next room by number,
+with Vale standing at the same place in it.
 
 The default machines are C-BIOS ones, which ship with openMSX. C-BIOS shows
 its logo for a few seconds before the cartridge starts.
@@ -109,10 +110,10 @@ ignores it, so the submodule stays clean.
   an MSX1 (`C-BIOS_MSX1_EU`). `test/boot.tcl` drives openMSX: it waits for
   C-BIOS's logo to pass (about 10 emulated seconds; with the throttle off,
   a fraction of a second), saves the video registers, the palette and the
-  screen memory, presses Space, and saves the screen again.
+  screen memory, presses F5, and saves the screen again.
   `test/check_boot.py` checks them: SCREEN 5, the right refresh rate, the
-  game's palette, a room in the playfield with the panel area blank, and
-  another room after Space; on the MSX1, the "MSX2 is
+  game's palette, a room in the playfield with the debug line on the panel,
+  and another room after F5; on the MSX1, the "MSX2 is
   required" message.
 - **Pictures.** openMSX can't take a screenshot without a display, so
   `check_boot.py` draws its own from the video memory and the palette:
@@ -122,24 +123,33 @@ ignores it, so the submodule stays clean.
   converter's `RenderRooms` (`mvn ... exec:java@render-rooms`) draws the 256
   playfields with the Java game's `RoomPainter` into
   `build/test/rooms_expected.bin`; `test/rooms.tcl` walks the ROM through
-  every room with Space and saves the page on show; `test/check_rooms.py`
-  compares them pixel for pixel, checks the panel area is blank and the
-  slowest room draws in under half a second. The ROM's counters (`g_Room`,
+  every room with F5 and saves the page on show; `test/check_rooms.py`
+  compares them pixel for pixel and checks the slowest room draws in under
+  half a second. The ROM's counters (`g_Room`,
   `g_DrawCount`, `g_DrawFrames`) are found through the symbol map. The start
   room, both ways, goes to `build/shots/room-8-10-msx.png` and `-java.png`;
   a room that differs gets the same pair.
-- **`test/moves.sh`** checks Vale moves as the Java game moves him (M3).
-  `test/moves.json` lists the scenarios: a room and a start, and the keys
-  held for so many ticks. The converter's `MoveTraces`
-  (`exec:java@move-traces`) plays them in the Java game's own `Simulation`
-  and writes the plan and the expected state after every tick;
-  `test/moves.tcl` plays the same keys through the ROM on a 50 Hz and a 60 Hz
-  MSX2, from a breakpoint on `Test_BeforeTick` that writes each tick's keys
-  and reads Vale's state; `test/check_moves.py` compares them tick by tick and
-  checks the speeds, the wall slide, that each room scenario walks into
-  walls, that the loop is never late, and 50 ticks a second on both. It also
-  reports the busiest frame in Z80 cycles, from breakpoints on
-  `Test_FrameStart` and `Test_FrameEnd`.
+- **`test/moves.sh`** checks Vale moves as the Java game moves him, room to
+  room (M3, M4). Two plans: `test/moves.json` lists scenarios as a room and a
+  start, and the keys held for so many ticks; `test/flips.json` asks for a
+  generated route across the map (the converter's `Route` finds a path and
+  steers the Java game along it, braking for its momentum) and for every
+  edge between two rooms that the Java game's `MapAudit` finds can be crossed,
+  walked across and back. The converter's `MoveTraces`
+  (`exec:java@move-traces`, `exec:java@flip-traces`) plays them in the Java
+  game's own `Simulation` and writes the plan (with each scenario's check)
+  and the expected state after every tick; `test/moves.tcl` plays the same
+  keys through the ROM on a 50 Hz and a 60 Hz MSX2, from a breakpoint on
+  `Test_BeforeTick` that writes each tick's keys and reads Vale's state;
+  `test/check_moves.py` compares them tick by tick and checks the speeds, the
+  wall slide, the walls, the route and the edges, that the loop is never
+  late, and 50 ticks a second on both. At every flip it checks, from a
+  breakpoint on `Test_Shown`, that the page on screen is the new room as
+  `RenderRooms` draws it, with Vale's sprites on it, and on every frame that
+  it was put on screen while the screen was blank (the VDP's VR bit). It
+  reports the hitch a flip makes and the busiest frame in Z80 cycles, from
+  breakpoints on `Test_FrameStart` and `Test_FrameEnd`.
+  `MOVES_PLANS=flips test/moves.sh` runs one plan.
 - **`test/boot.sh`** also checks Vale is on screen where a new game starts
   him, in his first frame; its pictures draw the sprites from the sprite
   tables (`sprite_pixels` in `check_boot.py`).
@@ -163,12 +173,13 @@ README.md        for players
 build.sh         build and test
 run.sh           build, then play it in openMSX
 src/             the game: wulfquest.c (main), data.c (the ROM's data; stays in
-                 segment 0), room.c (drawing), vale.c (Ranger Vale); MSXgl's
+                 segment 0), room.c (drawing), vale.c (Ranger Vale),
+                 overlay.c (the debug line on the panel); MSXgl's
                  project_config.js and msxgl_config.h
 pom.xml          builds wulfquest/core and convert/ together
 convert/         the converter (Java)
 tools/           check-no-binaries.sh
-test/            boot.*, rooms.*, moves.*, check_*.py, gate.sh
+test/            boot.*, rooms.*, moves.*, flips.json, check_*.py, gate.sh
 wulfquest/       submodule: the Java game, for its data/
 msxgl/           submodule: MSXgl
 build/           everything the build writes; never committed

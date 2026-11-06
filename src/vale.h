@@ -1,5 +1,5 @@
-// Wulf Quest for MSX2: Ranger Vale, walking and fighting (AGENTS.md §10, M3;
-// the Java game's AGENTS.md §7.4, §11).
+// Wulf Quest for MSX2: Ranger Vale, walking and fighting, from room to room
+// (AGENTS.md §10, M3 and M4; the Java game's AGENTS.md §7.4, §7.5, §11).
 #pragma once
 
 #include "msxgl.h"
@@ -34,17 +34,24 @@ extern i16 g_SabreX;
 extern i16 g_SabreY;
 extern u8  g_SabreW;
 extern u8  g_SabreH;
-// With this set nothing but the map's edge is solid (the movement tests' open world).
+// The room he is in (row * GRID_W + col), and the ticks of the flip's
+// freeze still to go (§7.5).
+extern u8  g_ValeRoom;
+extern u8  g_ValeFreeze;
+// With this set nothing but the map's edge is solid, and a flip freezes
+// nothing (the movement tests' open world).
 extern u8  g_ValeOpen;
 
 // Once, at start: the speed tables.
 void Vale_Init();
 
-// Stand him at rest at a world position, in the room that is now loaded.
-void Vale_Place(i32 x, i32 y, const RoomData* room, u8 roomIndex);
+// Stand him at rest at a world position, in the room it is in.
+void Vale_Place(i32 x, i32 y);
 
-// One tick of the game: the sabre, then the walk, then the blade's reach.
-void Vale_Tick(u8 keys);
+// One tick of the game: the sabre, then the walk, then the room he is in,
+// then the blade's reach. TRUE when he has walked into another room:
+// g_ValeRoom is the new one, and the next ticks are frozen.
+bool Vale_Tick(u8 keys);
 
 // The frame of player_frames.bin to show him in (PlayerPainter.frameFor).
 u8 Vale_Frame();

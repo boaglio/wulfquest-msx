@@ -1,0 +1,7 @@
+{
+  "comment": "AGENTS.md §10, M4: flip-screen, played in the Java game (convert's MoveTraces) and on the MSX2 (test/moves.tcl), compared tick by tick by test/check_moves.py, as test/moves.json. 'route' is a walk from the start to a room that many rooms away, steered by convert's Route; 'seams' is every edge between two rooms that the Java game's MapAudit finds the player can cross, each walked across and back.",
+  "scenarios": [
+    { "name": "route", "room": "8,10", "at": "start", "route": 22 },
+    { "seams": true }
+  ]
+}

@@ -1,23 +1,29 @@
 #!/usr/bin/env python3
-"""Checks what test/moves.tcl saw against the Java game (AGENTS.md §10, M3).
+"""Checks what test/moves.tcl saw against the Java game (AGENTS.md §10, M3 and M4).
 
-    check_moves.py DUMP EXPECTED SCENARIOS_JSON CONSTANTS_H HZ
+    check_moves.py DUMP EXPECTED PLAN CONSTANTS_H HZ ROOMS_EXPECTED
 
-DUMP is moves.tcl's output, EXPECTED MoveTraces's; both have a line a tick,
-and DUMP the cycles of each scenario's busiest frame,
-"X_FP Y_FP FACING SWING WALK SX SY SW SH". Every tick must be equal. On top,
-the scenarios' own checks (the Java game's MovementFeelTest numbers):
+DUMP is moves.tcl's output (and DUMP.bin, the shown page at each flip),
+EXPECTED MoveTraces's, PLAN the plan both played; both traces have a line a
+tick, "X_FP Y_FP FACING SWING WALK SX SY SW SH ROOM FREEZE". Every tick must
+be equal. On top, each scenario's own check, from the plan:
 
-  across  at the top of the run-up, 85 ticks holding right move 255-257 px
-  down    at the top of the run-up, 59 ticks holding down move 176-178 px
-  slide   down-right along a wall: the wall stops x, y goes at full speed
+  across     at the top of the run-up, 85 ticks holding right move 255-257 px
+  down       at the top of the run-up, 59 ticks holding down move 176-178 px
+  slide      down-right along a wall: the wall stops x, y goes at full speed
+  route:N:T  the walk crosses at least N edges between rooms and ends in room T
+  seam:F:T   Vale walks from room F into room T and back
+  -          in a room (not the open world): he walks into a wall at least once
 
-and every room scenario must walk into a wall at least once. The loop must
-never come late to a frame, and must run 50 ticks a second: a tick a frame
-at 50 Hz, five in six frames at 60 Hz.
+The loop must never come late to a frame (a flip is a hitch, not lateness),
+and in a scenario without flips must run 50 ticks a second: a tick a frame at
+50 Hz, five in six frames at 60 Hz. Every frame must be put on screen while
+the screen is blank; at every flip, the page shown must be the new room as
+the Java game draws it (ROOMS_EXPECTED, RenderRooms's), with Vale's sprites
+where he stands in it.
 """
-import json
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -26,11 +32,12 @@ from check_rooms import constants  # noqa: E402
 RUN_UP = 24          # MovementFeelTest.RUN_UP: long enough to reach top speed
 ACROSS_TICKS = 85
 DOWN_TICKS = 59
-KEY_BITS = {"U": 1, "D": 2, "L": 4, "R": 8, "F": 16}
+LINE = 128           # bytes a line of SCREEN 5
+EC = 0x80            # a sprite colour's early-clock bit
 
 
 def read(path):
-    """name -> (list of tick tuples, end fields or None); and the final end line."""
+    """name -> [ticks, end fields or None, flips]; the order; the final end line; busiest frames."""
     scenarios, order, final, busiest = {}, [], None, {}
     name = None
     for line in open(path, encoding="utf-8").read().split("\n"):
@@ -40,12 +47,14 @@ def read(path):
         if f[0] == "scenario":
             name = f[1]
             order.append(name)
-            scenarios[name] = ([], None)
+            scenarios[name] = [[], None, []]
         elif f[0] == "busiest":
-            busiest[f[1]] = int(f[2])
+            busiest[f[1]] = (int(f[2]), int(f[3]))
+        elif f[0] == "flip":
+            scenarios[name][2].append(tuple(map(int, f[1:])))
         elif f[0] == "end":
-            if len(f) == 5 and f[1] == name:
-                scenarios[name] = (scenarios[name][0], tuple(map(int, f[2:])))
+            if len(f) == 9 and f[1] == name:
+                scenarios[name][1] = tuple(map(int, f[2:]))
             else:
                 final = " ".join(f[1:])
         else:
@@ -53,24 +62,30 @@ def read(path):
     return scenarios, order, final, busiest
 
 
-def keys_of(s):
-    out = []
-    for held, n in s["keys"]:
-        b = 0
-        for ch in held:
-            b |= KEY_BITS[ch]
-        out += [b] * n
-    return out
+def read_plan(path):
+    plan = {}
+    lines = open(path, encoding="utf-8").read().split("\n")
+    for head, keys in zip(lines[0::2], lines[1::2]):
+        _, name, room, open_, x, y, check = head.split()
+        plan[name] = {"open": open_ == "1", "check": check, "keys": list(map(int, keys.split()[1:]))}
+    return plan
 
 
-def main(dump, expected_path, scenarios_json, constants_h, hz):
+def main(dump, expected_path, plan_path, constants_h, hz, rooms_expected):
     c = constants(constants_h)
+    player_h = open(os.path.join(os.path.dirname(constants_h), "player.h"), encoding="utf-8").read()
+    c.update({m[0]: int(m[1]) for m in re.findall(r"#define (\w+)\s+(-?\d+)\b", player_h)})
     hz = int(hz)
     got, order, final, busiest = read(dump)
     want, want_order, _, _ = read(expected_path)
-    plan = {s["name"]: s for s in json.load(open(scenarios_json, encoding="utf-8"))["scenarios"]}
-    tag = f"moves {hz} Hz"
+    plan = read_plan(plan_path)
+    field = c["PLAYFIELD_H"] * LINE
+    rooms_pic = open(rooms_expected, "rb").read()
+    shown = open(dump + ".bin", "rb").read()
+    grid_w = c["GRID_W"]
+    tag = f"{os.path.basename(plan_path).split('_')[0]} {hz} Hz"
     problems, notes = [], []
+    flips_seen, flip_frames, seams, unblanked = 0, [], 0, 0
 
     if final != "ok":
         problems.append(f"the run did not finish: {final}")
@@ -78,8 +93,8 @@ def main(dump, expected_path, scenarios_json, constants_h, hz):
         if name not in got:
             problems.append(f"{name}: not played")
             continue
-        g, end = got[name]
-        w, _ = want[name]
+        g, end, flips = got[name]
+        w = want[name][0]
         if len(g) != len(w):
             problems.append(f"{name}: {len(g)} ticks recorded, the Java game has {len(w)}")
         for t, (a, b) in enumerate(zip(g, w)):
@@ -89,7 +104,10 @@ def main(dump, expected_path, scenarios_json, constants_h, hz):
 
         x = [s[0] for s in g]
         y = [s[1] for s in g]
-        check = plan[name].get("check")
+        room = [s[9] for s in g]
+        p = plan[name]
+        check = p["check"]
+        crossings = [t for t in range(1, len(room)) if room[t] != room[t - 1]]
         if check == "across" and len(x) >= RUN_UP + ACROSS_TICKS:
             px = (x[RUN_UP + ACROSS_TICKS - 1] - x[RUN_UP - 1]) / 256
             notes.append(f"{ACROSS_TICKS} ticks right at full speed: {px:g} px")
@@ -101,18 +119,33 @@ def main(dump, expected_path, scenarios_json, constants_h, hz):
             if not 176 <= px <= 178:
                 problems.append(f"{name}: {DOWN_TICKS} ticks down moved {px:g} px, not 176 +-1")
         if check == "slide":
-            held = plan[name]["keys"][0][1]
+            held = next(i for i, k in enumerate(p["keys"]) if k != p["keys"][0])
             bad = [t for t in range(RUN_UP, held)
                    if x[t] != x[t - 1] or y[t] - y[t - 1] != c["PLAYER_SPEED_Y_FP"]]
             notes.append(f"wall slide: {held - RUN_UP - len(bad)} of {held - RUN_UP} ticks at full speed down")
             if bad:
                 problems.append(f"{name}: not a full-speed slide down the wall after tick {bad[0] + 1}")
-        if plan[name].get("open") is not True:
-            keys = keys_of(plan[name])
+        if check.startswith("route:"):
+            _, n, target = check.split(":")
+            n, target = int(n), int(target)
+            ends = f"{room[-1] % grid_w},{room[-1] // grid_w}" if room else "nowhere"
+            notes.append(f"route: {len(crossings)} edges crossed, {len(set(room))} rooms, {len(g)} ticks, "
+                         f"ends in {ends} at {x[-1] / 256:g},{y[-1] / 256:g}" if g else "route: nothing")
+            if len(crossings) < n:
+                problems.append(f"{name}: crosses {len(crossings)} edges between rooms, not {n}")
+            if not room or room[-1] != target:
+                problems.append(f"{name}: ends in room {ends}, not {target % grid_w},{target // grid_w}")
+        if check.startswith("seam:"):
+            seams += 1
+            _, a, b = check.split(":")
+            if int(b) not in room or not room or room[-1] != int(a):
+                problems.append(f"{name}: does not walk from room {a} into {b} and back")
+        if check == "-" and not p["open"]:
+            keys = p["keys"]
             stops = 0
             for t in range(8, len(g)):
                 k = keys[t]
-                if all(keys[u] == k for u in range(t - 8, t + 1)) and g[t][3] < 0 and (
+                if all(keys[u] == k for u in range(t - 8, t + 1)) and g[t][3] < 0 and g[t][10] == 0 and (
                         (k & 12 and k & 12 != 12 and x[t] == x[t - 1])
                         or (k & 3 and k & 3 != 3 and y[t] == y[t - 1])):
                     stops += 1
@@ -120,21 +153,55 @@ def main(dump, expected_path, scenarios_json, constants_h, hz):
             if stops == 0:
                 problems.append(f"{name}: never walks into a wall, so it checks none")
 
+        # Every flip: the new room on screen, whole, and Vale on it.
+        if len(flips) != len(crossings):
+            problems.append(f"{name}: {len(flips)} flips shown, the Java game changes rooms {len(crossings)} times")
+        for (ticks, page, frames, y0, x0, y1, x1, colour), t in zip(flips, crossings):
+            vram = shown[flips_seen * field:(flips_seen + 1) * field]
+            flips_seen += 1
+            flip_frames.append(frames)
+            r = room[t]
+            where = f"room {r % grid_w},{r // grid_w}"
+            if ticks != t + 1:
+                problems.append(f"{name}: the room after tick {t + 1} was shown after tick {ticks}")
+            if vram != rooms_pic[r * field:(r + 1) * field]:
+                problems.append(f"{name}: after tick {t + 1}, page {page} is not {where} as the Java game draws it")
+            # His frame's top-left; a sprite shows a line below its Y; the early clock draws 32 px left.
+            sx = (x[t] >> 8) - (r % grid_w) * c["PLAYFIELD_W"] - c["PLAYER_ORIGIN_X"]
+            sy = (y[t] >> 8) - (r // grid_w) * c["PLAYFIELD_H"] - c["PLAYER_ORIGIN_Y"]
+            want_sat = ((sy - 1) & 0xFF, (sx + 32 if sx < 0 else sx), (sy + 15) & 0xFF, (sx + 32 if sx < 0 else sx))
+            if (y0, x0, y1, x1) != want_sat or bool(colour & EC) != (sx < 0):
+                problems.append(f"{name}: after tick {t + 1}, Vale's sprites are {(y0, x0, y1, x1)} "
+                                f"(colour {colour}), not {want_sat} for {sx},{sy} in {where}")
         if end is None:
             continue
-        late, ticks, frames = end
+        late, ticks, frames, nflips, nflipframes, blank = end
+        unblanked += blank
+        if blank:
+            problems.append(f"{name}: {blank} frames put on screen while it was not blank")
         if late:
             problems.append(f"{name}: the loop came late to {late} frames")
-        want_ticks = frames if hz == 50 else frames * 5 / 6
-        if abs(ticks - want_ticks) > 1:
-            problems.append(f"{name}: {ticks} ticks in {frames} frames at {hz} Hz; 50 a second is {want_ticks:g}")
+        if nflips == 0:
+            want_ticks = frames if hz == 50 else frames * 5 / 6
+            if abs(ticks - want_ticks) > 1:
+                problems.append(f"{name}: {ticks} ticks in {frames} frames at {hz} Hz; 50 a second is {want_ticks:g}")
 
+    if seams:
+        notes.append(f"{seams} edges between rooms crossed both ways")
+    if flip_frames:
+        f = sorted(flip_frames)
+        ms = 1000 // hz
+        notes.append(f"{len(f)} flips, each the whole new room swapped in while the screen was blank, "
+                     f"Vale on it; the hitch {f[len(f) // 2] * ms} ms median, {f[-1] * ms} ms worst")
     if busiest:
-        worst = max(busiest, key=busiest.get)
+        worst = max(busiest, key=lambda n: busiest[n][0])
+        cycles, tick = busiest[worst]
         frame = 3579545 // hz
-        notes.append(f"busiest frame {busiest[worst]} cycles ({worst}), {busiest[worst] * 100 // frame}% of a frame")
-    for p in problems:
+        notes.append(f"busiest frame {cycles} cycles ({worst}, tick {tick}), {cycles * 100 // frame}% of a frame")
+    for p in problems[:40]:
         print(f"FAIL {tag}: {p}")
+    if len(problems) > 40:
+        print(f"FAIL {tag}: ... and {len(problems) - 40} more")
     ticks = sum(len(got[n][0]) for n in got)
     print(f"{'FAIL' if problems else 'ok  '} {tag}: {len(got)} scenarios, {ticks} ticks"
           + ("" if problems else " equal to the Java game's") + "; " + "; ".join(notes))
@@ -142,6 +209,6 @@ def main(dump, expected_path, scenarios_json, constants_h, hz):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 6:
+    if len(sys.argv) != 7:
         sys.exit(__doc__)
     sys.exit(main(*sys.argv[1:]))

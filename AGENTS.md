@@ -424,6 +424,51 @@ rooms and ends in the right room at the right position; every edge the Java
 `MapAudit` says can be crossed can be crossed on the MSX (the converter writes
 the list, a script tries each); no flicker or tearing on a flip.
 
+**Landed (2026-11-06).** All of the above, with these specifics:
+
+- **The flip** (`src/vale.c`) is the Java game's `updateRoom`: Vale walks in
+  world pixels, and the room is the one his feet box's centre is in, so the
+  cross-edge coordinate carries over exactly. The tick he changes rooms has
+  no blade, and the next `transition.freezeTicks` (6) are frozen.
+  **Collision** looks past the room's edge: entering a room unpacks its
+  cells and a margin of 2 cells on every side from its neighbours (936
+  bytes), the map's outside solid; a compile-time check holds the margin to
+  the box and the speed.
+- **Drawing** (`src/wulfquest.c`): the new room is drawn on the hidden page
+  while the old one stays on screen; then, in one blank, the pages swap and
+  Vale's sprites move to his place in it. Every frame now starts by putting
+  the last tick's Vale on screen, then runs its ticks, so sprites never
+  change mid-picture. The drawing takes **320 ms median, 360 ms worst**,
+  longer than the 6 frozen ticks (120 ms), so the frozen ticks are run
+  straight after it for the frames it took: the hitch is the drawing alone.
+  It is longer than the Java game's; M5–M6 may want the room drawn in a
+  background of frames.
+- **The debug overlay** (`src/overlay.c`): one line on the panel,
+  `ROOM cc,rr  X xxxx  Y yyyy`, in MSXgl's 6×8 sample font (CC BY-SA,
+  credited with MSXgl), bright white. It writes at most 2 characters a frame
+  from a queue of those that changed, so it lags a walking Vale by a frame
+  or two. Measured on the way, as a warning for the real panel (M9): SDCC
+  keeps a loop's variables on the stack at 19 cycles an access, so the first
+  version, MSXgl's 17-bit VRAM writer and the line redone each frame, cost
+  30 000 cycles a frame; now at most 9 000, 4 400 median, with the glyph
+  writer in assembly.
+- **`test/moves.sh`** plays a second plan, `test/flips.json`: a **route of
+  1 902 ticks from the start across 22 room edges** to 4,14 (the converter's
+  `Route` finds the path and steers the Java game along it, braking for its
+  momentum), and **all 314 edges `MapAudit` finds can be crossed** (stranded
+  ones included), each walked across and back. **Every tick equal to the
+  Java game's, at 50 and at 60 Hz**: position, facing, stroke, walk, blade,
+  room and frozen ticks. **All 650 flips** put the whole new room on screen,
+  as `RenderRooms` draws it, with Vale's sprites where he stands in it; and
+  every frame of every scenario is put on screen while the screen is blank
+  (the VDP's VR bit at `Test_Shown`). The M3 open-world scenarios have no
+  frozen ticks (the Java game's with `transitionFreezeTicks` 0), so their
+  movement numbers still hold across a flip.
+- **Timing:** the busiest frame is **38 421 Z80 cycles, 53% of a 50 Hz
+  frame (64% at 60 Hz)**, up from M3's 30 356: about 6 700 for the interrupt
+  and drawing Vale, 27 100 for the tick (pushing into a corner), 4 500 for
+  the overlay. M6 must measure before it adds creatures.
+
 ### M5 — Sprites in colour: layered sprites, a colour per line
 
 **For:** the look we chose: more than one colour per creature.
