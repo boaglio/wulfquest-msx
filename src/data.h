@@ -31,5 +31,13 @@ void Data_LoadRoom(u8 room, RoomData* out);
 // Unpack the collision cells around a room into cells[CELLS_H * CELLS_W].
 void Data_LoadCells(u8 room, u8* cells);
 
-// Copy one of Vale's frames (player.h) to video RAM: two 16x16 sprite patterns.
-void Data_LoadValeFrame(u8 frame, u8 vramHigh, u16 vramLow);
+// One of Vale's frames (player.h): its four 16x16 sprite patterns to video
+// RAM, its four colour tables (64 bytes) to colours.
+void Data_LoadValeFrame(u8 frame, u8 vramHigh, u16 vramLow, u8* colours);
+
+// A frame of the sprite bank (sprite_bank.h): its base and overlay patterns to
+// video RAM, their colour tables (32 bytes) to colours.
+void Data_LoadSpriteFrame(u8 frame, u8 vramHigh, u16 vramLow, u8* colours);
+
+// A shape of the blade (blade.h): its two patterns to video RAM.
+void Data_LoadBlade(u8 shape, u8 vramHigh, u16 vramLow);

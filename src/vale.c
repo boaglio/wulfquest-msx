@@ -13,6 +13,7 @@
 #include "vale.h"
 #include "constants.h"
 #include "player.h"
+#include "blade.h"
 
 #define ONE			(1 << FIXED_SHIFT)
 #define LEVELS		(PLAYER_MOMENTUM_MAX / PLAYER_MOMENTUM_STEP)
@@ -107,6 +108,8 @@ void Vale_Init()
 			: ((t - SABRE_WINDUP_TICKS) / SABRE_FENCE_EVERY_TICKS) % 2;
 }
 
+static void ResetTicks();
+
 void Vale_Place(i32 x, i32 y)
 {
 	g_ValeX = x;
@@ -125,6 +128,9 @@ void Vale_Place(i32 x, i32 y)
 	s_GaitTick = 0;
 	s_Gait = 0;
 	g_ValeFreeze = 0;
+	ResetTicks();
+	g_ValeFrame = Vale_Frame();
+	g_ValeBlade = -1;
 	// Simulation.roomColOf, roomRowOf
 	i16 cx = FP_PX(x) + (PLAYER_BOX_X + PLAYER_BOX_W / 2);
 	i16 cy = FP_PX(y) + (PLAYER_BOX_Y + PLAYER_BOX_H / 2);
@@ -389,11 +395,65 @@ static bool UpdateRoom()
 	return TRUE;
 }
 
+//-----------------------------------------------------------------------------
+// What he is drawn as (M5): PlayerPainter's frame, and the blade's shape.
+
+u8 g_ValeFrame = 0;
+i8 g_ValeBlade = -1;
+
+// The game tick, as the window of fence ticks it is in (Simulation.tick() /
+// SABRE_FENCE_EVERY_TICKS), counted rather than divided, and its hash, added
+// to rather than multiplied; and the pose it gives, worked out once a window.
+static u8  s_InWindow = 0;
+static u32 s_Hash = 0;    // (window + 1) * BLADE_HASH, 32 bits: a window adds BLADE_HASH
+static u8  s_FencePose = 0;
+
+#if BLADE_HASH_SHIFT < 24 || BLADE_HASH_SHIFT > 31
+#error "the pose's hash takes its high bits from the top byte"
+#endif
+#if (BLADE_GUARDS & (BLADE_GUARDS - 1)) != 0
+#error "the blade's pose is the hash's low bits: BLADE_GUARDS must be a power of two"
+#endif
+
+static void NextTick()
+{
+	if (++s_InWindow == SABRE_FENCE_EVERY_TICKS)
+	{
+		s_InWindow = 0;
+		// PlayerPainter.pose: its 64-bit hash's low bits, from 32 (blade.h).
+		s_Hash += BLADE_HASH;
+		s_FencePose = ((u8)s_Hash ^ (((u8*)&s_Hash)[3] >> (BLADE_HASH_SHIFT - 24))) & (BLADE_GUARDS - 1);
+	}
+}
+
+static void ResetTicks()
+{
+	s_InWindow = 0;
+	s_Hash = BLADE_HASH;
+	s_FencePose = ((u8)s_Hash ^ (((u8*)&s_Hash)[3] >> (BLADE_HASH_SHIFT - 24))) & (BLADE_GUARDS - 1);
+}
+
+// PlayerPainter.paint: the blade, while the sabre's hit box is out.
+static void Looks()
+{
+	g_ValeFrame = Vale_Frame();
+	if (g_SabreW == 0)
+	{
+		g_ValeBlade = -1;
+		return;
+	}
+	u8 into = (u8)g_ValeSwing - SABRE_WINDUP_TICKS;
+	u8 thrust = (into / SABRE_FENCE_EVERY_TICKS) & 1;
+	g_ValeBlade = (i8)(g_ValeFacing * BLADE_POSES + (thrust ? BLADE_GUARDS : 0) + s_FencePose);
+}
+
 bool Vale_Tick(u8 keys)
 {
+	NextTick();
 	if (g_ValeFreeze)
 	{
 		g_ValeFreeze--;   // the flip's hitch: nothing moves
+		Looks();
 		return FALSE;
 	}
 	UpdateSwing((keys & VALE_FIRE) != 0);
@@ -402,9 +462,11 @@ bool Vale_Tick(u8 keys)
 	{
 		g_SabreW = 0;   // no blade on the tick he changes rooms
 		g_SabreH = 0;
+		Looks();
 		return TRUE;
 	}
 	ComputeSabre();
+	Looks();
 	return FALSE;
 }
 

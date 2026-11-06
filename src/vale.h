@@ -55,3 +55,9 @@ bool Vale_Tick(u8 keys);
 
 // The frame of player_frames.bin to show him in (PlayerPainter.frameFor).
 u8 Vale_Frame();
+
+// What the last tick left him looking like (M5): his frame (player.h), and
+// the blade's shape (blade.h), -1 when it is not out. As PlayerPainter picks
+// them; test/moves.sh reads them.
+extern u8 g_ValeFrame;
+extern i8 g_ValeBlade;

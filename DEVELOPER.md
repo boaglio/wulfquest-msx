@@ -53,9 +53,9 @@ To play the build:
 ./run.sh -- -ext debugdevice   # anything after -- goes to openMSX
 ```
 
-In the ROM, for now, Ranger Vale walks the whole map, flipping from room to
-room: the cursor keys or `Q A O P`, or joystick 1, and Space or the fire
-button for the sabre. The panel shows a debug line: his room (col,row) and
+In the ROM, for now, Ranger Vale walks the whole map in his colours,
+flipping from room to room: the cursor keys or `Q A O P`, or joystick 1, and
+Space or the fire button for the sabre, its blade fencing out of his hand. The panel shows a debug line: his room (col,row) and
 his feet in world pixels. F5 (a debug key) shows the next room by number,
 with Vale standing at the same place in it.
 
@@ -74,11 +74,14 @@ the Java game's `Content.load` and writes `build/gen/`:
 
 | File | What |
 |---|---|
-| `palette.h` | the 16 colours as V9938 registers |
+| `palette.h` | the 16 colours as V9938 registers, numbered for the sprites' OR (`SpriteCut.order`), and each palette colour's number, `COLOUR_<NAME>` |
 | `constants.h` | the game's numbers; the list, with where each comes from, is `convert/src/main/resources/wulfmsx/convert/constants.json` |
 | `scenery.h`, `scenery_N.bin` | the scenery atlas for video RAM pages 2–3, in 16 KB ROM segments, and each object's place in it |
 | `rooms.h`, `rooms.bin` | the 256 rooms: template of each, placements, collision masks |
-| `player.h`, `player_frames.bin` | Ranger Vale: every frame he can be shown in, as two 16x16 sprite patterns, the frame table's layout, his colour, and where a new game starts him |
+| `player.h`, `player_hand.h`, `player_frames.bin` | Ranger Vale: every frame he can be shown in, as four layered 16x16 sprites (two blocks of a base and an overlay with the CC bit) with their colour tables, the frame table's layout, the hand each frame holds the blade in, and where a new game starts him |
+| `blade.h`, `blade.bin` | his blade: a shape for each facing and fence pose, as two one-colour sprites, where they go from the hand, and how the ROM picks the pose as the Java game does |
+| `sprite_bank.h`, `sprites.bin` | the other sprites the ROM shows (the list is `convert/src/main/resources/wulfmsx/convert/sprites.json`): every frame, cut as Vale's, and its number |
+| `sprites.txt`, `sprites.png` | every pixel a sprite shows in another colour than the art's, and pictures of those frames, the art beside the MSX2's; `sprites.json` accepts so many a sprite, and the converter fails past that |
 | `rom.h`, `rawfiles.json` | which ROM segment each blob goes in: `rawfiles.json` for MSXgl (`src/project_config.js` reads it), `rom.h` for the C |
 | `report.txt` | how far each colour moved, the atlas size, and the ROM budget |
 
@@ -98,7 +101,12 @@ ignores it, so the submodule stays clean.
 
 ## The tests
 
-- **The converter's tests** (JUnit, `convert/src/test/`): every room's
+- **The converter's tests** (JUnit, `convert/src/test/`): every sprite
+  frame, cut into layers, reads back as its art but for the changed pixels
+  it reports; the palette order is the same every run and beats palette
+  order; every blade the Java game's `PlayerPainter` draws, in every facing,
+  is the converter's shape at the hand, with the pose the ROM's 32-bit hash
+  picks; every room's
   collision mask equals `RoomBaker`'s; every room's scenery is the Java
   game's, in order; the atlas reads back to the same pixels; every constant
   has a source; changing a speed in a scratch copy of the data changes the
@@ -143,16 +151,36 @@ ignores it, so the submodule stays clean.
   `Test_BeforeTick` that writes each tick's keys and reads Vale's state;
   `test/check_moves.py` compares them tick by tick and checks the speeds, the
   wall slide, the walls, the route and the edges, that the loop is never
-  late, and 50 ticks a second on both. At every flip it checks, from a
+  late, and 50 ticks a second on both. Each tick also has the frame Vale is
+  drawn in and his blade's shape, which must be the Java game's
+  `PlayerPainter`'s (the converter's `Painter` calls its package-private
+  `frameFor` and `pose`). At every flip it checks, from a
   breakpoint on `Test_Shown`, that the page on screen is the new room as
-  `RenderRooms` draws it, with Vale's sprites on it, and on every frame that
+  `RenderRooms` draws it, and that the sprites on it, drawn as the V9938
+  draws them, are Vale in that frame and blade; and on every frame that
   it was put on screen while the screen was blank (the VDP's VR bit). It
   reports the hitch a flip makes and the busiest frame in Z80 cycles, from
   breakpoints on `Test_FrameStart` and `Test_FrameEnd`.
   `MOVES_PLANS=flips test/moves.sh` runs one plan.
 - **`test/boot.sh`** also checks Vale is on screen where a new game starts
-  him, in his first frame; its pictures draw the sprites from the sprite
-  tables (`sprite_pixels` in `check_boot.py`).
+  him, in his first frame, in his colours; its pictures draw the sprites from
+  the sprite tables.
+- **`test/sprites.sh`** (M5) shows, through the ROM's test gallery
+  (`g_TestGallery` in `wulfquest.c`), every frame of Vale, every shape of his
+  blade and every frame of the sprite bank, some at the screen's left edge
+  (the early clock) and over the panel (the clip); `check_sprites.py` draws
+  the sprite tables as the V9938 does and compares them, pixel for pixel,
+  with what the converter cut. Then Vale, his blade and five creatures on the
+  same lines, 14 sprites where the V9938 draws 8: Vale and the blade must be
+  whole every frame, the creatures in turn. And it times the blitter on a big
+  creature's size (`Bench` in `wulfquest.c`), the measurement behind
+  drawing big creatures as sprites.
+- **How the V9938 draws sprites** is in `test/vdp_sprites.py`, shared by the
+  checks: sprite mode 2, the 8-a-line limit, the early clock, and the CC bit
+  (an overlay with it is drawn only on a line where a sprite without it,
+  numbered before it, is, and ORs its colour where they overlap). openMSX
+  can't render headless, so this model is the oracle; it follows the V9938's
+  data book.
 - **`test/gate.sh`** checks the binaries gate in a scratch repository: it
   passes on text and fails on a ROM, an image, and a binary file with a text
   name.
@@ -174,12 +202,14 @@ build.sh         build and test
 run.sh           build, then play it in openMSX
 src/             the game: wulfquest.c (main), data.c (the ROM's data; stays in
                  segment 0), room.c (drawing), vale.c (Ranger Vale),
-                 overlay.c (the debug line on the panel); MSXgl's
+                 overlay.c (the debug line on the panel), sprites.c (the
+                 hardware sprites and their turns); MSXgl's
                  project_config.js and msxgl_config.h
 pom.xml          builds wulfquest/core and convert/ together
 convert/         the converter (Java)
 tools/           check-no-binaries.sh
-test/            boot.*, rooms.*, moves.*, flips.json, check_*.py, gate.sh
+test/            boot.*, rooms.*, moves.*, sprites.*, flips.json, check_*.py,
+                 vdp_sprites.py, gate.sh
 wulfquest/       submodule: the Java game, for its data/
 msxgl/           submodule: MSXgl
 build/           everything the build writes; never committed

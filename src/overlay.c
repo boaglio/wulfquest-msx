@@ -16,7 +16,7 @@
 
 #include "overlay.h"
 #include "constants.h"
-#include "player.h"
+#include "palette.h"
 #include "vale.h"
 #include "font/font_mgl_sample6.h"
 
@@ -24,7 +24,7 @@
 #define GLYPH_W		6
 #define GLYPH_H		8
 #define GLYPH_BYTES	(GLYPH_W / 2 * GLYPH_H)
-#define INK			PLAYER_INK                 // bright white, as Vale for now
+#define INK			COLOUR_BRIGHTWHITE
 #define TEXT_X		8
 #define TEXT_Y		(PLAYFIELD_H + 4)
 #define TEXT_LEN	26
@@ -131,7 +131,7 @@ static void Glyph(u8 i, u8 c)
 void Overlay_Init()
 {
 	// Two pixels of the font (bits 7 and 6 of the line) as a SCREEN 5 byte.
-	static const u8 c_Pair[4] = { 0, INK, INK << 4, (INK << 4) | INK };
+	static const u8 c_Pair[4] = { 0, INK, (u8)(INK << 4), (u8)((INK << 4) | INK) };
 	u8* out = s_Glyphs;
 	for (u8 c = 0; c < CHARS; c++)
 	{

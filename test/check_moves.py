@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Checks what test/moves.tcl saw against the Java game (AGENTS.md §10, M3 and M4).
 
-    check_moves.py DUMP EXPECTED PLAN CONSTANTS_H HZ ROOMS_EXPECTED
+    check_moves.py DUMP EXPECTED PLAN CONSTANTS_H HZ ROOMS_EXPECTED GEN
 
-DUMP is moves.tcl's output (and DUMP.bin, the shown page at each flip),
-EXPECTED MoveTraces's, PLAN the plan both played; both traces have a line a
-tick, "X_FP Y_FP FACING SWING WALK SX SY SW SH ROOM FREEZE". Every tick must
-be equal. On top, each scenario's own check, from the plan:
+DUMP is moves.tcl's output (and DUMP.bin, the shown page at each flip, and
+DUMP.spr, the sprite tables then), EXPECTED MoveTraces's, PLAN the plan both
+played; both traces have a line a tick, "X_FP Y_FP FACING SWING WALK SX SY SW
+SH ROOM FREEZE FRAME BLADE": the frame and the blade Vale is drawn with too,
+as the Java game's PlayerPainter picks them. Every tick must be equal. On top, each scenario's own check, from the plan:
 
   across     at the top of the run-up, 85 ticks holding right move 255-257 px
   down       at the top of the run-up, 59 ticks holding down move 176-178 px
@@ -19,8 +20,9 @@ The loop must never come late to a frame (a flip is a hitch, not lateness),
 and in a scenario without flips must run 50 ticks a second: a tick a frame at
 50 Hz, five in six frames at 60 Hz. Every frame must be put on screen while
 the screen is blank; at every flip, the page shown must be the new room as
-the Java game draws it (ROOMS_EXPECTED, RenderRooms's), with Vale's sprites
-where he stands in it.
+the Java game draws it (ROOMS_EXPECTED, RenderRooms's), and the sprites on it,
+drawn as the V9938 draws them (vdp_sprites.py), must be Vale in that tick's
+frame and blade, where he stands, as the converter cut them (GEN, build/gen/).
 """
 import os
 import re
@@ -28,12 +30,13 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from check_rooms import constants  # noqa: E402
+import vdp_sprites  # noqa: E402
 
 RUN_UP = 24          # MovementFeelTest.RUN_UP: long enough to reach top speed
 ACROSS_TICKS = 85
 DOWN_TICKS = 59
 LINE = 128           # bytes a line of SCREEN 5
-EC = 0x80            # a sprite colour's early-clock bit
+SPRITE_TABLES = 128 + 512 + 2048   # a flip's attribute, colour and pattern tables in DUMP.spr
 
 
 def read(path):
@@ -71,7 +74,7 @@ def read_plan(path):
     return plan
 
 
-def main(dump, expected_path, plan_path, constants_h, hz, rooms_expected):
+def main(dump, expected_path, plan_path, constants_h, hz, rooms_expected, gen):
     c = constants(constants_h)
     player_h = open(os.path.join(os.path.dirname(constants_h), "player.h"), encoding="utf-8").read()
     c.update({m[0]: int(m[1]) for m in re.findall(r"#define (\w+)\s+(-?\d+)\b", player_h)})
@@ -82,6 +85,8 @@ def main(dump, expected_path, plan_path, constants_h, hz, rooms_expected):
     field = c["PLAYFIELD_H"] * LINE
     rooms_pic = open(rooms_expected, "rb").read()
     shown = open(dump + ".bin", "rb").read()
+    tables = open(dump + ".spr", "rb").read()
+    gen_sprites = vdp_sprites.Gen(gen)
     grid_w = c["GRID_W"]
     tag = f"{os.path.basename(plan_path).split('_')[0]} {hz} Hz"
     problems, notes = [], []
@@ -105,6 +110,8 @@ def main(dump, expected_path, plan_path, constants_h, hz, rooms_expected):
         x = [s[0] for s in g]
         y = [s[1] for s in g]
         room = [s[9] for s in g]
+        g_frame = [s[11] for s in g]
+        g_blade = [s[12] for s in g]
         p = plan[name]
         check = p["check"]
         crossings = [t for t in range(1, len(room)) if room[t] != room[t - 1]]
@@ -156,8 +163,9 @@ def main(dump, expected_path, plan_path, constants_h, hz, rooms_expected):
         # Every flip: the new room on screen, whole, and Vale on it.
         if len(flips) != len(crossings):
             problems.append(f"{name}: {len(flips)} flips shown, the Java game changes rooms {len(crossings)} times")
-        for (ticks, page, frames, y0, x0, y1, x1, colour), t in zip(flips, crossings):
+        for (ticks, page, frames), t in zip(flips, crossings):
             vram = shown[flips_seen * field:(flips_seen + 1) * field]
+            spr = tables[flips_seen * SPRITE_TABLES:(flips_seen + 1) * SPRITE_TABLES]
             flips_seen += 1
             flip_frames.append(frames)
             r = room[t]
@@ -166,13 +174,16 @@ def main(dump, expected_path, plan_path, constants_h, hz, rooms_expected):
                 problems.append(f"{name}: the room after tick {t + 1} was shown after tick {ticks}")
             if vram != rooms_pic[r * field:(r + 1) * field]:
                 problems.append(f"{name}: after tick {t + 1}, page {page} is not {where} as the Java game draws it")
-            # His frame's top-left; a sprite shows a line below its Y; the early clock draws 32 px left.
+            # Vale in this tick's frame and blade, his frame's top-left where he stands.
             sx = (x[t] >> 8) - (r % grid_w) * c["PLAYFIELD_W"] - c["PLAYER_ORIGIN_X"]
             sy = (y[t] >> 8) - (r // grid_w) * c["PLAYFIELD_H"] - c["PLAYER_ORIGIN_Y"]
-            want_sat = ((sy - 1) & 0xFF, (sx + 32 if sx < 0 else sx), (sy + 15) & 0xFF, (sx + 32 if sx < 0 else sx))
-            if (y0, x0, y1, x1) != want_sat or bool(colour & EC) != (sx < 0):
-                problems.append(f"{name}: after tick {t + 1}, Vale's sprites are {(y0, x0, y1, x1)} "
-                                f"(colour {colour}), not {want_sat} for {sx},{sy} in {where}")
+            want_px = gen_sprites.clip(gen_sprites.vale(g_frame[t], g_blade[t], sx, sy))
+            got_px = vdp_sprites.render(spr[:128], spr[128:640], spr[640:], lines=c["PLAYFIELD_H"])
+            if got_px != want_px:
+                right = len(set(got_px.items()) & set(want_px.items()))
+                problems.append(f"{name}: after tick {t + 1}, the sprites are not Vale in frame {g_frame[t]}, "
+                                f"blade {g_blade[t]}, at {sx},{sy} in {where}: {len(got_px)} pixels shown, "
+                                f"{len(want_px)} wanted, {right} right")
         if end is None:
             continue
         late, ticks, frames, nflips, nflipframes, blank = end
@@ -209,6 +220,6 @@ def main(dump, expected_path, plan_path, constants_h, hz, rooms_expected):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 7:
+    if len(sys.argv) != 8:
         sys.exit(__doc__)
     sys.exit(main(*sys.argv[1:]))

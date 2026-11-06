@@ -25,23 +25,32 @@ class VdpPaletteTest {
     }
 
     @Test
-    void opaqueArtNeverUsesColourZeroAndShowsTheSameColour() {
-        byte[] reg = palette.registers();
-        assertThat(palette.vdpColour(-1)).isEqualTo(VdpPalette.TRANSPARENT);
-        assertThat(palette.paletteIndex(VdpPalette.TRANSPARENT)).isEqualTo(-1);
-        for (int i = 0; i < Palette.SIZE; i++) {
-            int c = palette.vdpColour(i);
-            assertThat(c).as("%d", i).isNotEqualTo(VdpPalette.TRANSPARENT);
-            assertThat(reg[2 * c]).as("%d", i).isEqualTo(reg[2 * i]);
-            assertThat(reg[2 * c + 1]).as("%d", i).isEqualTo(reg[2 * i + 1]);
+    void opaqueArtNeverUsesColourZeroAndShowsItsOwnColour() {
+        VdpPalette game = VdpPalette.forGame(Content.load(ConvertTest.DATA));
+        for (VdpPalette p : java.util.List.of(palette, game)) {
+            byte[] reg = p.registers();
+            byte[] plain = palette.registers();
+            assertThat(p.vdpColour(-1)).isEqualTo(VdpPalette.TRANSPARENT);
+            assertThat(p.paletteIndex(VdpPalette.TRANSPARENT)).isEqualTo(-1);
+            for (int i = 0; i < Palette.SIZE; i++) {
+                int c = p.vdpColour(i);
+                assertThat(c).as("%d", i).isBetween(1, VdpPalette.CODES);
+                // The colour shown is the palette colour's own (in palette order, colour i is group i's number).
+                int own = palette.vdpColour(i);
+                assertThat(reg[2 * c]).as("%d", i).isEqualTo(plain[2 * own]);
+                assertThat(reg[2 * c + 1]).as("%d", i).isEqualTo(plain[2 * own + 1]);
+                assertThat(p.paletteIndex(c)).as("%d", i).isEqualTo(p.paletteIndex(p.vdpColour(p.paletteIndex(c))));
+            }
+            // Number 0, the border's and the cleared panel's, is black.
+            assertThat(reg[0]).isZero();
+            assertThat(reg[1]).isZero();
         }
     }
 
     @Test
-    void colourZerosTwinIsTheSameColourOnTheV9938() {
-        byte[] reg = palette.registers();
-        int t = palette.twinOfZero();
-        assertThat(reg[2 * t]).isEqualTo(reg[0]);
-        assertThat(reg[2 * t + 1]).isEqualTo(reg[1]);
+    void blackAndBrightBlackAreOneColourWithOneNumber() {
+        Palette pal = Content.load(ConvertTest.DATA).palette();
+        assertThat(palette.vdpColour(pal.indexOf("brightBlack"))).isEqualTo(palette.vdpColour(pal.indexOf("black")));
+        assertThat(palette.groups()).isEqualTo(VdpPalette.CODES);
     }
 }

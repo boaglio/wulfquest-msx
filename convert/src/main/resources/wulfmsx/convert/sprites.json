@@ -1,0 +1,54 @@
+{
+  "comment": [
+    "The sprites the MSX2 shows as hardware sprites (AGENTS.md §5, §10 M5), besides Ranger Vale,",
+    "whose sprite comes from player.json. 'rom' are cut into the ROM's sprite bank now; 'later' are",
+    "cut only for the palette's order and the report, and go into the ROM with the milestone that",
+    "brings them (M6, M7). Every sprite's frames are cut into 16x16 blocks of two layers, a colour a",
+    "line each and their OR where they overlap: three colours a line. A line with more, or with three",
+    "the OR cannot make, has pixels changed; 'accepted' is how many changed pixels each sprite is",
+    "allowed, all its frames together, after looking at them (build/gen/sprites.txt lists every one,",
+    "build/gen/sprites.png shows them). The converter fails when a sprite changes more than that."
+  ],
+  "rom": [
+    "vermin_spider", "vermin_scorpion", "vermin_bat", "vermin_parrot", "vermin_monkey", "vermin_lizard",
+    "vermin_snake", "vermin_rat", "vermin_bird", "vermin_frog", "vermin_mosquito", "vermin_skunk",
+    "vermin_flea", "vermin_earwig",
+    "puff", "flame", "amulet_piece", "way_arrow"
+  ],
+  "later": [
+    "creature_rhino", "creature_tribesman", "creature_hippo", "creature_boar", "creature_wulf",
+    "creature_guardian_rhino", "creature_guardian_hippo", "creature_guardian_boar",
+    "creature_guardian_wildebeest", "creature_keeper"
+  ],
+  "accepted": {
+    "player": 100,
+    "vermin_spider": 8,
+    "vermin_scorpion": 0,
+    "vermin_bat": 8,
+    "vermin_parrot": 52,
+    "vermin_monkey": 42,
+    "vermin_lizard": 8,
+    "vermin_snake": 6,
+    "vermin_rat": 16,
+    "vermin_bird": 48,
+    "vermin_frog": 0,
+    "vermin_mosquito": 20,
+    "vermin_skunk": 14,
+    "vermin_flea": 12,
+    "vermin_earwig": 42,
+    "puff": 0,
+    "flame": 84,
+    "amulet_piece": 302,
+    "way_arrow": 0,
+    "creature_rhino": 0,
+    "creature_tribesman": 12,
+    "creature_hippo": 4,
+    "creature_boar": 37,
+    "creature_wulf": 22,
+    "creature_guardian_rhino": 0,
+    "creature_guardian_hippo": 0,
+    "creature_guardian_boar": 0,
+    "creature_guardian_wildebeest": 8,
+    "creature_keeper": 31
+  }
+}

@@ -8,10 +8,14 @@ SHOT_PREFIX-before.png and -after.png: the screen as the VDP holds it,
 256x212, in the colours it holds, sprites included, before and after F5 (the
 debug key for the next room). And it checks Vale is on screen (M3).
 """
+import os
 import re
 import struct
 import sys
 import zlib
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import vdp_sprites  # noqa: E402
 
 W, H = 256, 212
 
@@ -61,37 +65,8 @@ def write_png(path, vram, palette, height=H, sprites=None):
 
 
 def sprite_pixels(regs, vram):
-    """Sprite mode 2, 16x16 sprites, as the V9938 draws them: {(x, y): colour}.
-
-    vram is video RAM from address 0. The first sprite has priority; a Y of
-    216 ends the list; a line's colour byte gives its colour and the early
-    clock (32 px to the left). The OR bit and the 8-a-line limit are left out:
-    the game uses neither yet.
-    """
-    sat = ((regs[5] & 0xFC) << 7) | (regs[11] << 15)   # R#5 bits 0-1 are always set in mode 2
-    colours = sat - 512
-    patterns = regs[6] << 11
-    out = {}
-    shown = []
-    for i in range(32):
-        y = vram[sat + 4 * i]
-        if y == 216:
-            break
-        shown.append(i)
-    for i in reversed(shown):
-        y, x, pat = vram[sat + 4 * i], vram[sat + 4 * i + 1], vram[sat + 4 * i + 2] & 0xFC
-        for line in range(16):
-            cb = vram[colours + 16 * i + line]
-            c = cb & 15
-            sy = (y + 1 + line) & 0xFF
-            if c == 0 or sy >= H:
-                continue
-            for px in range(16):
-                bits = vram[patterns + pat * 8 + (px // 8) * 16 + line]
-                sx = x - (32 if cb & 0x80 else 0) + px
-                if bits & (0x80 >> (px % 8)) and 0 <= sx < W:
-                    out[(sx, sy)] = c
-    return out
+    """The sprites as the V9938 draws them (vdp_sprites.py): {(x, y): colour}."""
+    return vdp_sprites.render(*vdp_sprites.tables(regs, vram), lines=H)
 
 
 def header_defines(path):
@@ -100,18 +75,13 @@ def header_defines(path):
 
 
 def vale_problems(tag, regs, vram, gen):
-    """M3: Vale stands where a new game starts him, facing down, in his first frame, in his colour."""
-    p = header_defines(gen + "/player.h")
-    c = header_defines(gen + "/constants.h")
+    """M3, M5: Vale stands where a new game starts him, facing down, in his first frame, in his colours."""
+    g = vdp_sprites.Gen(gen)
+    p, c = g.player, g.c
     frame = p["PLAYER_VIEW_DOWN"] * p["PLAYER_FRAMES_PER_VIEW"]
-    art = open(gen + "/player_frames.bin", "rb").read()[frame * 64:(frame + 1) * 64]
     left = (p["PLAYER_START_X_FP"] >> 8) - c["START_COL"] * c["PLAYFIELD_W"] - p["PLAYER_ORIGIN_X"]
     top = (p["PLAYER_START_Y_FP"] >> 8) - c["START_ROW"] * c["PLAYFIELD_H"] - p["PLAYER_ORIGIN_Y"]
-    want = {}
-    for y in range(24):
-        for x in range(16):
-            if art[(y // 16) * 32 + (x // 8) * 16 + y % 16] & (0x80 >> (x % 8)):
-                want[(left + x, top + y)] = p["PLAYER_INK"]
+    want = g.clip(g.vale(frame, -1, left, top))
     got = sprite_pixels(regs, vram)
     if not want:
         return [f"{tag}: Vale's first frame is empty"]

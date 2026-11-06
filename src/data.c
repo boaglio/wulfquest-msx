@@ -10,6 +10,8 @@
 #include "rom.h"
 #include "scenery.h"
 #include "player.h"
+#include "sprite_bank.h"
+#include "blade.h"
 
 __sfr __at(0x98) s_VdpData;
 __sfr __at(0x99) s_VdpCtrl;
@@ -107,12 +109,65 @@ void Data_LoadCells(u8 room, u8* cells)
 	SET_BANK_SEGMENT(ROM_DATA_BANK, ROM_CODE_SEGMENT_1);
 }
 
-void Data_LoadValeFrame(u8 frame, u8 vramHigh, u16 vramLow)
+// CopyOut's arguments: s_OutN bytes from s_OutSrc to the VDP's data port,
+// then s_RamN more to s_RamDst. An outi loop: SDCC's C loop was 68 cycles a
+// byte (AGENTS.md §10, M5).
+static const u8* s_OutSrc = 0;
+static u8 s_OutN = 0;
+static u8* s_RamDst = 0;
+static u8 s_RamN = 0;
+
+static void CopyOut() __naked
 {
-	const u8* src = (const u8*)(ROM_DATA_ADDR + PLAYER_FRAMES_BIN_REL) + (u16)frame * PLAYER_FRAME_BYTES;
-	SET_BANK_SEGMENT(ROM_DATA_BANK, PLAYER_FRAMES_BIN_SEG);
+	__asm
+		ld	hl, (_s_OutSrc)
+		ld	a, (_s_OutN)
+		ld	b, a
+		ld	c, #0x98
+	00001$:
+		outi
+		jr	nz, 00001$
+		ld	a, (_s_RamN)
+		or	a
+		ret	z
+		ld	c, a
+		ld	b, #0
+		ld	de, (_s_RamDst)
+		ldir
+		ret
+	__endasm;
+}
+
+// A sprite frame from the ROM: its patterns to video RAM, its colours (if any) to RAM.
+static void LoadSprite(u8 segment, const u8* src, u8 patternBytes, u8 vramHigh, u16 vramLow, u8* colours,
+	u8 colourBytes)
+{
+	SET_BANK_SEGMENT(ROM_DATA_BANK, segment);
 	VramWriteAt(vramHigh, vramLow);
-	for (u8 n = PLAYER_FRAME_BYTES; n; n--)
-		s_VdpData = *src++;
+	s_OutSrc = src;
+	s_OutN = patternBytes;
+	s_RamDst = colours;
+	s_RamN = colourBytes;
+	CopyOut();
 	SET_BANK_SEGMENT(ROM_DATA_BANK, ROM_CODE_SEGMENT_1);
+}
+
+void Data_LoadValeFrame(u8 frame, u8 vramHigh, u16 vramLow, u8* colours)
+{
+	LoadSprite(PLAYER_FRAMES_BIN_SEG,
+		(const u8*)(ROM_DATA_ADDR + PLAYER_FRAMES_BIN_REL) + (u16)frame * PLAYER_FRAME_BYTES,
+		PLAYER_PATTERN_BYTES, vramHigh, vramLow, colours, PLAYER_FRAME_BYTES - PLAYER_PATTERN_BYTES);
+}
+
+void Data_LoadSpriteFrame(u8 frame, u8 vramHigh, u16 vramLow, u8* colours)
+{
+	LoadSprite(SPRITES_BIN_SEG,
+		(const u8*)(ROM_DATA_ADDR + SPRITES_BIN_REL) + (u16)frame * SPRITE_FRAME_BYTES,
+		SPRITE_FRAME_BYTES / 3 * 2, vramHigh, vramLow, colours, SPRITE_FRAME_BYTES / 3);
+}
+
+void Data_LoadBlade(u8 shape, u8 vramHigh, u16 vramLow)
+{
+	LoadSprite(BLADE_BIN_SEG, (const u8*)(ROM_DATA_ADDR + BLADE_BIN_REL) + (u16)shape * BLADE_SHAPE_BYTES,
+		BLADE_SHAPE_BYTES, vramHigh, vramLow, 0, 0);
 }

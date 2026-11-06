@@ -16,8 +16,9 @@ import wulf.world.WorldGrid;
  *
  * Loads the data with the Java game's own {@link Content#load}, so a data
  * error stops the MSX build with the Java game's message, then writes:
- * palette.h, constants.h, rooms.h and rooms.bin, player.h and
- * player_frames.bin, scenery.h and
+ * palette.h, constants.h, rooms.h and rooms.bin, player.h, player_hand.h and
+ * player_frames.bin, sprite_bank.h and sprites.bin, blade.h and blade.bin,
+ * sprites.txt and sprites.png (every pixel a sprite shows otherwise), scenery.h and
  * scenery_N.bin, rom.h and rawfiles.json (where each blob goes in the ROM),
  * and report.txt (the palette's drift and the ROM budget).
  */
@@ -43,19 +44,27 @@ public final class Convert {
     /** Converts everything and returns the report it also writes. */
     public static String run(Path dataDir, Path out) {
         Content c = Content.load(dataDir);
-        VdpPalette palette = new VdpPalette(c.palette());
+        VdpPalette palette = VdpPalette.forGame(c);
         SceneryAtlas atlas = new SceneryAtlas(c.scenery(), c.sprites().all(), palette);
         // The ground is the Java game's: GamePainter fills the playfield with "black".
         RoomTables rooms = new RoomTables(c.rooms(), atlas, palette.vdpColour(c.palette().indexOf("black")));
         Constants constants = new Constants(dataDir);
-        PlayerSprite vale = new PlayerSprite(c.player(), c.sprites().get(c.player().sprite()), c.palette(), palette,
+        PlayerSprite vale = new PlayerSprite(c.player(), c.sprites().get(c.player().sprite()), palette,
                 new WorldGrid(c.rooms()), c.map().startRoom());
+        RomSprites bank = new RomSprites(c, palette);
+        Blade blade = new Blade(c.player(), c.palette(), palette);
+        SpriteReport sprites = new SpriteReport(c, palette, vale, bank, blade);
 
         Gen.write(out.resolve("palette.h"), palette.header());
         Gen.write(out.resolve("constants.h"), constants.header());
         Gen.write(out.resolve("scenery.h"), atlas.header());
         Gen.write(out.resolve("rooms.h"), rooms.header());
         Gen.write(out.resolve("player.h"), vale.header());
+        Gen.write(out.resolve("player_hand.h"), vale.handHeader());
+        Gen.write(out.resolve("sprite_bank.h"), bank.header());
+        Gen.write(out.resolve("blade.h"), blade.header());
+        Gen.write(out.resolve("sprites.txt"), sprites.listing());
+        Gen.write(out.resolve("sprites.png"), sprites.picture());
 
         List<Budget.Blob> blobs = new ArrayList<>();
         List<byte[]> chunks = atlas.chunks();
@@ -68,22 +77,30 @@ public final class Convert {
         blobs.add(new Budget.Blob("rooms.bin", rooms.blob().length));
         Gen.write(out.resolve("player_frames.bin"), vale.blob());
         blobs.add(new Budget.Blob("player_frames.bin", vale.blob().length));
+        Gen.write(out.resolve("sprites.bin"), bank.blob());
+        blobs.add(new Budget.Blob("sprites.bin", bank.blob().length));
+        Gen.write(out.resolve("blade.bin"), blade.blob());
+        blobs.add(new Budget.Blob("blade.bin", blade.blob().length));
         Budget budget = new Budget(blobs);
         Gen.write(out.resolve("rom.h"), budget.header());
         Gen.write(out.resolve("rawfiles.json"), budget.rawFilesJson());
 
         StringBuilder r = new StringBuilder();
-        r.append("Palette on the V9938 (colour 0 is written as ").append(palette.twinOfZero()).append("):\n");
+        r.append("Palette on the V9938 (colour numbers ordered for the sprites' OR; 0 is transparent):\n");
         for (String line : palette.report()) {
             r.append("  ").append(line).append('\n');
         }
         r.append(String.format("Scenery: %d objects in %d lines of video RAM pages 2-3 (of %d)%n",
                 atlas.slots().size(), atlas.lines(), SceneryAtlas.MAX_LINES));
-        r.append(String.format("Vale: %d frames, %d bytes, one colour (M3); starts at %d,%d%n",
+        r.append(String.format("Vale: %d frames, %d bytes, 4 sprites each; starts at %d,%d%n",
                 vale.ids().size(), vale.blob().length, vale.startXFp() >> 8, vale.startYFp() >> 8));
+        r.append(String.format("Sprite bank: %d frames, %d bytes; blade: %d shapes, %d bytes%n",
+                bank.entries().size(), bank.blob().length, blade.shapes(), blade.blob().length));
+        r.append(sprites.summary());
         r.append(String.format("Constants: %d%n", constants.entries().size()));
         r.append(budget.report());
         Gen.write(out.resolve("report.txt"), r.toString());
+        sprites.check();
         return r.toString();
     }
 }

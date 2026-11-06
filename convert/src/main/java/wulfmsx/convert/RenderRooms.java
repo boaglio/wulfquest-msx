@@ -35,7 +35,7 @@ public final class RenderRooms {
 
     static byte[] render(Content c) {
         DisplayConfig.Playfield field = c.display().playfield();
-        VdpPalette palette = new VdpPalette(c.palette());
+        VdpPalette palette = VdpPalette.forGame(c);
         // As GamePainter draws it: the playfield filled with "black", then the scenery.
         RoomPainter painter = new RoomPainter(c.display(), new SpriteBank(c.sprites()), c.scenery(),
                 c.palette().indexOf("black"));

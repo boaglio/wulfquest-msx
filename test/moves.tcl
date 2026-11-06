@@ -9,16 +9,17 @@
 # MOVES_SYMS holds the RAM addresses from the symbol map, as name=address.
 #
 # Output: per scenario "scenario NAME", a line after each tick
-# ("X_FP Y_FP FACING SWING WALK SX SY SW SH ROOM FREEZE"), and
+# ("X_FP Y_FP FACING SWING WALK SX SY SW SH ROOM FREEZE FRAME BLADE"), and
 # "end NAME LATE TICKS FRAMES FLIPS FLIP_FRAMES UNBLANKED": frames the loop
 # came late to, ticks run and frames seen from the first tick to the last,
 # flips and the frames they took, and frames put on screen (Test_Shown) while
 # the screen was not blank. Then "end ok", or "end error ...".
 #
 # At each flip, when the ROM has put the new room on screen, a line
-# "flip TICKS PAGE DRAW_FRAMES Y0 X0 Y1 X1 COLOUR" (ticks played so far, the
-# page shown, the frames the drawing took, Vale's two sprites' attributes and
-# colour), and the shown page's playfield in $env(MOVES_OUT).bin.
+# "flip TICKS PAGE DRAW_FRAMES" (ticks played so far, the page shown, the
+# frames the drawing took), the shown page's playfield in $env(MOVES_OUT).bin,
+# and the sprite tables in $env(MOVES_OUT).spr: the attribute table (128
+# bytes), the colour table (512) and the patterns (2048).
 # After each scenario, "busiest NAME CYCLES TICK": its busiest frame without
 # a flip, and the ticks played when it came.
 
@@ -33,6 +34,8 @@ set ::field $env(MOVES_FIELD)
 set out [open $env(MOVES_OUT) w]
 set bin [open $env(MOVES_OUT).bin w]
 fconfigure $bin -translation binary
+set spr [open $env(MOVES_OUT).spr w]
+fconfigure $spr -translation binary
 set plan {}
 set f [open $env(MOVES_PLAN)]
 while {[gets $f line] >= 0} {
@@ -62,13 +65,14 @@ proc finish {msg} {
     puts $::out "end $msg"
     close $::out
     close $::bin
+    close $::spr
     exit
 }
 
 proc state {} {
     set sw [peek g_SabreW]
     set box [expr {$sw == 0 ? "0 0 0 0" : "[peek g_SabreX 2 1] [peek g_SabreY 2 1] $sw [peek g_SabreH]"}]
-    return "[peek g_ValeX 4 1] [peek g_ValeY 4 1] [peek g_ValeFacing] [peek g_ValeSwing 1 1] [peek g_ValeWalk 2] $box [peek g_ValeRoom] [peek g_ValeFreeze]"
+    return "[peek g_ValeX 4 1] [peek g_ValeY 4 1] [peek g_ValeFacing] [peek g_ValeSwing 1 1] [peek g_ValeWalk 2] $box [peek g_ValeRoom] [peek g_ValeFreeze] [peek g_ValeFrame] [peek g_ValeBlade 1 1]"
 }
 
 set scenario -1
@@ -141,13 +145,14 @@ proc on_shown {} {
         if {$flips == $::flips} { return }
         set ::flips $flips
         set page [expr {[debug read {VDP regs} 2] >> 5 & 3}]
-        # The sprite attribute table is where R5 and R11 say; the colours 512 bytes before.
-        set at [expr {([debug read {VDP regs} 5] & 0xFC) << 7 | [debug read {VDP regs} 11] << 15}]
-        set sat {}
-        foreach i {0 1 4 5} { lappend sat [debug read VRAM [expr {$at + $i}]] }
-        set colour [debug read VRAM [expr {$at - 512}]]
-        puts $::out "flip $::tick $page [peek g_DrawFrames] $sat $colour"
+        puts $::out "flip $::tick $page [peek g_DrawFrames]"
         puts -nonewline $::bin [debug read_block VRAM [expr {$page * 32768}] $::field]
+        # The sprites: the attribute table where R5 and R11 say, the colours
+        # 512 bytes before it, the patterns where R6 says.
+        set at [expr {([debug read {VDP regs} 5] & 0xFC) << 7 | [debug read {VDP regs} 11] << 15}]
+        puts -nonewline $::spr [debug read_block VRAM $at 128]
+        puts -nonewline $::spr [debug read_block VRAM [expr {$at - 512}] 512]
+        puts -nonewline $::spr [debug read_block VRAM [expr {[debug read {VDP regs} 6] << 11}] 2048]
     } err] == 1} { finish "error $err" }
 }
 debug breakpoint create -address $::a(Test_Shown) -command on_shown

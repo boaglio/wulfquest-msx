@@ -121,9 +121,10 @@ The converter's output is the only input to the C build besides `src/`.
   the common pairs work, and reports those that do not.
 - **8 sprites on a line**, a layered sprite counting twice. When a line is
   crowded the sprites take turns, as the Java game's sprite flicker does.
-- **Big creatures** (rhino, hippo, the Wulf, the guardians): several sprites
-  side by side, or drawn into the picture by the blitter with the background
-  restored behind them. *To prototype.*
+- **Big creatures** (rhino, hippo, the Wulf, the guardians): **hardware
+  sprites**, 16x16 blocks side by side, each two layers, taking turns when a
+  line is crowded. Decided in M5 (§10): the blitter would take 7.7 ms of a
+  20 ms frame for one 32x22 creature, its background and itself.
 
 Left out: SCALE, FULLSCREEN, GLOW, scanlines (the television does that),
 8-BIT MODE and the colour clash, the one-colour sprites switch.
@@ -495,6 +496,85 @@ the list, a script tries each); no flicker or tearing on a flip.
 **Accept when:** Vale walks in colour in every direction; the converter's
 report lists every changed pixel and is empty or accepted sprite by sprite;
 the big-creature decision is made, measured and written down.
+
+**Landed (2026-11-06).** All of the above, with these specifics:
+
+- **The palette's order** (`convert/.../SpriteCut.java`, `VdpPalette.forGame`):
+  the 15 colours the V9938 shows (black and bright black are one) get
+  numbers 1-15 so that the colour triples the sprites' lines need are made
+  by the OR: a hill climb over swaps from seeded random starts, the same
+  every run, two seconds. **Black, the outline in nearly every line, came
+  out as 15, every bit**, so the outline is where the two layers overlap.
+  Number 0 is transparent and holds black too. The scenery is written with
+  the same numbers, so every room still equals the Java game's (test/rooms.sh).
+- **The cut:** each 16x16 block of a frame is a base and an overlay with
+  CC; a line's two colours are the pair of its own colours that changes
+  fewest pixels, then the least far; a pixel no pair makes shows the nearest
+  colour made. **Every changed pixel is listed** in `build/gen/sprites.txt`,
+  with pictures in `sprites.png`, and `convert/src/main/resources/wulfmsx/
+  convert/sprites.json` accepts a count a sprite: the converter fails past
+  it. Accepted after looking at them: **Vale 100 pixels over his 76 frames**
+  (lines with four or more colours: no order can help, weighting him did
+  not); the 14 small creatures 276 together (the parrot 52, the bird 48, the
+  monkey and the earwig 42), the puff and the arrow none, the flame 84 (its
+  four-colour heart loses some white), **the amulet piece 302** (its quarters'
+  faces lose detail lines; it lies still in a room, so M7 may draw it with
+  the blitter instead). The big ones, cut for the report only until they come
+  in: 114 together (the warthog 37, the Keeper 31, the Wulf 22).
+- **Vale** is four sprites, two blocks of two layers (player_frames.bin, 192
+  bytes a frame). **The blade**, which slipped from M3, is two one-colour
+  sprites, the blade in bright white and the crossguard in bright yellow,
+  each placed from the frame's `hand` (blade.bin, 64 shapes: 8 facings × the
+  4 guards and 4 thrusts). Its pose is `PlayerPainter.pose`'s hash of the game
+  tick: its low bits come from the multiplier's low 32 bits, so the ROM adds
+  that once a window (`BladeTest` holds it to `pose` for 50 000 ticks, and
+  every blade `PlayerPainter` draws in all eight facings to the shapes).
+- **The sprite manager** (`src/sprites.c`): slots own sprites, patterns and
+  colours (the blade, Vale, 13 small); a frame puts the slots front to back,
+  and the attribute table is written anew each frame, ended by Y 216. Vale and
+  his blade keep their places (an absent blade is held below the screen), so
+  his colours are rewritten only with his frame. The early clock is set per
+  sprite when it stands partly off the left edge, and the lines below the
+  playfield are given colour 0, the Java game's clip at the playfield. **When
+  a line has more than 8 sprites** (counted in bands of 4 lines, so sometimes
+  a band early), Vale and his blade stay first and the others take turns,
+  one place a frame. The placing is in assembly: in C it cost 10 000 cycles a
+  sprite (SDCC's locals on the stack again); now about 700, and a colour
+  table written about 500.
+- **The big creatures are hardware sprites.** Measured on openMSX's V9938,
+  sprites and the screen on (test/sprites.sh, `Bench`): restoring a 28x20
+  background takes 2.1 ms and drawing a 28x20 creature over it, transparent,
+  4.2 ms; 32x22, 2.3 and 5.2 ms; 32x28 (a guardian), 2.9 and 6.5 ms; 16x24,
+  1.5 and 3.0 ms. A frame is 20 ms, and the CPU is idle while it waits only
+  if it has nothing else to do: two rhinos and the Wulf would not fit. The
+  blitter is that slow everywhere: a room's 320 ms is the same blitter. As
+  sprites a big creature costs no VDP time, keeps its colours (the report:
+  114 pixels over all ten), and needs 2 blocks a line, 4 sprites: with Vale's
+  2 and his blade's 2 that is a full line, so a small creature beside them
+  takes turns. A 32x28 one is 8 sprites; room 8,9's two rhinos, Vale, his
+  blade, three small creatures and the flame are 30 of the 32. M6 must give
+  the manager slots for them and count; if a room needs more than 32, the
+  manager's turns take care of it as they do of a line.
+- **Tests.** `test/moves.sh`: each tick now has Vale's frame and blade
+  shape, and **all 13 434 ticks equal the Java game's**, at 50 and 60 Hz
+  (`PlayerPainter.frameFor` and `pose`, reached by reflection, the
+  converter's `Painter`); at all 650 flips the sprites, drawn from video RAM
+  as the V9938 draws them (`test/vdp_sprites.py`: the 8 a line, the early
+  clock, the CC rule), are Vale in that frame and blade. New
+  **`test/sprites.sh`**: the ROM's test gallery shows every frame of Vale,
+  every blade shape and every bank frame, at the left edge and over the
+  panel too, 143 pages, each exactly as cut; 14 sprites on a line, Vale and
+  the blade whole every frame, the five creatures whole in 4 of 10 each.
+  `test/boot.sh` checks Vale in colour. openMSX cannot render headless (a
+  screenshot comes out black), so the V9938 model is the oracle.
+- **Timing:** the busiest frame is **49 672 Z80 cycles, 69% of a 50 Hz frame
+  (84% at 60 Hz)**, up from M4's 38 421: Vale pushing into a corner, fencing,
+  on a frame his picture changes. Loading a frame of Vale is about 6 800
+  cycles (192 bytes), its colours about 2 500, a blade shape 3 500; the
+  debug overlay now waits for a frame that loads nothing. **M6 must measure
+  first**: the creatures' AI has about 10 000 cycles left at 60 Hz in the
+  worst frame as it is, and Vale's tick (about 24 000 pushing into a wall) is
+  the place to look.
 
 ### M6 — The jungle's creatures: the swarm, rhinos, tribesmen, hippo and warthog
 

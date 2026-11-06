@@ -50,10 +50,12 @@ import wulf.world.WorldGrid;
  *       {@code scenario NAME ROOM OPEN X_FP Y_FP CHECK}, then {@code keys} and
  *       a key byte a tick (up 1, down 2, left 4, right 8, fire 16);
  *   <li>{@code OUT_PREFIX_expected.txt}: per scenario {@code scenario NAME},
- *       then after each tick {@code X_FP Y_FP FACING SWING WALK SX SY SW SH ROOM FREEZE}:
+ *       then after each tick {@code X_FP Y_FP FACING SWING WALK SX SY SW SH ROOM FREEZE FRAME BLADE}:
  *       the feet, the facing (Direction8's order), the tick into the stroke
  *       (-1 none), ticks walked, the sabre's hit box (all 0 when none), the
- *       room (row * 16 + col) and the frozen ticks left.
+ *       room (row * 16 + col), the frozen ticks left, the frame he is drawn in
+ *       (player.h) and the blade's shape (blade.h; -1 none), as the Java
+ *       game's PlayerPainter picks them.
  * </ul>
  */
 public final class MoveTraces {
@@ -216,6 +218,7 @@ public final class MoveTraces {
     static void trace(Content c, WorldGrid grid, Scenario s, StringBuilder expected) {
         expected.append("scenario ").append(s.name()).append('\n');
         Simulation sim = simulation(c, grid, s.open(), s.xFp(), s.yFp());
+        List<String> frames = PlayerSprite.frameIds(c.player());
         boolean fireWas = false;
         for (int k : s.keys()) {
             boolean fire = (k & 16) != 0;
@@ -226,8 +229,20 @@ public final class MoveTraces {
             expected.append(p.xFp()).append(' ').append(p.yFp()).append(' ').append(p.facing().ordinal())
                     .append(' ').append(p.swingTick()).append(' ').append(p.walkTicks()).append(' ')
                     .append(b.isEmpty() ? "0 0 0 0" : b.x() + " " + b.y() + " " + b.w() + " " + b.h())
-                    .append(' ').append(sim.room().index()).append(' ').append(sim.freezeRemaining()).append('\n');
+                    .append(' ').append(sim.room().index()).append(' ').append(sim.freezeRemaining())
+                    .append(' ').append(frame(frames, p, c.player(), s))
+                    .append(' ').append(Painter.bladeShape(p, c.player(), !b.isEmpty(), sim.tick())).append('\n');
         }
+    }
+
+    /** The frame of player_frames.bin the Java game draws him in. */
+    static int frame(List<String> frames, Player p, PlayerData rules, Scenario s) {
+        String f = Painter.frameFor(p, rules);
+        int i = frames.indexOf(f);
+        if (i < 0) {
+            throw new ConvertException(s.name() + ": the Java game draws Vale as '" + f + "', a frame the ROM has not got");
+        }
+        return i;
     }
 
     /** The keys as the Java game's input; fire is pressed when it was not held the tick before. */

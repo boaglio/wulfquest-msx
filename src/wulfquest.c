@@ -1,10 +1,11 @@
-// Wulf Quest for MSX2. M4: Ranger Vale walks the whole map (AGENTS.md §10,
-// M3 and M4).
+// Wulf Quest for MSX2. M5: Ranger Vale walks the whole map, in colour
+// (AGENTS.md §10, M3 to M5).
 //
 // The game loop: 50 ticks a second, driven by the vertical interrupt; on a
 // 60 Hz machine every sixth frame has no tick, so the game runs at the same
-// speed (§6). A frame starts by showing Vale as the last tick left him, two
-// one-colour hardware sprites, while the screen is blank; then its ticks run,
+// speed (§6). A frame starts by showing Vale as the last tick left him, four
+// layered hardware sprites and his blade (sprites.c), while the screen is
+// blank; then its ticks run,
 // each reading one input state and moving him (vale.c).
 //
 // When he walks into another room, it is drawn on the hidden page while the
@@ -30,6 +31,10 @@
 #include "room.h"
 #include "vale.h"
 #include "overlay.h"
+#include "sprites.h"
+#include "player_hand.h"
+#define BLADE_TABLES
+#include "blade.h"
 
 // MSXgl's start-up does not clear RAM: a global with no initial value starts
 // as whatever the RAM held. So every one here has one.
@@ -64,7 +69,7 @@ static i16 s_RoomX;  // the room's top-left, world pixels
 static i16 s_RoomY;
 static u8 s_ValeFrame = 0xFF;
 
-static void DrawVale();
+static void DrawSprites();
 
 // test/moves.sh breaks here when a frame has been put on screen: the pages
 // and Vale's sprites, all of it while the screen is blank.
@@ -92,7 +97,7 @@ static void ShowRoom()
 	Halt();
 	VDP_SetPage(hidden);
 	s_Shown = hidden;
-	DrawVale();
+	DrawSprites();
 	Test_Shown();
 }
 
@@ -152,6 +157,39 @@ void Test_FrameEnd()
 	__asm__("nop");
 }
 
+// test/sprites.sh's bench (M5): the VDP's time to restore a big creature's
+// background (HMMM, op 0) or to draw one over it (LMMM, transparent, op 1),
+// g_BenchW x g_BenchH, 16 times on the hidden page, between two breakpoints.
+u8 g_BenchGo = 0;
+u8 g_BenchOp = 0;
+u8 g_BenchW = 0;
+u8 g_BenchH = 0;
+
+void Test_BenchStart()
+{
+	__asm__("nop");
+}
+
+void Test_BenchEnd()
+{
+	__asm__("nop");
+}
+
+static void Bench()
+{
+	u16 top = (u16)(1 - s_Shown) * 256;
+	Test_BenchStart();
+	for (u8 i = 0; i < 16; i++)
+	{
+		if (g_BenchOp == 0)
+			VDP_CommandHMMM(0, 3 * 256 + 128, 64, top + 64, g_BenchW, g_BenchH);
+		else
+			VDP_CommandLMMM(0, 2 * 256, 64, top + 64, g_BenchW, g_BenchH, VDP_OP_TIMP);
+		VDP_CommandWait();
+	}
+	Test_BenchEnd();
+}
+
 // One tick; TRUE when Vale has walked into another room.
 static bool Tick()
 {
@@ -193,45 +231,100 @@ static void Flip()
 		Tick();
 }
 
-// Vale as two 16x16 sprites, one above the other, in his frame's patterns 0
-// and 4. Their attributes go in one write; their colours only when they change.
-static u8 s_ValeSat[8] = { 0 };
-static u8 s_ValeColour = 0xFF;
+// Test hooks for test/sprites.sh (M5): with g_TestGallery set the game
+// stands still and shows, instead of Vale where he is, his frame
+// g_TestValeFrame with blade g_TestValeBlade (-1 none) at g_TestValeX,
+// g_TestValeY (the sprite's top-left on the screen), and g_TestCount frames
+// of the sprite bank, g_TestFrame[i] at g_TestSpriteX[i], g_TestSpriteY[i].
+u8  g_TestGallery = 0;
+u8  g_TestValeFrame = 0;
+i8  g_TestValeBlade = -1;
+i16 g_TestValeX = 0;
+i16 g_TestValeY = 0;
+u8  g_TestCount = 0;
+u8  g_TestFrame[SPR_SMALL] = { 0 };
+i16 g_TestSpriteX[SPR_SMALL] = { 0 };
+i16 g_TestSpriteY[SPR_SMALL] = { 0 };
 
-static void DrawVale()
+static i8 s_BladeShape = -1;
+static bool s_Loaded = FALSE;   // DrawSprites loaded a frame or a shape this frame
+static u8 s_SmallFrame[SPR_SMALL] = { 0 };
+
+// Vale (four layered sprites, PlayerPainter's frame), his blade out of his
+// hand while it is out, and whatever else is to be shown, in a frame's blank.
+static void DrawSprites()
 {
-	u8 f = Vale_Frame();
-	if (f != s_ValeFrame)
-	{
-		Data_LoadValeFrame(f, g_SpritePatternHigh, g_SpritePatternLow);
-		s_ValeFrame = f;
-	}
+	u8 f = g_ValeFrame;
+	i8 blade = g_ValeBlade;
 	i16 sx = FP_PX(g_ValeX) - s_RoomX - PLAYER_ORIGIN_X;
 	i16 sy = FP_PX(g_ValeY) - s_RoomY - PLAYER_ORIGIN_Y;
-	if (sx < -32 || sx >= PLAYFIELD_W || sy < -32 || sy >= PLAYFIELD_H)
+	if (g_TestGallery)
 	{
-		VDP_SetSpritePositionY(0, VDP_SPRITE_DISABLE_SM2);   // not in this room (the open-world tests)
-		return;
+		f = g_TestValeFrame;
+		blade = g_TestValeBlade;
+		sx = g_TestValeX;
+		sy = g_TestValeY;
 	}
-	u8 colour = PLAYER_INK;
-	if (sx < 0)
+	s_Loaded = FALSE;
+	if (f != s_ValeFrame)
 	{
-		sx += 32;   // the early clock draws him 32 px further left
-		colour |= VDP_SPRITE_EC;
+		s_Loaded = TRUE;
+		Data_LoadValeFrame(f, g_SpritePatternHigh, Sprites_PatternAddress(SLOT_VALE), Sprites_Colours(SLOT_VALE));
+		Sprites_Changed(SLOT_VALE);
+		s_ValeFrame = f;
 	}
-	if (colour != s_ValeColour)
+	Sprites_Begin();
+	if (blade < 0 || g_PlayerHand[f * 2] < 0)
+		Sprites_Put(SLOT_BLADE, -128, -128);   // off the screen: held below it
+	else
 	{
-		VDP_FillVRAM(colour, g_SpriteColorLow, g_SpriteColorHigh, 32);   // sprites 0 and 1, 16 lines each
-		s_ValeColour = colour;
+		if (blade != s_BladeShape)
+		{
+			s_Loaded = TRUE;
+			Data_LoadBlade((u8)blade, g_SpritePatternHigh, Sprites_PatternAddress(SLOT_BLADE));
+			s_BladeShape = blade;
+		}
+		const i8* at = g_BladeAt + ((u8)blade << 2);
+		i8 hx = g_PlayerHand[f * 2];
+		i8 hy = g_PlayerHand[f * 2 + 1];
+		Sprites_SetOffset(SLOT_BLADE, 0, hx + at[0], hy + at[1]);
+		Sprites_SetOffset(SLOT_BLADE, 1, hx + at[2], hy + at[3]);
+		Sprites_Put(SLOT_BLADE, sx, sy);
 	}
-	// A sprite shows one line below its Y.
-	s_ValeSat[0] = (u8)(sy - 1);
-	s_ValeSat[1] = (u8)sx;
-	s_ValeSat[2] = 0;
-	s_ValeSat[4] = (u8)(sy + 15);
-	s_ValeSat[5] = (u8)sx;
-	s_ValeSat[6] = 4;
-	VDP_WriteVRAM(s_ValeSat, g_SpriteAttributeLow, g_SpriteAttributeHigh, 8);
+	Sprites_Put(SLOT_VALE, sx, sy);
+	if (g_TestGallery)
+	{
+		for (u8 i = 0; i < g_TestCount; i++)
+		{
+			if (g_TestFrame[i] != s_SmallFrame[i])
+			{
+				Data_LoadSpriteFrame(g_TestFrame[i], g_SpritePatternHigh, Sprites_PatternAddress(SLOT_SMALL + i),
+					Sprites_Colours(SLOT_SMALL + i));
+				Sprites_Changed(SLOT_SMALL + i);
+				s_SmallFrame[i] = g_TestFrame[i];
+			}
+			Sprites_Put(SLOT_SMALL + i, g_TestSpriteX[i], g_TestSpriteY[i]);
+		}
+	}
+	Sprites_End();
+}
+
+// Once: the slots' fixed parts. Vale's lower block is 16 px below his upper;
+// the blade is one colour a sprite; the bank's frames are not loaded yet.
+static void SpritesInit()
+{
+	Sprites_Init();
+	Sprites_SetOffset(SLOT_VALE, 2, 0, 16);
+	Sprites_SetOffset(SLOT_VALE, 3, 0, 16);
+	u8* c = Sprites_Colours(SLOT_BLADE);
+	for (u8 l = 0; l < 16; l++)
+	{
+		c[l] = BLADE_INK;
+		c[16 + l] = BLADE_HILT;
+	}
+	Sprites_Changed(SLOT_BLADE);
+	for (u8 i = 0; i < SPR_SMALL; i++)
+		s_SmallFrame[i] = 0xFF;
 }
 
 void main()
@@ -243,8 +336,7 @@ void main()
 	VDP_SetColor(0);
 	VDP_SetSpriteTables(VDP_G5_ADDR_SPT, VDP_G5_ADDR_SAT);
 	VDP_SetSpriteFlag(VDP_SPRITE_SIZE_16);
-	VDP_SetSpritePositionY(0, VDP_SPRITE_DISABLE_SM2);
-	VDP_SetSpritePositionY(2, VDP_SPRITE_DISABLE_SM2);   // only Vale's two
+	SpritesInit();
 	VDP_EnableSprite(TRUE);
 	Data_LoadScenery();
 	Overlay_Init();
@@ -268,10 +360,10 @@ void main()
 			g_LateFrames += frames - 1;
 
 		// First what the last ticks did, while the screen is blank.
-		DrawVale();
+		DrawSprites();
 		Test_Shown();
 
-		u8 ticks = TicksIn(frames);
+		u8 ticks = g_TestGallery ? 0 : TicksIn(frames);
 		if (ticks > MAX_CATCHUP_TICKS)
 			ticks = MAX_CATCHUP_TICKS;
 		while (ticks--)
@@ -281,9 +373,17 @@ void main()
 				last = g_JIFFY;   // the frames the drawing took are not late
 				break;
 			}
-		Overlay_Update(s_Shown);
+		// The debug line, but not in a frame that loaded sprites: those are the busy ones.
+		if (!s_Loaded)
+			Overlay_Update(s_Shown);
 		Test_FrameEnd();
 
+		if (g_BenchGo)
+		{
+			Bench();
+			g_BenchGo = 0;
+			last = g_JIFFY;
+		}
 		if (g_TestStart)
 		{
 			g_TestMode = 1;

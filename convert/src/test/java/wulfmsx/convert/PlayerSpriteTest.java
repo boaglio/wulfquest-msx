@@ -2,6 +2,7 @@ package wulfmsx.convert;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.util.Arrays;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -10,7 +11,7 @@ import wulf.data.SpriteData;
 import wulf.sim.Simulation;
 import wulf.world.WorldGrid;
 
-/** M3: Vale's sprite frames read back as his art, in the layout player.h gives the C. */
+/** M3, M5: Vale's sprite frames read back as his art, in the layout player.h gives the C. */
 class PlayerSpriteTest {
 
     static Content content;
@@ -20,27 +21,33 @@ class PlayerSpriteTest {
     static void load() {
         content = Content.load(ConvertTest.DATA);
         vale = new PlayerSprite(content.player(), content.sprites().get(content.player().sprite()),
-                content.palette(), new VdpPalette(content.palette()), new WorldGrid(content.rooms()),
+                VdpPalette.forGame(content), new WorldGrid(content.rooms()),
                 content.map().startRoom());
     }
 
     @Test
-    void everyFrameReadsBackAsItsArtLessTheOutline() {
+    void everyFrameReadsBackAsItsArtButForTheChangesReported() {
         SpriteData sprite = content.sprites().get(content.player().sprite());
         Map<String, byte[]> art = sprite.decode("player");
-        int outline = content.palette().indexOf("black");
+        VdpPalette p = VdpPalette.forGame(content);
         byte[] blob = vale.blob();
         assertThat(blob).hasSize(vale.ids().size() * PlayerSprite.FRAME_BYTES);
         for (int f = 0; f < vale.ids().size(); f++) {
-            byte[] px = art.get(vale.ids().get(f));
-            for (int y = 0; y < 32; y++) {
-                for (int x = 0; x < 16; x++) {
-                    int b = blob[f * PlayerSprite.FRAME_BYTES + (y / 16) * 32 + (x / 8) * 16 + y % 16];
-                    boolean set = (b & 0x80 >> (x % 8)) != 0;
-                    boolean painted = y < 24 && px[y * 16 + x] >= 0 && px[y * 16 + x] != outline;
-                    assertThat(set).as("%s at %d,%d", vale.ids().get(f), x, y).isEqualTo(painted);
+            String id = vale.ids().get(f);
+            byte[] px = art.get(id);
+            int[] shown = SpriteCut.shown(Arrays.copyOfRange(blob, f * PlayerSprite.FRAME_BYTES,
+                    (f + 1) * PlayerSprite.FRAME_BYTES), 16, 32);
+            int[] want = new int[16 * 32];
+            for (int i = 0; i < 16 * 24; i++) {
+                want[i] = p.vdpColour(px[i]);
+            }
+            for (SpriteCut.Change ch : vale.changes()) {
+                if (ch.frame().equals(id)) {
+                    assertThat(want[ch.y() * 16 + ch.x()]).isEqualTo(p.vdpColour(ch.from()));
+                    want[ch.y() * 16 + ch.x()] = ch.to();
                 }
             }
+            assertThat(shown).as(id).isEqualTo(want);
         }
     }
 
