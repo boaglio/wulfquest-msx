@@ -35,10 +35,15 @@ public final class PlayerSprite {
     public static final int FRAME_BYTES = 2 * SpriteCut.BLOCK_BYTES;
     /** The animation he falls with. */
     static final String DIE = "die";
+    /** The frame he sits in, knocked down (PlayerPainter.SIT_FRAME). */
+    static final String SIT = "side_sit";
     private static final int W = 16;
     private static final int H = 24;
 
     private final List<String> ids = new ArrayList<>();
+    private final Map<String, byte[]> art;
+    private final VdpPalette vdp;
+    private final String spriteName;
     private final byte[] blob;
     private final List<SpriteCut.Change> changes = new ArrayList<>();
     private final int[] hand;
@@ -55,6 +60,9 @@ public final class PlayerSprite {
                     + "; the MSX2 draws him as two 16x16 sprites, so he must be " + W + "x" + H);
         }
         Map<String, byte[]> frames = sprite.decode(source);
+        this.art = frames;
+        this.vdp = vdp;
+        this.spriteName = rules.sprite();
         Map<String, Map<String, SpriteData.Point>> anchors = sprite.anchors();
         this.originX = sprite.origin().x();
         this.originY = sprite.origin().y();
@@ -119,12 +127,38 @@ public final class PlayerSprite {
         }
         // After the views, the fall (§11.7): the die animation, its last frame held while he is down.
         ids.addAll(rules.animation(DIE).frames());
+        // Then sitting, knocked down by a flower (M8, PlayerPainter.SIT_FRAME): right, left.
+        ids.add(SIT);
+        ids.add(SIT + AnimationValidator.MIRROR_SUFFIX);
         return ids;
     }
 
     static int[] startOf(PlayerData rules, CollisionWorld world, RoomAddress start) {
         Simulation sim = Simulation.startingIn(rules, world, 0, start);
         return new int[] {sim.player().xFp(), sim.player().yFp()};
+    }
+
+    /**
+     * Every frame inked in a flower's colour (M8, PlayerPainter: Sprite.blitInked with the
+     * colour's bright index, its plain twin, black kept), in the same order and layout as
+     * {@link #blob()}; its changed pixels go to {@code changes}, as sprite {@code name}.
+     */
+    public byte[] inked(int plain, int bright, int keep, String name, List<SpriteCut.Change> changes) {
+        byte[] out = new byte[ids.size() * FRAME_BYTES];
+        for (int i = 0; i < ids.size(); i++) {
+            byte[] px = Ink.ink(art.get(ids.get(i)), W, plain, bright, keep);
+            SpriteCut.Frame f = SpriteCut.cut(vdp, name, ids.get(i), px, W, H);
+            System.arraycopy(f.bytes(), 0, out, i * FRAME_BYTES, FRAME_BYTES);
+            changes.addAll(f.changes());
+        }
+        return out;
+    }
+
+    /** The inked sets' changed pixels, as Convert collects them (M8). */
+    final List<SpriteCut.Change> inkedChanges = new ArrayList<>();
+
+    List<SpriteCut.Change> inkedChanges() {
+        return inkedChanges;
     }
 
     public List<String> ids() {
@@ -167,7 +201,9 @@ public final class PlayerSprite {
         sb.append("#define PLAYER_FRAME_POSE\t").append(GAIT).append('\n');
         sb.append("#define PLAYER_FRAME_POSE_GAIT\t").append(GAIT + POSES).append('\n');
         sb.append("#define PLAYER_FRAME_DIE\t").append(VIEWS.size() * PER_VIEW).append("\t// the die frames, after the views\n");
-        sb.append("#define PLAYER_DIE_FRAMES\t").append(ids.size() - VIEWS.size() * PER_VIEW).append('\n');
+        sb.append("#define PLAYER_FRAME_SIT\t").append(ids.indexOf(SIT))
+                .append("\t// sitting, knocked down (M8): facing right, then left\n");
+        sb.append("#define PLAYER_DIE_FRAMES\t").append(ids.indexOf(SIT) - VIEWS.size() * PER_VIEW).append('\n');
         for (int v = 0; v < VIEWS.size(); v++) {
             sb.append("#define PLAYER_VIEW_").append(Gen.cName(VIEWS.get(v))).append('\t').append(v).append('\n');
         }

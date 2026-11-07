@@ -27,7 +27,9 @@
 set throttle off
 set ::jungle 0
 set ::quest 0
+set ::game 0
 set ::beasts [expr {[info exists env(MOVES_BEASTS)] ? $env(MOVES_BEASTS) : 0}]
+set ::flame [expr {[info exists env(MOVES_FLAME)] ? $env(MOVES_FLAME) : 255}]
 
 foreach pair $env(MOVES_SYMS) {
     lassign [split $pair =] name addr
@@ -80,7 +82,9 @@ proc jungle {} {
         set i [debug read memory [expr {$::a(g_Here) + $k}]]
         append s " [peekat g_CSpecies $i 1 0] [peekat g_CMode $i 1 0] [peekat g_CModeTick $i 1 0]"
         append s " [peekat g_CX $i 4 1] [peekat g_CY $i 4 1] [peekat g_CTimer $i 2 1] [peekat g_CPhase $i 2 1]"
-        append s " [peekat g_CAux $i 2 1] [peekat g_CFace $i 1 1] [peekat g_CHome $i 1 0]"
+        # The flame (M8) is no room's: the Java game's -1.
+        set home [expr {[peekat g_CSpecies $i 1 0] == $::flame ? -1 : [peekat g_CHome $i 1 0]}]
+        append s " [peekat g_CAux $i 2 1] [peekat g_CFace $i 1 1] $home"
     }
     append s " B"
     for {set b 0} {$b < $::beasts} {incr b} {
@@ -109,6 +113,14 @@ proc quest {} {
     append s " [peek g_WulfMoveTicks 2]"
     return $s
 }
+# The rest of the game (M8), as JungleChecks.gameLine writes it.
+proc game {} {
+    set s "M [peek g_Score 4] [peek g_BestScore 4] [peek g_ContinuesUsed] [peek g_EffectKind] [peek g_EffectOrchid 1 1]"
+    append s " [peek g_EffectTicks 2] [peek g_TreasuresTaken 2] [peek g_MapTaken] [peek g_EyesTaken] [peek g_GlassesTaken]"
+    append s " [peek g_WayTicks 2] [peek g_HintTicks] [peek g_HintDirection] [peek g_HintToExit] [peek g_FlameWait 2]"
+    append s " [expr {[peek g_OrchidHere] ? [peek g_OrchidStart 4 1] : "-"}]"
+    return $s
+}
 proc rd {addr n signed} {
     set v 0
     for {set i [expr {$n - 1}]} {$i >= 0} {incr i -1} {
@@ -134,13 +146,16 @@ proc next_scenario {} {
     incr ::scenario
     if {$::scenario >= [llength $::plan]} { finish ok }
     lassign [lindex $::plan $::scenario] head ::keys
-    lassign $head ::name room open x y check seed quest endless
+    lassign $head ::name room open x y check seed level endless easy
     puts $::out "scenario $::name"
     poke g_TestOpen $open
     set ::jungle [expr {$seed >= 0}]
     poke g_TestJungle $::jungle
-    set ::quest [expr {$quest eq "1"}]
+    set ::quest [expr {$level >= 1}]
+    set ::game [expr {$level == 2}]
     poke g_TestQuest $::quest
+    poke g_TestGame $::game
+    poke g_TestEasy [expr {$easy eq "1"}]
     poke g_TestEndless [expr {$endless eq "1"}]
     if {$::jungle} {
         # The seed as the Java game's long, little-endian (Tcl's integers are unbounded).
@@ -173,6 +188,7 @@ proc on_tick {} {
             puts $::out [state]
             if {$::jungle} { puts $::out [jungle] }
             if {$::quest} { puts $::out [quest] }
+            if {$::game} { puts $::out [game] }
         }
         if {$::tick == [llength $::keys]} {
             set ticks [expr {([peek g_Ticks 2] - $::ticks0) & 0xFFFF}]

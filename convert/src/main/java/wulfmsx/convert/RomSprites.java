@@ -21,6 +21,8 @@ import wulf.data.SpriteData;
  */
 public final class RomSprites {
 
+    /** An inked frame's name: the frame's, then this (Ink). */
+    public static final String INKED = "_inked";
     /** The suffix of a silhouette's frame id. */
     public static final String INK = "_ink";
     /** The colour a silhouette's lines have in the blob: the ROM sets the tint. */
@@ -53,14 +55,41 @@ public final class RomSprites {
             if (cols > 2 || rows > 2) {
                 throw new ConvertException(source + ": " + w + "x" + h + "; the ROM's sprites are at most 2x2 blocks");
             }
-            Map<String, byte[]> decoded = s.decode(source);
+            Map<String, byte[]> decoded = new java.util.LinkedHashMap<>(s.decode(source));
+            // Frames the ROM never shows are left out: it numbers its frames in a byte.
+            if (list.unmirrored().contains(name)) {
+                decoded.keySet().removeIf(f -> s.mirror() != null && s.mirror().containsKey(f));
+            }
+            if (name.equals(c.orchids().sprite())) {
+                // The orchids that grow (§15): the original's colours; not the invented ones'.
+                java.util.Set<String> colours = new java.util.HashSet<>();
+                c.orchids().orchids().forEach(o -> colours.add(o.colour()));
+                decoded.keySet().removeIf(f -> f.contains("_") && !colours.contains(f.substring(f.indexOf('_') + 1)));
+            }
             for (Map.Entry<String, byte[]> f : decoded.entrySet()) {
+                if (list.silhouettesOnly().contains(name)) {
+                    break;   // drawn only in one colour (a treasure, blitTinted)
+                }
                 SpriteCut.Frame cut = SpriteCut.cut(vdp, name, f.getKey(), f.getValue(), w, h);
                 entries.add(new Entry(name, f.getKey(), frames.size(), w, h, s.origin().x(), s.origin().y(), offset,
                         cols, rows));
                 frames.add(cut.bytes());
                 offset += cut.bytes().length;
                 changes.addAll(cut.changes());
+            }
+            if (list.inked().containsKey(name)) {
+                // Sprite.blitInked's, in one colour and its plain twin, the outline kept (Ink).
+                int bright = c.palette().indexOf(list.inked().get(name));
+                int keep = c.palette().indexOf("black");
+                for (Map.Entry<String, byte[]> f : decoded.entrySet()) {
+                    byte[] px = Ink.ink(f.getValue(), w, bright - 8, bright, keep);
+                    SpriteCut.Frame cut = SpriteCut.cut(vdp, name, f.getKey() + INKED, px, w, h);
+                    entries.add(new Entry(name, f.getKey() + INKED, frames.size(), w, h, s.origin().x(),
+                            s.origin().y(), offset, cols, rows));
+                    frames.add(cut.bytes());
+                    offset += cut.bytes().length;
+                    changes.addAll(cut.changes());
+                }
             }
             if (list.silhouettes().contains(name)) {
                 for (Map.Entry<String, byte[]> f : decoded.entrySet()) {
@@ -137,6 +166,15 @@ public final class RomSprites {
         return later;
     }
 
+    /** frames.bin's bytes a frame. */
+    public static final int FRAME_INFO_BYTES = 8;
+    private byte[] frameInfo = new byte[0];
+
+    /** frames.bin, written by {@link #tables}. */
+    public byte[] frameInfo() {
+        return frameInfo.clone();
+    }
+
     /** Where each frame starts in its chunk, the chunk, its blocks (columns << 4 | rows), and its origin. */
     void tables(RamTables t) {
         int n = entries.size();
@@ -152,12 +190,21 @@ public final class RomSprites {
             oy[i] = e.originY();
         }
         int[] ch = chunk.stream().mapToInt(Integer::intValue).toArray();
-        t.u16("g_SpriteOffset", off, "The sprite bank's frames: where each starts in its chunk, sprites_N.bin,"
-                + " the chunk, its blocks (columns << 4 | rows), its origin (its feet, from its top-left).");
-        t.u8("g_SpriteChunk", ch, null);
-        t.u8("g_SpriteBlocks", blocks, null);
-        t.u8("g_SpriteOriginX", ox, null);
-        t.u8("g_SpriteOriginY", oy, null);
+        // frames.bin, FRAME_INFO_BYTES a frame (M8: out of RAM, which these 1.5 KB no longer fit):
+        // where it starts in its chunk (2 bytes), the chunk, its blocks, its origin x, y.
+        frameInfo = new byte[n * FRAME_INFO_BYTES];
+        for (int i = 0; i < n; i++) {
+            int at = i * FRAME_INFO_BYTES;
+            frameInfo[at] = (byte) off[i];
+            frameInfo[at + 1] = (byte) (off[i] >> 8);
+            frameInfo[at + 2] = (byte) ch[i];
+            frameInfo[at + 3] = (byte) blocks[i];
+            frameInfo[at + 4] = (byte) ox[i];
+            frameInfo[at + 5] = (byte) oy[i];
+            if (ox[i] > 255 || oy[i] > 255 || off[i] > 65535) {
+                throw new ConvertException("sprite bank frame " + i + ": its numbers do not fit frames.bin");
+            }
+        }
     }
 
     public String header() {
@@ -170,6 +217,8 @@ public final class RomSprites {
                 .append(SILHOUETTE_COLOUR).append(".\n");
         sb.append("#define SPRITE_FRAMES\t\t").append(entries.size()).append('\n');
         sb.append("#define SPRITE_BLOCK_BYTES\t").append(SpriteCut.BLOCK_BYTES).append('\n');
+        sb.append("#define FRAME_INFO_BYTES\t").append(FRAME_INFO_BYTES)
+                .append("\t// frames.bin: offset (2), chunk, blocks, origin x, y\n");
         String last = null;
         for (Entry e : entries) {
             if (!e.sprite().equals(last)) {

@@ -55,4 +55,4 @@ proc poll {} {
 }
 
 # C-BIOS shows its logo for a few seconds before it starts the cartridge.
-after time 10 { step { set ::deadline [expr {[machine_info time] + 5}]; poll } }
+after time 10 { step { set ::deadline [expr {[machine_info time] + 20}]; poll } }   ;# a new game takes seconds to lay out (M8)

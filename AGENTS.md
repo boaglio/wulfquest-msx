@@ -752,6 +752,65 @@ a scripted scene; a flame arrives after the data's time in a room; Easy and
 Hard differ exactly as the data says; a scripted run's score matches the
 score the same route gives in the Java game, to the point.
 
+**Landed (2026-11-07), timing slipped as M6's.** Specifics:
+
+- **The rules** (`src/game.c`, banked in segment 27, with the items, treasures
+  and shrines in `quest.c` and the flame in `jungle.c`): the score and its
+  events (a first visit, a burst creature by its frame, kind and facing, a
+  quarter, a treasure, the escape's bonuses for time and lives), the run's best
+  across continues; the orchids (one a room at the original's spot, its cycle
+  staggered from the seed, its colour drawn per cycle as `OrchidField.orchidAt`
+  draws it, with the Java game's hashes in `rng.c`) and the effects they give:
+  slowed, hastened, reversed, knocked down (sitting, the room's creatures
+  burst, the swarm stops), all untouchable while they last, white cures; the
+  flame (`tickFlame`, `lightFlame`, the `FLAME` way) and its wait; the
+  treasures laid from their own stream of the seed, taken by touch, lives
+  among them; the map scroll, the eyes and the looking glasses (the four more
+  once the amulet is whole); the shrines' hints; continues (fire at game over,
+  three a game); Easy (its lives, swarm, no flame, slower beasts and Wulf,
+  longer arrows, hints every time), all from the data (`Game.java`). Their
+  state too big for RAM is in video RAM below the screen (512 treasure
+  places, 256 orchid cycle starts).
+- **The drawing:** the orchid by stage (sprout, bud, swaying bloom, wilt); the
+  treasures as silhouettes in their kind's ink; the items, an eye and a glass
+  glancing; a hurt creature's and a stunned guardian's white flash; a
+  tribesman level with a quarter inked yellow; Vale sitting when knocked down
+  and inked in his flower's colours (`player_inked_N.bin`, one segment a
+  flower, `Ink` as `Sprite.blitInked`, `InkTest` holding it to the Java
+  game's), flashing back near its end. **The glass's arrow** is the Java
+  game's `Wayfinder` path out of the room, found by the converter for every
+  set and state of the quarters taken (`ways_N.bin`, 32 KB) from the room's
+  middle: exact when Vale stands near it, an approximation elsewhere (the
+  Java game finds it from his feet, a whole-map search the Z80 cannot do).
+- **Tests.** `test/moves.sh`'s fifth plan, `test/game.json`, the game as it
+  ships (`Content.ecosystem()`, and Easy's): **72 322 ticks equal to the Java
+  game's at 50 and 60 Hz, the score among them, to the point** (an `M` line
+  a tick). An orchid scene where Vale picks the room's orchid each bloom and
+  walks with it (`OrchidScene`: torpor, haste, reversal and knockdown all
+  shown), a flame arriving after 256 ticks, the map scroll, a shrine's hint,
+  a game over and a continue, and **a whole game won in Hard (score 134 361)
+  and in Easy (125 871)**, each the Java game's to the point, 72 and 70
+  treasures taken. At every flip Vale's sprites are his drawn frame, sitting
+  and inked included.
+- **RAM and the bank:** the sprite bank's frame tables (1.5 KB) and the beasts'
+  spots (512 bytes) moved out of RAM into ROM blobs read on demand
+  (`frames.bin`, `rooms_more.bin`); RAM ended past the BIOS's work area for a
+  while, so `build.sh` now fails when less than 512 bytes are left under
+  F380h. The bank keeps 238 frames, of the 255 a byte numbers: mirrors the ROM
+  never draws, the invented orchids' colours and treasures' own colours are
+  left out (`sprites.json`'s `unmirrored`, `silhouettesOnly`). Vale is weighted
+  four times in the palette's order, which the new sprites had pulled away
+  from him (120 changed pixels to 181); the lizard and the frog took the cost.
+  Small sprite slots went from 6 to 9: the pattern table's 64 sprites.
+- **Found on the way:** `Rng_Seed`'s 64-bit multiplication was C, 340 000
+  cycles each: in assembly now, ten times faster.
+- **Timing, slipped further:** a new game spends 3.3 s laying the treasures
+  (1 024 draws, about 11 000 cycles each), so the first room comes 11-12 s
+  after power-on (`test/boot.tcl`, `rooms.tcl` wait longer); and the plain
+  movement plan is now one frame late at 60 Hz in room 5,6 (46 000 cycles
+  of work and the BIOS's interrupt), so `moves` joined `MOVES_TIMING_SLIPPED`.
+  All for M13.
+
 ### M9 — The panel, sound and music on the PSG
 
 **For:** the game heard, and the panel read.
@@ -837,8 +896,10 @@ against the data); the plane intro plays and any key returns to the title.
 
 - **The tuning, slipped from M6:** the jungle's busiest room must hold 50
   ticks a second at 50 and 60 Hz (M6's record has the budget), with the rest
-  of the game in; then `MOVES_TIMING_SLIPPED` goes from `test/moves.sh`. And
-  a respawn must not stop the game (M7: up to 2.2 s in `Spawn_NearestFree`).
+  of the game in, and the plain movement plan never late again (M8); then
+  `MOVES_TIMING_SLIPPED` goes from `test/moves.sh`. A respawn must not stop the
+  game (M7: up to 2.2 s in `Spawn_NearestFree`), and a new game must not take
+  seconds (M8: 3.3 s of random draws; the generator is 11 000 cycles a draw).
 - Check every timing on a 60 Hz machine: the tick-skip keeps game speed equal
   to 50 Hz; music and effects keep their pitch and tempo.
 - Run on real MSX2 hardware (at least one European and one Japanese machine,

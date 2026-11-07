@@ -16,3 +16,12 @@ extern u8 g_RngState[16];
 // new Rng(Rng.hash(seed, stream)).nextInt(bound): a draw from a stream of its
 // own (the amulet set's, M7), the game's generator left as it was.
 u16 Rng_Stream(const u8* seed, const u8* stream, u16 bound);
+
+// new Rng(Rng.hash(v0, .., vn-1)): the generator seeded from the hash of n
+// longs in g_RngValues (8 bytes each, little-endian; Rng_Value sets one from
+// an int, sign and all). Save and restore the game's generator around it.
+extern u8 g_RngValues[4][8];
+void Rng_Value(u8 i, i32 v);
+void Rng_HashSeed(u8 n);
+void Rng_Save(u8* keep);
+void Rng_Restore(const u8* keep);

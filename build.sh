@@ -76,7 +76,12 @@ for lst in $(for f in src/wulfquest_s*_b1.c; do echo "build/msxgl/$(basename "$f
     done)
     [[ -z "$bad" ]] || die "$(basename "$lst" .lst) calls code in segment 1, which banked code hides: $bad"
 done
-echo "build.sh: build/wulfquest.rom ($(stat -c %s build/wulfquest.rom) bytes)"
+# RAM: the game's variables end below the BIOS's work area (F380h) with room
+# for the stack (512 bytes) left (M8: the RAM tables once ran past it).
+ram_end=$(awk '$2 == "s__BSS" { print $1 }' build/msxgl/wulfquest.map)
+(( 16#$ram_end <= 16#F380 - 512 )) \
+    || die "RAM runs to ${ram_end}h: the stack needs 512 bytes below F380h (see build/msxgl/wulfquest.map)"
+echo "build.sh: build/wulfquest.rom ($(stat -c %s build/wulfquest.rom) bytes), RAM to ${ram_end#0000}h"
 
 if [[ "${1:-}" == test ]]; then
     echo "build.sh: the converter's tests"

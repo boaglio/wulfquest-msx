@@ -23,13 +23,15 @@
 #include "move.h"
 #include "quest.h"
 #include "quest_data.h"
+#include "game.h"
+#include "game_data.h"
 
 #define ONE			(1 << FIXED_SHIFT)
 #define FIXED(px)	((i32)(px) << FIXED_SHIFT)
 #define MAP_W_FP	((i32)GRID_W * PLAYFIELD_W * ONE)
 #define MAP_H_FP	((i32)GRID_H * PLAYFIELD_H * ONE)
-#if SWARM_SLOTS > CREATURE_POOL   // a creature comes only while here and away are fewer than SWARM_SLOTS
-#error "the creature pool is smaller than the swarm can grow"
+#if SWARM_SLOTS + 2 > CREATURE_POOL   // the swarm's SWARM_SLOTS, a flame burning and one going out
+#error "the creature pool is smaller than the swarm and the flame can grow"
 #endif
 
 u8 g_JungleOn = 0;
@@ -89,6 +91,25 @@ bool Vale_Kill()
 	g_ValeFreeze = 0;
 	g_SabreW = 0;
 	g_SabreH = 0;
+	if (g_GameOn)
+	{
+		// Whatever was in his blood dies with him; the flame goes when he falls.
+		g_EffectKind = EFFECT_NONE;
+		g_EffectOrchid = -1;
+		g_EffectTicks = 0;
+		g_EffectTotal = 0;
+		g_EffectScale = 256;
+		g_EffectUntouchable = 0;
+		for (u8 k = 0; k < g_HereN; k++)
+		{
+			u8 i = g_Here[k];
+			if (g_CSpecies[i] == FLAME_SPECIES && g_CMode[i] == CREATURE_ALIVE)
+			{
+				g_CMode[i] = CREATURE_DYING;
+				g_CModeTick[i] = 0;
+			}
+		}
+	}
 	return TRUE;
 }
 
@@ -360,11 +381,24 @@ static void HomeIn()
 //-----------------------------------------------------------------------------
 // The swarm (§12.8)
 
+// burst: a small creature bursts, and scores, however it went (swarmScore):
+// a forming puff by its frame, else its kind's, and more facing right.
 static void Burst(u8 i)
 {
+	if (g_CMode[i] == CREATURE_APPEARING)
+	{
+		u8 f = g_CModeTick[i] / SWARM_EVERY_TICKS;
+		Score_Add(g_SwarmAppearScore[f < SWARM_APPEAR_SCORES ? f : SWARM_APPEAR_SCORES - 1]);
+	}
+	else
+		Score_Add(g_CreatureScore[g_CSpecies[i]] + (g_CFace[i] > 0 ? SWARM_FACING_RIGHT_BONUS : 0));
 	g_CMode[i] = CREATURE_DYING;
 	g_CModeTick[i] = 0;
 }
+
+#if (SWARM_EVERY_TICKS & (SWARM_EVERY_TICKS - 1)) != 0
+#error "a forming puff's score frame divides by SWARM_EVERY_TICKS with a shift"
+#endif
 
 static u8 NewCreature()
 {
@@ -377,9 +411,63 @@ static u8 NewCreature()
 	return 0xFF;   // the pool's size is checked against the swarm's at compile time
 }
 
+// The flame's way (wulf.sim.ai.Flame): its course, every steerTicks; it
+// glances off whatever stops it. Its heading (Creature.dirX, dirY): one
+// flame burns at a time.
+static i8 s_FlameDX = 1;
+static i8 s_FlameDY = 0;
+#define P_STEER		g_CreatureP0
+#define P_HOMING	g_CreatureP1
+
+static void FlameDirection(i8 dx, i8 dy)
+{
+	s_FlameDX = dx;
+	s_FlameDY = dy;
+	if (dx != 0)
+		s_Face = dx;
+}
+
+static void Flame()
+{
+	if (s_Timer <= 0)
+	{
+		s_Timer = P_STEER[s_S];
+		if ((i16)Rng_Next(10000) < P_HOMING[s_S])
+		{
+			// A diagonal at him, each axis by which side he is on.
+			FlameDirection(ValeCentreX() < FP_PX(s_CX) + s_BoxX + s_BoxW / 2 ? -1 : 1,
+				ValeCentreY() < FP_PX(s_CY) + s_BoxY + s_BoxH / 2 ? -1 : 1);
+		}
+		else
+		{
+			// Direction8.N.rotate(n): N NE E SE S SW W NW.
+			u8 d = (u8)Rng_Next(8);
+			FlameDirection(d == 0 || d == 4 ? 0 : d < 4 ? 1 : -1, d == 2 || d == 6 ? 0 : d > 2 && d < 6 ? 1 : -1);
+		}
+	}
+	s_Timer--;
+	s_Aux--;
+	// Moves.step: its speed, scaled on a diagonal; blocked, it glances off.
+	i16 v = s_FlameDX && s_FlameDY ? FLAME_DIAG_FP : FLAME_SPEED_FP;
+	s_Ph = s_FlameDX < 0 ? -v : s_FlameDX > 0 ? v : 0;
+	i16 aux = s_Aux;
+	s_Aux = s_FlameDY < 0 ? -v : s_FlameDY > 0 ? v : 0;
+	i32 tx = s_CX + s_Ph;
+	i32 ty = s_CY + s_Aux;
+	MoveCreature();
+	bool bx = s_Ph != 0 && s_CX != tx;
+	bool by = s_Aux != 0 && s_CY != ty;
+	s_Ph = 0;   // its phase stays 0, its aux the time it has left
+	s_Aux = aux;
+	if (bx)
+		FlameDirection(-s_FlameDX, s_FlameDY);
+	if (by)
+		FlameDirection(s_FlameDX, -s_FlameDY);
+}
+
 void Jungle_TickCreatures()
 {
-	bool down = g_ValeMode != MODE_ALIVE;
+	bool down = g_ValeMode != MODE_ALIVE || (g_GameOn && g_EffectKind == EFFECT_KNOCKDOWN);
 	for (u8 k = 0; k < g_HereN; k++)
 	{
 		u8 i = g_Here[k];
@@ -403,9 +491,9 @@ void Jungle_TickCreatures()
 			}
 			continue;
 		}
-		if (down)
+		if (down && g_CSpecies[i] != FLAME_SPECIES)
 		{
-			Burst(i);   // with him down, every small creature in the room bursts
+			Burst(i);   // with him down (fallen, or sat by the yellow flower), every small creature bursts
 			continue;
 		}
 		if (g_CHurt[i] > 0)
@@ -413,8 +501,10 @@ void Jungle_TickCreatures()
 		Load(i);
 		if (g_CreatureBehaviour[s_S] == BEHAVIOUR_DART)
 			Dart();
-		else
+		else if (g_CreatureBehaviour[s_S] == BEHAVIOUR_HOME_IN)
 			HomeIn();
+		else
+			Flame();
 		Store();
 		g_CMoveTicks[i] = s_Moved ? g_CMoveTicks[i] + 1 : 0;
 	}
@@ -449,17 +539,21 @@ void Jungle_TickSwarm()
 		g_SwarmQuiet--;
 		return;
 	}
-	if ((u16)g_SimTick % SWARM_EVERY_TICKS != 0)
+	if ((g_GameOn && g_EffectKind == EFFECT_KNOCKDOWN) || (u16)g_SimTick % SWARM_EVERY_TICKS != 0)
 		return;
 #if (65536 % SWARM_EVERY_TICKS) != 0
 #error "the swarm's tick test takes the game tick's low 16 bits"
 #endif
-	if (g_HereN >= SWARM_ROOM_MAX || g_HereN + g_AwayN >= SWARM_SLOTS)
+	u8 here = 0;
+	for (u8 k = 0; k < g_HereN; k++)
+		if (g_CSpecies[g_Here[k]] != FLAME_SPECIES)
+			here++;   // the swarm's, not the flame
+	if (here >= (g_Easy ? EASY_SWARM_ROOM_MAX : SWARM_ROOM_MAX) || here + g_AwayN >= SWARM_SLOTS)
 		return;
 	i16 lx = SWARM_AREA_X + (i16)Rng_Next(SWARM_AREA_W);
 	i16 ly = SWARM_AREA_Y + (i16)Rng_Next(SWARM_AREA_H);
 	u8 roll = (u8)Rng_Next(SWARM_PICKS);
-	u8 index = g_SwarmPick[roll < SWARM_PICK_OPEN + SWARM_PICK_OPEN_PER_QUARTER * Quest_Quarters() ? roll
+	u8 index = g_SwarmPick[roll < SWARM_PICK_OPEN + (g_Easy ? EASY_SWARM_OPEN_PER_QUARTER : SWARM_PICK_OPEN_PER_QUARTER) * Quest_Quarters() ? roll
 		: roll % SWARM_PICK_FOLD];
 	u8 tint = g_SwarmTint[Rng_Next(SWARM_TINTS)];
 	i16 x = g_RoomX + lx;
@@ -502,16 +596,87 @@ void Jungle_TickSwarm()
 	g_Here[g_HereN++] = i;
 }
 
+//-----------------------------------------------------------------------------
+// The flame (§12.7): Simulation.tickFlame and lightFlame
+
+void Jungle_TickFlame()
+{
+	if (!FLAME_COMES || (g_Easy && !EASY_FLAME))
+		return;
+	for (u8 k = 0; k < g_HereN; k++)
+	{
+		u8 i = g_Here[k];
+		if (g_CSpecies[i] == FLAME_SPECIES && g_CMode[i] == CREATURE_ALIVE)
+		{
+			if (g_CAux[i] <= 0)
+			{
+				g_CMode[i] = CREATURE_DYING;   // burnt out
+				g_CModeTick[i] = 0;
+			}
+			return;
+		}
+	}
+	if (g_FlameWait > 0)
+	{
+		g_FlameWait--;
+		return;
+	}
+	// Straight above or below him, or level with him; never on him, never in
+	// a wall: else next tick.
+	i16 px = FP_PX(g_ValeX) - g_RoomX;
+	i16 py = FP_PX(g_ValeY) - g_RoomY;
+	bool column = Rng_Next(2) == 0;
+	i16 x = column ? px : FLAME_INSET_PX + (i16)Rng_Next(PLAYFIELD_W - 2 * FLAME_INSET_PX);
+	i16 y = column ? FLAME_INSET_PX + (i16)Rng_Next(PLAYFIELD_H - 2 * FLAME_INSET_PX) : py;
+	x += g_RoomX;
+	y += g_RoomY;
+	ValeBox();
+	s_BX = x + FLAME_BOX_X;
+	s_BY = y + FLAME_BOX_Y;
+	s_BW = FLAME_BOX_W;
+	s_BH = FLAME_BOX_H;
+	if (Overlaps())
+		return;
+	s_BoxX = FLAME_BOX_X;
+	s_BoxY = FLAME_BOX_Y;
+	s_BoxW = FLAME_BOX_W;
+	s_BoxH = FLAME_BOX_H;
+	s_Scenery = TRUE;   // roomSolid
+	if (BoxBlocked(x, y))
+		return;
+	u8 i = NewCreature();
+	g_CSpecies[i] = FLAME_SPECIES;
+	g_CMode[i] = CREATURE_ALIVE;
+	g_CModeTick[i] = 0;
+	g_CX[i] = FIXED(x);
+	g_CY[i] = FIXED(y);
+	g_CTimer[i] = 0;   // Flame.spawn: a course at once
+	g_CPhase[i] = 0;
+	g_CAux[i] = FLAME_LIFE_TICKS;
+	g_CFace[i] = 1;
+	g_CHp[i] = 0;
+	g_CHurt[i] = 0;
+	g_CTint[i] = 0;
+	g_CHome[i] = 0xFF;   // no room's: it is not the swarm's
+	g_CAwayTicks[i] = 0;
+	g_CMoveTicks[i] = 0;
+	g_CId[i] = s_NextId++;
+	s_LastHit[i] = 0xFFFF;
+	s_FlameDX = 1;
+	s_FlameDY = 0;
+	g_Here[g_HereN++] = i;
+}
+
 static void Repopulate()
 {
 	// Those here wait where they are; the puffs are done with.
 	for (u8 k = 0; k < g_HereN; k++)
 	{
 		u8 i = g_Here[k];
-		if (g_CMode[i] != CREATURE_DYING)
+		if (g_CMode[i] != CREATURE_DYING && g_CSpecies[i] != FLAME_SPECIES)
 			g_Away[g_AwayN++] = i;
 		else
-			s_Used[i] = 0;
+			s_Used[i] = 0;   // a puff, or the flame: gone
 	}
 	g_HereN = 0;
 	// Any waiting in this room are back.
@@ -551,8 +716,30 @@ void Jungle_GetUp()
 
 enum { TOUCH_NONE, TOUCH_STRUCK, TOUCH_HIT };
 
+static void Easy(i16* hard, const i16* easy)
+{
+	for (u8 k = 0; k < BEAST_KINDS; k++)
+		hard[k] = easy[k];
+}
+
+#if BEAST_PARAMS_N != 7
+#error "Jungle_NewGame copies Easy's seven beast parameters"
+#endif
+
 void Jungle_NewGame()
 {
+	// The tables as the ROM has them; in Easy, the beasts at Easy's pace (BeastRules.slower).
+	Data_LoadTables();
+	if (g_GameOn && g_Easy)
+	{
+		Easy((i16*)g_BeastP0, g_EasyBeastP0);
+		Easy((i16*)g_BeastP1, g_EasyBeastP1);
+		Easy((i16*)g_BeastP2, g_EasyBeastP2);
+		Easy((i16*)g_BeastP3, g_EasyBeastP3);
+		Easy((i16*)g_BeastP4, g_EasyBeastP4);
+		Easy((i16*)g_BeastP5, g_EasyBeastP5);
+		Easy((i16*)g_BeastP6, g_EasyBeastP6);
+	}
 	for (u8 b = 0; b < BEASTS; b++)
 	{
 		u8 k = g_PlaceKind[b];
@@ -647,7 +834,8 @@ static bool OverlapsVale(u8 b)
 
 static u8 TouchBeast(u8 b)
 {
-	if (g_Beast[b].At != g_ValeRoom || g_ValeMode != MODE_ALIVE || g_ValeInvuln > 0 || !OverlapsVale(b))
+	if (g_Beast[b].At != g_ValeRoom || g_ValeMode != MODE_ALIVE || g_ValeInvuln > 0
+		|| (g_GameOn && (g_EffectKind == EFFECT_KNOCKDOWN || EFFECT_IMMUNE())) || !OverlapsVale(b))
 		return TOUCH_NONE;
 	u8 k = g_BKind[b];
 	i16 cy = FP_PX(g_Beast[b].Y) + g_BeastBoxY[k] + g_BeastBoxH[k] / 2;
@@ -674,8 +862,9 @@ static bool Follow(u8 b)
 		SetKind(b, g_Sleepers[Rng_Next(SLEEPER_KINDS)]);
 	g_Beast[b].At = to;
 	g_Beast[b].Free = 0;   // set down somewhere else
-	g_Beast[b].X = FIXED((i16)col * PLAYFIELD_W + g_SpotX[to] + g_BeastHalfW[g_BKind[b]]);
-	g_Beast[b].Y = FIXED((i16)row * PLAYFIELD_H + g_SpotY[to]);
+	Data_RoomSpot(to);
+	g_Beast[b].X = FIXED((i16)col * PLAYFIELD_W + g_SpotX + g_BeastHalfW[g_BKind[b]]);
+	g_Beast[b].Y = FIXED((i16)row * PLAYFIELD_H + g_SpotY);
 	g_Beast[b].MoveTicks = 0;
 	return TRUE;
 }
@@ -986,6 +1175,8 @@ void Jungle_Combat()
 			return;
 		}
 	}
+	if (g_GameOn && EFFECT_IMMUNE())
+		return;   // the flower's: no creature can touch him
 	ValeBox();
 	for (u8 k = 0; k < g_HereN; k++)
 	{
@@ -995,6 +1186,11 @@ void Jungle_Combat()
 		CreatureBox(i);
 		if (Overlaps())
 		{
+			if (g_CSpecies[i] == FLAME_SPECIES)
+			{
+				Vale_Kill();   // the flame: no blade can touch it
+				return;
+			}
 			// A small creature that touches him bursts either way. Fencing and
 			// facing it, that is all; otherwise it takes him with it.
 			Burst(i);

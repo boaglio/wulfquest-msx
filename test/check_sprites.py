@@ -22,14 +22,17 @@ whole in some of them, taking turns; and the ROM must have counted the
 crowded frames.
 """
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import vdp_sprites  # noqa: E402
 
 TABLES = 128 + 512 + 2048
-SMALL = 6   # the ROM's slots: 6 of one block, then 5 of up to 2x2 (sprites.h)
-BIG = 5
+# The ROM's slots (src/sprites.h): SPR_SMALL of one block, then SPR_BIG of up to 2x2.
+_SPRITES_H = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src", "sprites.h")).read()
+SMALL = int(re.search(r"#define SPR_SMALL\s+(\d+)", _SPRITES_H).group(1))
+BIG = int(re.search(r"#define SPR_BIG\s+(\d+)", _SPRITES_H).group(1))
 TURN_FRAMES = 10
 
 
@@ -45,7 +48,7 @@ def plan(gen):
         pages.append([f, f % shapes if f in hand else -1, 100, 12])
     for s in range(shapes):
         pages.append([hand[s % len(hand)], s, 100, 12])
-    # The bank's frames under Vale on each page: one-block ones in the 6 small slots, 3 a row
+    # The bank's frames under Vale on each page: one-block ones in the small slots, 3 a row
     # (6 sprites a line), bigger ones in the 5 big slots, 2 a row (8 a line), below, as many
     # as the 32 sprites hold: more would take turns, and a page is one frame.
     small = [i for i in range(bank) if g.blocks[i] == 0x11]
@@ -57,7 +60,7 @@ def plan(gen):
         objs = []
         for k in range(SMALL):
             if small:
-                objs.append((small.pop(0), 16 + (k % 3) * 40, 60 + (k // 3) * 20))
+                objs.append((small.pop(0), 16 + (k % 3) * 40, 54 + (k // 3) * 18))
         while len(objs) < SMALL:
             objs.append(None)
         # As many as the 32 sprites hold with Vale's 4, the blade's 2 and the small slots' 12.
@@ -66,7 +69,7 @@ def plan(gen):
             n = 2 * (g.blocks[big[0]] >> 4) * (g.blocks[big[0]] & 15) if big else 0
             if big and n <= room:
                 room -= n
-                objs.append((big.pop(0), 16 + (k % 2) * 48, 104 + (k // 2) * 34))
+                objs.append((big.pop(0), 16 + (k % 2) * 48, 112 + (k // 2) * 30))
         pages[p] += [o for o in objs]
         p += 1
     # Partly off the left edge, and partly over the panel.

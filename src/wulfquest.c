@@ -41,6 +41,8 @@
 #include "tables.h"
 #include "quest.h"
 #include "quest_data.h"
+#include "game.h"
+#include "game_data.h"
 
 // MSXgl's start-up does not clear RAM: a global with no initial value starts
 // as whatever the RAM held. So every one here has one.
@@ -74,7 +76,7 @@ static u8 s_Shown = 0;   // the page on screen: 0 or 1
 static i16 s_RoomX;  // the room's top-left, world pixels
 static i16 s_RoomY;
 // What each set of sprite tables has loaded (sprites.h): the back set's is drawn.
-static u8 s_ValeFrame[2] = { 0xFF, 0xFF };
+static u16 s_ValeFrame[2] = { 0xFFFF, 0xFFFF };   // frame | ink << 8
 
 static void DrawSprites();
 
@@ -267,6 +269,9 @@ u8  g_TestSeed[8];
 // without using up lives (the Java game's infiniteLives).
 u8  g_TestQuest = 0;
 u8  g_TestEndless = 0;
+// M8: with g_TestGame too, the whole game (Content.ecosystem()); g_TestEasy, in Easy.
+u8  g_TestGame = 0;
+u8  g_TestEasy = 0;
 
 static i8 s_BladeShape[2] = { -1, -1 };
 static bool s_Loaded = FALSE;   // DrawSprites loaded a frame or a shape this frame
@@ -278,8 +283,11 @@ static u8 s_SlotTint[2][SPR_SMALL + SPR_BIG];
 // rewritten from it when a sprite's look changes (the early clock, the clip),
 // so it must hold that set's frame, not the other set's.
 static u8 s_BufFrame[SPR_SMALL + SPR_BIG];
+// Each set's slot's frame's origin (frames.bin), as loaded: drawn from every frame.
+static u8 s_SlotOX[2][SPR_SMALL + SPR_BIG];
+static u8 s_SlotOY[2][SPR_SMALL + SPR_BIG];
 static u8 s_BufTint[SPR_SMALL + SPR_BIG];
-static u8 s_ValeBuf = 0xFF;
+static u16 s_ValeBuf = 0xFFFF;
 
 // Show bank frame f, in tint (0: its own colours; a silhouette takes the
 // tint), its feet at (x, y) on the screen, in slot SLOT_SMALL + n.
@@ -305,8 +313,10 @@ static void PutFrame(u8 n, u8 f, u8 tint, i16 x, i16 y)
 		s_SlotTint[set][n] = tint;
 		s_BufFrame[n] = f;
 		s_BufTint[n] = tint;
+		s_SlotOX[set][n] = g_FrameOX;
+		s_SlotOY[set][n] = g_FrameOY;
 	}
-	Sprites_Put(slot, x - g_SpriteOriginX[f], y - g_SpriteOriginY[f]);
+	Sprites_Put(slot, x - s_SlotOX[set][n], y - s_SlotOY[set][n]);
 }
 
 // The walk's frame: (s_Clock / CREATURE_WALK_TICKS_PER_FRAME) & 1, the Java
@@ -407,11 +417,94 @@ static u8 DrawQuest()
 	if (g_QuestLair >= 0)
 	{
 		s_Clock = g_GuardMoveTicks;
-		u8 v = s_Clock ? WalkPhase() : 0;
-		PutFrame(SPR_SMALL + n++, g_GuardFrame[g_QuestLair * 4 + v + (g_GuardFace < 0 ? 2 : 0)], 0,
-			FP_PX(g_GuardX) - s_RoomX, FP_PX(g_GuardY) - s_RoomY);
+		u8 v = (s_Clock ? WalkPhase() : 0) + (g_GuardFace < 0 ? 2 : 0);
+		// Stunned by a swing, it flashes white on alternate ticks (CreaturePainter.flashing).
+		bool flash = g_GameOn && g_GuardHurt > 0 && !(g_GuardHurt & 1);
+		PutFrame(SPR_SMALL + n++, flash ? g_GuardFlash[g_QuestLair * 4 + v] : g_GuardFrame[g_QuestLair * 4 + v],
+			flash ? FLASH_COLOUR : 0, FP_PX(g_GuardX) - s_RoomX, FP_PX(g_GuardY) - s_RoomY);
 	}
 	return n;
+}
+
+// QuestPainter's items and treasures, OrchidPainter's orchid: into small
+// slots from m on; the slots used after them.
+static const u8 c_Glance[4] = { 0, 1, 0, 2 };   // look ahead, right, ahead, left
+static u8 s_WayRoom = 0xFF;   // the way out of this room, read once a room and a quarter
+static u8 s_WayTaken = 0xFF;
+static u8 s_Way = 0xFF;
+
+static u8 DrawLoot(u8 m)
+{
+	u8 room = g_ValeRoom;
+	u8 glance = c_Glance[(u8)(g_SimTick / ITEM_GLANCE_TICKS) & 3];
+	if (!g_MapTaken && room == MAP_ROOM && m < SPR_SMALL)
+		PutFrame(m++, MAP_FRAME, 0, MAP_X, MAP_Y);
+	for (u8 i = 0; i < EYES; i++)
+		if (!(g_EyesTaken & (1 << i)) && g_ItemRoom[i] == room && m < SPR_SMALL)
+			PutFrame(m++, g_GlanceFrame[glance], 0, g_ItemX[i], g_ItemY[i]);
+	bool whole = Quest_Quarters() >= EXIT_REQUIRES_PIECES;
+	for (u8 i = 0; i < GLASSES; i++)
+		if (!(g_GlassesTaken & (1 << i)) && (i < GLASSES_BEFORE_WHOLE || whole) && g_ItemRoom[EYES + i] == room
+			&& m < SPR_SMALL)
+			PutFrame(m++, g_GlanceFrame[3 + glance], 0, g_ItemX[EYES + i], g_ItemY[EYES + i]);
+	for (u8 p = 0; p < 2; p++)
+	{
+		u8 t = g_RoomTreasure[p];
+		if (t && m < SPR_SMALL)
+			PutFrame(m++, g_TreasureFrame[t - 1], g_TreasureInk[t - 1], g_RoomMore[2 + 2 * p], g_RoomMore[3 + 2 * p]);
+	}
+	// The glass's arrow (WayPainter.paintArrow): at the edge where the way
+	// leaves the room, blinking, faster once time is short.
+	if (g_WayTicks > 0 && m < SPR_SMALL)
+	{
+		u16 blink = g_WayTicks <= WAY_WARN_TICKS ? WAY_WARN_BLINK_TICKS : WAY_BLINK_TICKS;
+		if (((u16)(g_SimTick / blink) & 1) == 0)
+		{
+			if (s_WayRoom != room || s_WayTaken != g_QuestTaken)
+			{
+				s_WayRoom = room;
+				s_WayTaken = g_QuestTaken;
+				s_Way = Data_Way(g_QuestSet, g_QuestTaken, room);
+			}
+			if (s_Way != 0xFF)
+			{
+				u8 edge = s_Way >> 6;
+				i16 along = (i16)(s_Way & 63) * CELL + CELL;
+				i16 x = edge == 1 ? PLAYFIELD_W - WAY_INSET_PX : edge == 3 ? WAY_INSET_PX
+					: along < WAY_INSET_PX ? WAY_INSET_PX : along > PLAYFIELD_W - WAY_INSET_PX ? PLAYFIELD_W - WAY_INSET_PX : along;
+				i16 y = edge == 2 ? PLAYFIELD_H - WAY_INSET_PX : edge == 0 ? WAY_INSET_PX
+					: along < WAY_INSET_PX ? WAY_INSET_PX : along > PLAYFIELD_H - WAY_INSET_PX ? PLAYFIELD_H - WAY_INSET_PX : along;
+				PutFrame(m++, g_ArrowFrame[edge], 0, x, y + WAY_ARROW_HALF_H);
+			}
+		}
+	}
+	if (g_OrchidHere && m < SPR_SMALL)
+	{
+		u8 stage = Game_Stage();
+		u8 o = g_OrchidWhich * 4;
+		u8 f = 0xFF;
+		if (stage == STAGE_SPROUT)
+			f = ORCHID_FRAME_SPROUT;
+		else if (stage == STAGE_BUD)
+			f = g_OrchidFrame[o];
+		else if (stage == STAGE_BLOOM)
+		{
+			// The bloom sways on its two frames (stageTick / swayTicks).
+			u16 t = g_OrchidPhase - (ORCHID_SEED_TICKS + ORCHID_SPROUT_TICKS + ORCHID_BUD_TICKS);
+			u8 sway = 0;
+			while (t >= ORCHID_SWAY_TICKS)
+			{
+				t -= ORCHID_SWAY_TICKS;
+				sway ^= 1;
+			}
+			f = g_OrchidFrame[o + 1 + sway];
+		}
+		else if (stage == STAGE_WILT)
+			f = g_OrchidFrame[o + 3];
+		if (f != 0xFF)
+			PutFrame(m++, f, 0, g_OrchidX, g_OrchidY);
+	}
+	return m;
 }
 
 static void DrawJungle()
@@ -430,8 +523,9 @@ static void DrawJungle()
 		}
 		if (g_BFace[b] < 0)
 			v += v == 4 ? 1 : 2;
-		PutFrame(SPR_SMALL + n, g_BeastFrame[k * 6 + v], 0,
-			FP_PX(g_Beast[b].X) - s_RoomX, FP_PX(g_Beast[b].Y) - s_RoomY);
+		// A tribesman level with a quarter, lit in yellow (CreaturePainter.paintBeast).
+		u8 f = g_BHint[b] && v < 4 ? g_HintFrame[v] : g_BeastFrame[k * 6 + v];
+		PutFrame(SPR_SMALL + n, f, 0, FP_PX(g_Beast[b].X) - s_RoomX, FP_PX(g_Beast[b].Y) - s_RoomY);
 		n++;
 	}
 	// Front to back: the creature nearest the bottom first, the later of two level.
@@ -467,17 +561,26 @@ static void DrawJungle()
 			u8 s = g_CSpecies[i];
 			bool flier = g_CreatureFlier[s];
 			s_Clock = flier ? g_SimTick : g_CMoveTicks[i];
-			u8 v = (flier || g_CMoveTicks[i] > 0) ? WalkPhase() : 0;
-			f = g_CreatureFrame[s * 4 + v + (g_CFace[i] < 0 ? 2 : 0)];
+			u8 v = ((flier || g_CMoveTicks[i] > 0) ? WalkPhase() : 0) + (g_CFace[i] < 0 ? 2 : 0);
+			f = g_CreatureFrame[s * 4 + v];
+			if (g_GameOn && g_CHurt[i] > 0 && !(g_CHurt[i] & 1) && s < CREATURES)
+			{
+				f = g_CreatureFlash[s * 4 + v];   // hurt: white on alternate ticks
+				tint = FLASH_COLOUR;
+			}
 		}
 		PutFrame(k, f, tint, FP_PX(g_CX[i]) - s_RoomX, FP_PX(g_CY[i]) - s_RoomY);
 	}
-	// The quarter on its pedestal, under the creatures (loot before creatures).
+	// Under the creatures, in the slots they leave: the quarter on its
+	// pedestal, the items and treasures (loot before creatures), the orchid
+	// (under everything that moves).
 	if (g_QuestOn && g_QuestLair >= 0 && !(g_QuestTaken & (1 << g_QuestLair)) && m < SPR_SMALL)
 	{
 		u8 k = g_QuestSet * LAIRS + g_QuestLair;
-		PutFrame(m, g_PieceFrame[g_QuestLair], 0, g_LairPedX[k], g_LairPedY[k]);
+		PutFrame(m++, g_PieceFrame[g_QuestLair], 0, g_LairPedX[k], g_LairPedY[k]);
 	}
+	if (g_GameOn)
+		m = DrawLoot(m);
 }
 
 // Vale (four layered sprites, PlayerPainter's frame), his blade out of his
@@ -496,15 +599,32 @@ static void DrawSprites()
 		sx = g_TestValeX;
 		sy = g_TestValeY;
 	}
+	// PlayerPainter (M8): knocked down by a flower he sits, with no hand for a
+	// blade; wearing an untouchable flower he is inked in its colour, flashing
+	// back to himself every ORCHID_TINT_FLASH_TICKS for its last WARN ticks.
+	u8 ink = 0xFF;
+	if (!g_TestGallery && g_GameOn)
+	{
+		if (g_EffectKind == EFFECT_KNOCKDOWN)
+		{
+			f = PLAYER_FRAME_SIT + (g_ValeFacing >= FACE_SW ? 1 : 0);
+			blade = -1;
+		}
+		if (g_EffectUntouchable
+			&& !(g_EffectTicks <= ORCHID_TINT_WARN_TICKS && ((g_EffectTicks / ORCHID_TINT_FLASH_TICKS) & 1) == 0))
+			ink = g_ValeInked[g_EffectOrchid];
+	}
 	s_Loaded = FALSE;
 	u8 set = Sprites_Back();
-	if (f != s_ValeFrame[set] || f != s_ValeBuf)
+	u16 key = f | ((u16)ink << 8);
+	if (key != s_ValeFrame[set] || key != s_ValeBuf)
 	{
 		s_Loaded = TRUE;
+		g_ValeInk = ink;
 		Data_LoadValeFrame(f, g_SpritePatternHigh, Sprites_PatternAddress(SLOT_VALE), Sprites_Colours(SLOT_VALE));
 		Sprites_Changed(SLOT_VALE);
-		s_ValeFrame[set] = f;
-		s_ValeBuf = f;
+		s_ValeFrame[set] = key;
+		s_ValeBuf = key;
 	}
 	Sprites_Begin();
 	if (blade < 0 || g_PlayerHand[f * 2] < 0 || (!g_TestGallery && !g_ValeVisible))   // blinked out: no blade either
@@ -532,8 +652,10 @@ static void DrawSprites()
 	{
 		// Bank frames at their top-lefts: the origin added back.
 		for (u8 i = 0; i < g_TestCount; i++)
-			PutFrame(i, g_TestFrame[i], 0, g_TestSpriteX[i] + g_SpriteOriginX[g_TestFrame[i]],
-				g_TestSpriteY[i] + g_SpriteOriginY[g_TestFrame[i]]);
+		{
+			Data_FrameOrigin(g_TestFrame[i]);
+			PutFrame(i, g_TestFrame[i], 0, g_TestSpriteX[i] + g_FrameOX, g_TestSpriteY[i] + g_FrameOY);
+		}
 	}
 	else if (g_JungleOn)
 		DrawJungle();
@@ -590,11 +712,14 @@ void main()
 		g_TestSeed[i] = 0;
 	g_TestSeed[0] = (u8)g_JIFFY;
 	g_TestSeed[1] = (u8)(g_JIFFY >> 8);
-	Rng_Seed(g_TestSeed);
-	JUNGLE(Jungle_NewGame);
 	g_JungleOn = 1;
 	g_QuestOn = 1;
+	g_GameOn = 1;
+	g_Easy = 0;   // Hard, the original's, until the title asks (M10)
+	Rng_Seed(g_TestSeed);
+	JUNGLE(Jungle_NewGame);
 	QUEST(Quest_NewGame);
+	GAME(Game_NewGame);
 	EnterRoom(PLAYER_START_X_FP, PLAYER_START_Y_FP);
 
 	bool f5 = FALSE;
@@ -647,13 +772,22 @@ void main()
 			g_ValeOpen = g_TestOpen;
 			g_JungleOn = g_TestJungle;
 			g_QuestOn = g_TestJungle && g_TestQuest;
+			g_GameOn = g_QuestOn && g_TestGame;
+			g_Easy = g_GameOn && g_TestEasy;
+			g_LivesStart = g_Easy ? EASY_LIVES : PLAYER_LIVES_START;
 			g_ValeEndless = g_TestEndless;
+			g_EffectKind = EFFECT_NONE;   // nothing left over from the last test's game
+			g_EffectScale = 256;
+			g_EffectUntouchable = 0;
+			g_OrchidHere = 0;
 			if (g_JungleOn)
 			{
 				Rng_Seed(g_TestSeed);
 				JUNGLE(Jungle_NewGame);
 				if (g_QuestOn)
 					QUEST(Quest_NewGame);
+				if (g_GameOn)
+					GAME(Game_NewGame);
 			}
 			EnterRoom(g_TestX, g_TestY);
 			g_TestStart = 0;

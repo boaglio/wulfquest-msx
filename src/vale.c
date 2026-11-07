@@ -18,6 +18,8 @@
 #include "spawn.h"
 #include "quest.h"
 #include "quest_data.h"
+#include "game.h"
+#include "game_data.h"
 
 #define ONE			(1 << FIXED_SHIFT)
 #define LEVELS		(PLAYER_MOMENTUM_MAX / PLAYER_MOMENTUM_STEP)
@@ -61,6 +63,7 @@ u8  g_ValeVisible = 1;
 u16 g_SwingSerial = 0;
 u32 g_SimTick = 0;
 u8  g_ValeEndless = 0;   // test/moves.sh: the Java game's infiniteLives
+static bool s_FireWas = FALSE;   // fire held the tick before: a press is fire now and not then
 i16 g_RoomX = 0;
 i16 g_RoomY = 0;
 i16 g_CellsX = 0;
@@ -108,17 +111,35 @@ static void EnterRoom(u8 room)
 		JUNGLE(Jungle_EnterRoom);
 	if (g_QuestOn)
 		QUEST(Quest_EnterRoom);
+	if (g_GameOn)
+		GAME(Game_EnterRoom);
+	g_GameByFlip = 0;
+}
+
+// The speed a momentum level gives, its diagonal too, with a flower's scale
+// (EffectState.speedFp: haste and torpor scale his pace, (base * scale) >> 8).
+static i16 s_ScaleFor = 0;
+
+static void Speeds(i16 scale)
+{
+	s_ScaleFor = scale;
+	i16 bx = (i16)(((i32)PLAYER_SPEED_X_FP * scale) >> 8);
+	i16 by = (i16)(((i32)PLAYER_SPEED_Y_FP * scale) >> 8);
+	for (u8 l = 0; l <= LEVELS; l++)
+	{
+		s_SpeedX[l] = (i16)((i32)bx * l / LEVELS);
+		s_SpeedY[l] = (i16)((i32)by * l / LEVELS);
+		// Fixed.mul: (a * b) >> 8
+		s_DiagX[l] = (i16)(((i32)s_SpeedX[l] * PLAYER_DIAGONAL_SCALE_FP) >> FIXED_SHIFT);
+		s_DiagY[l] = (i16)(((i32)s_SpeedY[l] * PLAYER_DIAGONAL_SCALE_FP) >> FIXED_SHIFT);
+	}
 }
 
 void Vale_Init()
 {
+	Speeds(256);
 	for (u8 l = 0; l <= LEVELS; l++)
 	{
-		s_SpeedX[l] = (i16)(PLAYER_SPEED_X_FP * l / LEVELS);
-		s_SpeedY[l] = (i16)(PLAYER_SPEED_Y_FP * l / LEVELS);
-		// Fixed.mul: (a * b) >> 8
-		s_DiagX[l] = (i16)(((i32)s_SpeedX[l] * PLAYER_DIAGONAL_SCALE_FP) >> FIXED_SHIFT);
-		s_DiagY[l] = (i16)(((i32)s_SpeedY[l] * PLAYER_DIAGONAL_SCALE_FP) >> FIXED_SHIFT);
 	}
 	for (u8 v = 0; v <= PLAYER_MOMENTUM_MAX; v++)
 		s_LevelOf[v] = v / PLAYER_MOMENTUM_STEP;
@@ -151,8 +172,9 @@ void Vale_Place(i32 x, i32 y)
 	g_ValeFreeze = 0;
 	g_ValeMode = MODE_ALIVE;
 	g_ValeModeTick = 0;
-	g_ValeLives = PLAYER_LIVES_START;
+	g_ValeLives = g_LivesStart;
 	g_ValeInvuln = 0;
+	s_FireWas = FALSE;
 	g_ValeVisible = 1;
 	g_SwingSerial = 0;
 	g_SimTick = 0;
@@ -416,6 +438,14 @@ static void Move(u8 keys)
 {
 	i8 dx = ((keys & VALE_RIGHT) ? 1 : 0) - ((keys & VALE_LEFT) ? 1 : 0);
 	i8 dy = ((keys & VALE_DOWN) ? 1 : 0) - ((keys & VALE_UP) ? 1 : 0);
+	if (g_EffectKind == EFFECT_REVERSAL)
+	{
+		dx = -dx;   // the flower has the legs, not the keyboard
+		dy = -dy;
+	}
+	i16 scale = g_EffectKind == EFFECT_HASTE || g_EffectKind == EFFECT_TORPOR ? g_EffectScale : 256;
+	if (scale != s_ScaleFor)
+		Speeds(scale);
 	if (dx != 0 || dy != 0)
 		g_ValeFacing = c_FaceOf[(u8)((dy + 1) * 3 + (dx + 1))];   // facing stays when the keys are let go
 
@@ -487,6 +517,7 @@ static bool UpdateRoom()
 	// §7.5: the position is untouched; the new room is current at once, and
 	// the next ticks are frozen.
 	g_ValeFreeze = g_ValeOpen ? 0 : TRANSITION_FREEZE_TICKS;
+	g_GameByFlip = 1;   // a first visit by a flip scores
 	EnterRoom(room);
 	if (g_QuestOn)
 		QUEST(Wulf_Notice);   // wulfEntersRoom: the original's only notices
@@ -553,6 +584,8 @@ static void Looks()
 // Simulation.respawn and getUp: a life from the reserve, none left and the
 // game is over; up where he fell, nudged to the nearest spot he can walk to
 // that keeps him wholly on screen (spawn.c).
+static void GetUp();
+
 static void Respawn()
 {
 	if (!g_ValeEndless)
@@ -565,6 +598,12 @@ static void Respawn()
 		}
 		g_ValeLives--;
 	}
+	GetUp();
+}
+
+// Simulation.getUp: back on his feet where he fell, after a death or a continue.
+static void GetUp()
+{
 	SPAWN(Spawn_NearestFree);
 	g_ValeMode = MODE_ALIVE;
 	g_ValeModeTick = 0;
@@ -580,6 +619,8 @@ static void Respawn()
 		QUEST(Wulf_GetUp);
 		QUEST(Quest_EnterRoom);   // the guardian back on its ring
 	}
+	if (g_GameOn)
+		GAME(Game_GetUp);
 }
 
 // Simulation.stepEscape: control locked, he walks up into the arch's mouth,
@@ -597,6 +638,11 @@ static void Escape()
 	g_ValeY -= PLAYER_SPEED_Y_FP;   // no collision: the arch is the way out
 	if (g_ValeModeTick >= ESCAPE_WALK_TICKS)
 	{
+		// win: the bonuses for getting out, for time, for the lives left.
+		Score_Add(SCORE_ESCAPE);
+		u32 t = g_SimTick / SCORE_TIME_DIVISOR;
+		Score_Add(t >= SCORE_TIME_MAX ? 0 : (u16)(SCORE_TIME_MAX - t));
+		Score_Add((u16)g_ValeLives * SCORE_LIFE_LEFT);
 		g_ValeMode = MODE_WON;
 		g_ValeModeTick = 0;
 	}
@@ -639,11 +685,23 @@ bool Vale_Tick(u8 keys)
 {
 	g_SimTick++;
 	Quest_Clock();
+	if (g_OrchidHere && ++g_OrchidPhase == ORCHID_CYCLE_TICKS)
+		g_OrchidPhase = 0;   // the room's orchid's cycle (game.h)
+	bool firePressed = (keys & VALE_FIRE) && !s_FireWas;
+	s_FireWas = (keys & VALE_FIRE) != 0;
 	NextTick();
 	switch (g_ValeMode)
 	{
 	case MODE_GAME_OVER:
-		// No continues until the quest has them (M7): the game stays over.
+		// §17.5: fire, while continues are left, carries on: back where he
+		// fell with a new game's lives, all he found kept, the score from nothing.
+		if (g_GameOn && firePressed && g_ContinuesUsed < CONTINUES_START)
+		{
+			g_ContinuesUsed++;
+			g_Score = 0;   // the best of the run is kept (g_BestScore)
+			g_ValeLives = g_LivesStart;
+			GetUp();
+		}
 		Looks();
 		return FALSE;
 	case MODE_DYING:
@@ -690,6 +748,11 @@ bool Vale_Tick(u8 keys)
 	}
 	if (g_ValeInvuln > 0)
 		g_ValeInvuln--;
+	if (g_EffectKind == EFFECT_KNOCKDOWN)
+	{
+		keys = 0;           // knocked down: he neither walks nor fights until it wears off
+		g_ValeSwing = -1;   // the blade too
+	}
 	UpdateSwing((keys & VALE_FIRE) != 0);
 	Move(keys);
 	if (UpdateRoom())
@@ -705,12 +768,16 @@ bool Vale_Tick(u8 keys)
 		JUNGLE(Jungle_TickCreatures);
 		JUNGLE(Jungle_TickSwarm);
 		JUNGLE(Jungle_TickBeasts);
+		if (g_GameOn)
+			JUNGLE(Jungle_TickFlame);
 	}
 	if (g_QuestOn)
 	{
 		QUEST(Wulf_Prowl);
 		QUEST(Quest_Tick);
 	}
+	if (g_GameOn)
+		GAME(Game_Orchids);
 	if (g_JungleOn)
 		JUNGLE(Jungle_Combat);
 	Looks();

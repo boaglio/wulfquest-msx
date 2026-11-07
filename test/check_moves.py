@@ -50,7 +50,7 @@ def read(path):
         if f[0] == "scenario":
             name = f[1]
             order.append(name)
-            scenarios[name] = [[], None, [], [], []]
+            scenarios[name] = [[], None, [], [], [], []]
         elif f[0] == "busiest":
             busiest[f[1]] = (int(f[2]), int(f[3]))
         elif f[0] == "flip":
@@ -59,6 +59,8 @@ def read(path):
             scenarios[name][3].append(" ".join(f))
         elif f[0] == "Q":
             scenarios[name][4].append(" ".join(f))
+        elif f[0] == "M":
+            scenarios[name][5].append(" ".join(f))
         elif f[0] == "end":
             if len(f) == 8 and f[1] == name:
                 scenarios[name][1] = tuple(map(int, f[2:]))
@@ -77,7 +79,7 @@ def read_plan(path):
     plan = {}
     lines = open(path, encoding="utf-8").read().split("\n")
     for head, keys in zip(lines[0::2], lines[1::2]):
-        _, name, room, open_, x, y, check, seed, quest, endless = head.split()
+        _, name, room, open_, x, y, check, seed, level, endless, easy = head.split()
         plan[name] = {"open": open_ == "1", "check": check, "keys": list(map(int, keys.split()[1:]))}
     return plan
 
@@ -95,6 +97,9 @@ def main(dump, expected_path, plan_path, constants_h, hz, rooms_expected, gen):
     shown = open(dump + ".bin", "rb").read()
     tables = open(dump + ".spr", "rb").read()
     gen_sprites = vdp_sprites.Gen(gen)
+    game_h = vdp_sprites.defines(gen + "/game_data.h")
+    untouchable = vdp_sprites.table(gen, "g_OrchidUntouchable")
+    vale_inked = vdp_sprites.table(gen, "g_ValeInked")
     grid_w = c["GRID_W"]
     plan_name = os.path.basename(plan_path).split("_")[0]
     tag = f"{plan_name} {hz} Hz"
@@ -111,7 +116,18 @@ def main(dump, expected_path, plan_path, constants_h, hz, rooms_expected, gen):
         if name not in got:
             problems.append(f"{name}: not played")
             continue
-        g, end, flips, gj, gq = got[name]
+        g, end, flips, gj, gq, gm = got[name]
+        wm = want[name][5]
+        if wm:
+            # The rest of the game: every tick's line equal to the Java game's.
+            if len(gm) != len(wm):
+                problems.append(f"{name}: {len(gm)} game lines recorded, the Java game has {len(wm)}")
+            for t, (a, b) in enumerate(zip(gm, wm)):
+                if a != b:
+                    problems.append(f"{name}: the game differs from the Java game's after tick {t + 1}:\n"
+                                    f"    MSX2 {a[:300]}\n    Java {b[:300]}")
+                    break
+            notes.append(f"{name}: score {wm[-1].split()[1]}")
         w = want[name][0]
         wj = want[name][3]
         wq = want[name][4]
@@ -218,7 +234,19 @@ def main(dump, expected_path, plan_path, constants_h, hz, rooms_expected, gen):
             # Vale in this tick's frame and blade, his frame's top-left where he stands.
             sx = (x[t] >> 8) - (r % grid_w) * c["PLAYFIELD_W"] - c["PLAYER_ORIGIN_X"]
             sy = (y[t] >> 8) - (r // grid_w) * c["PLAYFIELD_H"] - c["PLAYER_ORIGIN_Y"]
-            want_px = gen_sprites.clip(gen_sprites.vale(g_frame[t], g_blade[t], sx, sy))
+            frame, blade, ink = g_frame[t], g_blade[t], 255
+            if wm:
+                # M8 (PlayerPainter): knocked down he sits, bladeless; an untouchable flower
+                # inks him, flashing back to himself near its end.
+                mf = wm[t].split()
+                kind, orchid, left = int(mf[4]), int(mf[5]), int(mf[6])
+                if kind == game_h["EFFECT_KNOCKDOWN"]:
+                    frame = c["PLAYER_FRAME_SIT"] + (1 if g[t][2] >= 5 else 0)
+                    blade = -1
+                if orchid >= 0 and untouchable[orchid] and not (
+                        left <= game_h["ORCHID_TINT_WARN_TICKS"] and (left // game_h["ORCHID_TINT_FLASH_TICKS"]) % 2 == 0):
+                    ink = vale_inked[orchid]
+            want_px = gen_sprites.clip(gen_sprites.vale(frame, blade, sx, sy, ink))
             if wj:
                 # PlayerPainter.visible: after a death he blinks, half a period shown.
                 jf = wj[t].split()
@@ -232,8 +260,8 @@ def main(dump, expected_path, plan_path, constants_h, hz, rooms_expected, gen):
                 got_px = {k: v for k, v in got_px.items() if k in want_px}
             if got_px != want_px:
                 right = len(set(got_px.items()) & set(want_px.items()))
-                problems.append(f"{name}: after tick {t + 1}, the sprites are not Vale in frame {g_frame[t]}, "
-                                f"blade {g_blade[t]}, at {sx},{sy} in {where}: {len(got_px)} pixels shown, "
+                problems.append(f"{name}: after tick {t + 1}, the sprites are not Vale in frame {frame}, "
+                                f"blade {blade}, ink {ink}, at {sx},{sy} in {where}: {len(got_px)} pixels shown, "
                                 f"{len(want_px)} wanted, {right} right")
         if end is None:
             continue

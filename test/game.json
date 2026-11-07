@@ -1,0 +1,25 @@
+{
+  "comment": [
+    "test/moves.sh's fifth plan (AGENTS.md §10, M8): the game as it ships (Content.ecosystem(), or in Easy",
+    "ecosystem(0, true)), every tick equal to the Java game's, the score among it. 'check' is what the scene is",
+    "there to show, shown in the Java game first (convert's JungleChecks): effect:KIND, effects:A+B, flame,",
+    "treasure, item, hint, continue, win. 'questRoute' plays the Java game to a win (convert's QuestRoute);",
+    "'orchidScene': N, N ticks of picking the room's orchid and walking with its effect (OrchidScene)."
+  ],
+  "scenarios": [
+    { "name": "orchids", "room": "8,10", "at": [2176, 1840], "jungle": 3, "game": true, "endless": true,
+      "check": "effects:TORPOR+HASTE+REVERSAL+KNOCKDOWN", "orchidScene": 9000 },
+    { "name": "flame", "room": "8,10", "at": "start", "jungle": 3, "game": true, "endless": true,
+      "check": "flame", "keys": [["F", 900]] },
+    { "name": "map-scroll", "room": "6,11", "at": [1664, 2032], "jungle": 3, "game": true, "endless": true,
+      "check": "item", "keys": [["", 20]] },
+    { "name": "shrine", "room": "4,3", "at": [1152, 624], "jungle": 3, "game": true, "endless": true,
+      "check": "hint", "keys": [["", 20]] },
+    { "name": "continue", "room": "8,10", "at": "start", "jungle": 1, "game": true,
+      "check": "continue", "keys": [["", 9000], ["F", 1], ["", 300]] },
+    { "name": "win", "room": "8,10", "at": "start", "jungle": 7, "game": true, "endless": true,
+      "check": "win", "questRoute": true },
+    { "name": "win-easy", "room": "8,10", "at": "start", "jungle": 7, "game": true, "easy": true, "endless": true,
+      "check": "win", "questRoute": true }
+  ]
+}

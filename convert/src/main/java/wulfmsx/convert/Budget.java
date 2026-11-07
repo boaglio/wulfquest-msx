@@ -104,6 +104,7 @@ public final class Budget {
         sb.append("#define ROM_BANKED_CODE_FIRST\t").append(BANKED_CODE_FIRST).append("\n\n");
         List<Place> scenery = new ArrayList<>();
         List<Place> sprites = new ArrayList<>();
+        List<Place> inked = new ArrayList<>();
         for (Place p : places) {
             String n = Gen.cName(p.blob().file());
             sb.append("#define ").append(n).append("_SEG\t").append(p.segment()).append('\n');
@@ -114,6 +115,9 @@ public final class Budget {
             }
             if (p.blob().file().startsWith("sprites_")) {
                 sprites.add(p);
+            }
+            if (p.blob().file().startsWith("player_inked_")) {
+                inked.add(p);
             }
         }
         scenery.sort(Comparator.comparing(p -> p.blob().file()));
@@ -142,6 +146,17 @@ public final class Budget {
             sb.append(' ').append(p.offset()).append(',');
         }
         sb.append(" };\n");
+        inked.sort(Comparator.comparing(p -> p.blob().file()));
+        sb.append("\n// Vale inked in a flower's colours, chunk by chunk (tables.h's g_ValeInked).\n");
+        sb.append("static const unsigned char g_InkedSeg[] = {");
+        for (Place p : inked) {
+            sb.append(' ').append(p.segment()).append(',');
+        }
+        sb.append(" 0 };\nstatic const unsigned short g_InkedRel[] = {");
+        for (Place p : inked) {
+            sb.append(' ').append(p.offset()).append(',');
+        }
+        sb.append(" 0 };\n");
         return sb.toString();
     }
 

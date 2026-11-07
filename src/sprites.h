@@ -16,11 +16,11 @@
 #define SLOT_BLADE	0
 #define SLOT_VALE	1
 #define SLOT_SMALL	2
-#define SPR_SMALL	6
+#define SPR_SMALL	9
 #define SLOT_BIG	(SLOT_SMALL + SPR_SMALL)
 #define SPR_BIG		5
 #define SPR_SLOTS	(SLOT_BIG + SPR_BIG)
-#define SPR_SPRITES	58
+#define SPR_SPRITES	64   // the pattern table's 2 KB
 #define SPR_PLACES	32
 
 // Sets both sets of tables up, set 0 shown.

@@ -40,6 +40,9 @@ final class SpriteReport {
             bySprite.get(ch.sprite()).add(ch);
         }
         bank.later().forEach((name, ch) -> bySprite.get(name).addAll(ch));
+        for (SpriteCut.Change ch : vale.inkedChanges()) {
+            bySprite.computeIfAbsent(ch.sprite(), k -> new ArrayList<>()).add(ch);
+        }
         this.bladeDropped = blade.dropped();
     }
 

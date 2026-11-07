@@ -83,3 +83,4 @@ void Jungle_TickCreatures();
 void Jungle_TickSwarm();
 void Jungle_TickBeasts();
 void Jungle_Combat();
+void Jungle_TickFlame();     // tickFlame (M8), between the beasts and the Wulf

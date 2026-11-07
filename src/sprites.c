@@ -36,12 +36,12 @@ u16 g_SpritesCrowded = 0;
 // Each slot's first sprite; slot sprites are numbered in slot order. And
 // the sprites it shows now: its first plus two a block.
 static const u8 c_First[SPR_SLOTS + 1] = {
-	0, 2, 6, 8, 10, 12, 14, 16, 18, 26, 34, 42, 50, 58
+	0, 2, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 32, 40, 48, 56, 64
 };
-#if SPR_SLOTS != 13 || SPR_SPRITES != 58
-#error "c_First is laid out for 13 slots: the blade, Vale, 6 small, 5 big"
+#if SPR_SLOTS != 16 || SPR_SPRITES != 64
+#error "c_First is laid out for 16 slots: the blade, Vale, 9 small, 5 big"
 #endif
-static u8 s_SlotEnd[SPR_SLOTS] = { 2, 6, 8, 10, 12, 14, 16, 18, 26, 34, 42, 50, 58 };
+static u8 s_SlotEnd[SPR_SLOTS] = { 2, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 32, 40, 48, 56, 64 };
 
 static u8 s_Colour[SPR_SPRITES * 16];   // as loaded, by sprite
 static i8 s_DX[SPR_SPRITES];

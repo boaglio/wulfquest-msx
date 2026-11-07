@@ -21,8 +21,15 @@ class SpriteCutTest {
         byte[] blob = bank.blob();
         for (RomSprites.Entry e : bank.entries()) {
             boolean ink = e.frame().endsWith(RomSprites.INK);
-            String id = ink ? e.frame().substring(0, e.frame().length() - RomSprites.INK.length()) : e.frame();
+            boolean inked = e.frame().endsWith(RomSprites.INKED);
+            String id = ink ? e.frame().substring(0, e.frame().length() - RomSprites.INK.length())
+                    : inked ? e.frame().substring(0, e.frame().length() - RomSprites.INKED.length()) : e.frame();
             byte[] px = C.sprites().get(e.sprite()).decode(e.sprite()).get(id);
+            if (inked) {
+                // M8: inked as Sprite.blitInked inks it (Ink, InkTest).
+                int bright = C.palette().indexOf(SpriteCut.sprites(C).inked().get(e.sprite()));
+                px = Ink.ink(px, e.w(), bright - 8, bright, C.palette().indexOf("black"));
+            }
             int[] shown = SpriteCut.shown(Arrays.copyOfRange(blob, e.offset(),
                     e.offset() + e.cols() * e.rows() * SpriteCut.BLOCK_BYTES), e.w(), e.h());
             int[] want = new int[e.w() * e.h()];

@@ -126,21 +126,26 @@ class Gen:
         self.bank = defines(gen + "/sprite_bank.h")
         self.c = defines(gen + "/constants.h")
         self.frames = open(gen + "/player_frames.bin", "rb").read()
+        self.gen = gen
+        self._inked = {}
         self.sprites = []   # the bank's chunks, sprites_N.bin
         while os.path.exists(f"{gen}/sprites_{len(self.sprites)}.bin"):
             self.sprites.append(open(f"{gen}/sprites_{len(self.sprites)}.bin", "rb").read())
         self.shapes = open(gen + "/blade.bin", "rb").read()
         self.hand = table(gen, "g_PlayerHand")
         self.blade_at = table(gen, "g_BladeAt")
-        self.offset = table(gen, "g_SpriteOffset")
-        self.chunk = table(gen, "g_SpriteChunk")
-        self.blocks = table(gen, "g_SpriteBlocks")
+        info = open(gen + "/frames.bin", "rb").read()   # 8 bytes a frame (RomSprites)
+        self.offset = [info[i] | info[i + 1] << 8 for i in range(0, len(info), 8)]
+        self.chunk = [info[i + 2] for i in range(0, len(info), 8)]
+        self.blocks = [info[i + 3] for i in range(0, len(info), 8)]
 
-    def vale(self, frame, blade, left, top):
-        """Vale in a frame, his top-left at left, top, and his blade (-1 none) over him."""
+    def vale(self, frame, blade, left, top, ink=255):
+        """Vale in a frame, his top-left at left, top, and his blade (-1 none) over him; inked
+        in a flower's colours from player_inked_<ink>.bin (M8), 255 for his own."""
         out = {}
         n = self.player["PLAYER_FRAME_BYTES"]
-        for (x, y), v in layered(self.frames, frame * n, 2).items():
+        frames = self.frames if ink == 255 else self.inked(ink)
+        for (x, y), v in layered(frames, frame * n, 2).items():
             out[(left + x, top + y)] = v
         hx, hy = self.hand[2 * frame], self.hand[2 * frame + 1]
         if blade >= 0 and hx >= 0:
@@ -152,6 +157,11 @@ class Gen:
                         if self.shapes[p + (x // 8) * 16 + y] & (0x80 >> (x % 8)):
                             out[(left + hx + at[2 * k] + x, top + hy + at[2 * k + 1] + y)] = ink
         return out
+
+    def inked(self, i):
+        if i not in self._inked:
+            self._inked[i] = open(f"{self.gen}/player_inked_{i}.bin", "rb").read()
+        return self._inked[i]
 
     def bank_frame(self, frame, left, top):
         cols, rows = self.blocks[frame] >> 4, self.blocks[frame] & 15

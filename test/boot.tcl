@@ -65,8 +65,9 @@ debug breakpoint create -address $env(BOOT_SHOWN) -command { step {
     }
 } }
 # No room by then (an MSX1: the ROM says it needs an MSX2, and stays): the
-# screen as it is, before and after F5.
-after time 10 { step {
+# screen as it is, before and after F5. A new game takes a few seconds to
+# lay out (M8: the treasures' 1 024 draws), so the room comes after 10 s.
+after time 20 { step {
     if {$::state != 0} { return }
     set ::state 2
     dumpto before
@@ -79,4 +80,4 @@ after time 10 { step {
         } }
     } }
 } }
-after time 30 { step { error "no room shown, and no MSX1 message" } }
+after time 40 { step { error "no room shown, and no MSX1 message" } }

@@ -16,6 +16,8 @@
 #include "constants.h"
 #include "quest_data.h"
 #include "tables.h"
+#include "game.h"
+#include "game_data.h"
 
 #if KEEPER_NUDGE_ZONE_PX > 0
 #error "the Keeper's nudge (resolveCombat, a brush from the front) is not in the ROM: its zone is 0"
@@ -372,6 +374,145 @@ static void StepAside()
 	SeatKeeper();
 }
 
+//-----------------------------------------------------------------------------
+// M8: the items, the treasures, the shrines (takeItems, takeTreasures, pointTheWay)
+
+// Box B at a spot in this room, the items' pickup box around it.
+static void ItemBox(u8 x, u8 y)
+{
+	s_BX = g_RoomX + x + ITEM_BOX_X;
+	s_BY = g_RoomY + y + ITEM_BOX_Y;
+	s_BW = ITEM_BOX_W;
+	s_BH = ITEM_BOX_H;
+}
+
+// Direction8's ordinal by (dy + 1) * 3 + (dx + 1): N NE E SE S SW W NW. In
+// RAM: a const table would be in the program's segments, not this one.
+static u8 s_Dir[9] = { 7, 0, 1, 6, 4, 2, 5, 4, 3 };
+
+static void ItemTaken()
+{
+	g_QuestFlash = AMULET_PICKUP_FLASH_TICKS;   // the same white flash as a quarter
+}
+
+static void TakeItems()
+{
+	if (!g_MapTaken && g_ValeRoom == MAP_ROOM)
+	{
+		ItemBox(MAP_X, MAP_Y);
+		if (Overlaps())
+		{
+			g_MapTaken = 1;
+			ItemTaken();
+		}
+	}
+	for (u8 i = 0; i < EYES; i++)
+		if (!(g_EyesTaken & (1 << i)) && g_ItemRoom[i] == g_ValeRoom)
+		{
+			ItemBox(g_ItemX[i], g_ItemY[i]);
+			if (Overlaps())
+			{
+				g_EyesTaken |= 1 << i;
+				ItemTaken();
+			}
+		}
+	// A looking glass shows the way afresh; the amulet whole, more lie about.
+	bool whole = Quest_Quarters() >= EXIT_REQUIRES_PIECES;
+	for (u8 i = 0; i < GLASSES; i++)
+		if (!(g_GlassesTaken & (1 << i)) && (i < GLASSES_BEFORE_WHOLE || whole)
+			&& g_ItemRoom[EYES + i] == g_ValeRoom)
+		{
+			ItemBox(g_ItemX[EYES + i], g_ItemY[EYES + i]);
+			if (Overlaps())
+			{
+				g_GlassesTaken |= 1 << i;
+				g_WayTicks = g_Easy ? EASY_WAY_TICKS : GLASS_WAY_TICKS;
+				ItemTaken();
+			}
+		}
+}
+
+// A treasure touched is taken for the rest of the game, and scores; a life
+// too, while there is room for one.
+static void TakeTreasures()
+{
+	for (u8 p = 0; p < 2; p++)
+	{
+		u8 t = g_RoomTreasure[p];
+		if (t == 0)
+			continue;
+		s_BX = g_RoomX + g_RoomMore[2 + 2 * p] + TREASURE_BOX_X;
+		s_BY = g_RoomY + g_RoomMore[3 + 2 * p] + TREASURE_BOX_Y;
+		s_BW = TREASURE_BOX_W;
+		s_BH = TREASURE_BOX_H;
+		if (!Overlaps())
+			continue;
+		g_RoomTreasure[p] = 0;
+		Data_VramWrite(VRAM_TREASURES + ((u16)g_ValeRoom << 1) + p, &g_RoomTreasure[p], 1);
+		g_TreasuresTaken++;
+		if (g_TreasureLife[t - 1] && g_ValeLives < PLAYER_LIVES_MAX)
+			g_ValeLives++;
+		Score_Add(TREASURE_SCORE);
+	}
+}
+
+// pointTheWay: the compass way to the nearest quarter still out there, or
+// to the arch once none are.
+static void PointTheWay()
+{
+	i8 bestDx = 0;
+	i8 bestDy = 0;
+	u8 best = 0xFF;
+	u8 k = g_QuestSet * LAIRS;
+	i8 col = g_ValeRoom % GRID_W;
+	i8 row = g_ValeRoom / GRID_W;
+	for (u8 i = 0; i < LAIRS; i++)
+	{
+		if (g_QuestTaken & (1 << i))
+			continue;
+		u8 r = g_LairRoom[k + i];
+		i8 dx = (i8)(r % GRID_W) - col;
+		i8 dy = (i8)(r / GRID_W) - row;
+		u8 d = (dx < 0 ? -dx : dx) + (dy < 0 ? -dy : dy);
+		if (d < best)
+		{
+			best = d;
+			bestDx = dx;
+			bestDy = dy;
+		}
+	}
+	g_HintToExit = best == 0xFF;
+	if (g_HintToExit)
+	{
+		bestDx = (i8)(EXIT_ROOM % GRID_W) - col;
+		bestDy = (i8)(EXIT_ROOM / GRID_W) - row;
+	}
+	Toward(bestDx, bestDy);
+	g_HintDirection = s_Dir[(s_DY + 1) * 3 + (s_DX + 1)];
+}
+
+// A shrine's zone, in a shrine's room, outside a lair: it points the way,
+// once a life (Easy may answer every time).
+static void Shrine()
+{
+	s_BX = g_RoomX + SHRINE_ZONE_X;
+	s_BY = g_RoomY + SHRINE_ZONE_Y;
+	s_BW = SHRINE_ZONE_W;
+	s_BH = SHRINE_ZONE_H;
+	bool asking = !g_Easy || EASY_HINTS_ONCE_PER_LIFE;
+	u8 bit = 1 << (g_ValeRoom & 7);
+	u8* used = &g_HintUsed[g_ValeRoom >> 3];
+	if (CAVE_HINTS && Overlaps() && (g_RoomMore[7] & GAME_ROOM_SHRINE) && g_QuestLair < 0 && !(asking && (*used & bit)))
+	{
+		if (asking)
+			*used |= bit;
+		else
+			*used &= ~bit;
+		g_HintTicks = HINT_TICKS;
+		PointTheWay();
+	}
+}
+
 static void TakePiece(i16 cx, i16 cy)
 {
 	u8 l = (u8)g_QuestLair;
@@ -383,6 +524,8 @@ static void TakePiece(i16 cx, i16 cy)
 	g_QuestFlyMask = g_LairMask[l];
 	g_QuestFlyX = cx;
 	g_QuestFlyY = cy;
+	g_WayTicks = 0;   // the glass showed the way to a piece; with one taken, its work is done
+	Score_Add(SCORE_PIECE);
 	if (Quest_Quarters() >= EXIT_REQUIRES_PIECES && g_KeeperState == KEEPER_BLOCKING)
 		g_KeeperState = KEEPER_STEPPING_ASIDE;   // harmless now; it moves only while he is in its room
 }
@@ -393,6 +536,10 @@ void Quest_Tick()
 		g_QuestFlash--;
 	if (g_QuestFly > 0)
 		g_QuestFly--;
+	if (g_HintTicks > 0)
+		g_HintTicks--;
+	if (g_WayTicks > 0)
+		g_WayTicks--;
 	if (g_QuestLair >= 0)
 	{
 		if (g_GuardHurt > 0)
@@ -405,6 +552,11 @@ void Quest_Tick()
 	if (g_KeeperState != KEEPER_BLOCKING && g_KeeperHere && g_ValeMode == MODE_ALIVE)
 		StepAside();
 	ValeBox();
+	if (g_GameOn)
+	{
+		TakeItems();
+		TakeTreasures();
+	}
 	if (g_QuestLair >= 0 && !(g_QuestTaken & (1 << g_QuestLair)))
 	{
 		u8 k = g_QuestSet * LAIRS + g_QuestLair;
@@ -415,6 +567,8 @@ void Quest_Tick()
 		if (Overlaps())
 			TakePiece(s_BX + AMULET_BOX_W / 2, s_BY + AMULET_BOX_H / 2);
 	}
+	if (g_GameOn)
+		Shrine();
 	// With the amulet whole, past the Keeper and above the doorway, he is out.
 	s_BX = g_RoomX + EXIT_ZONE_X;
 	s_BY = g_RoomY + EXIT_ZONE_Y;
@@ -463,7 +617,8 @@ void Quest_Touch()
 {
 	g_QuestHit = 0;
 	ValeBox();
-	if (g_QuestLair >= 0)
+	bool immune = g_GameOn && EFFECT_IMMUNE();   // the green flower; the Keeper still bars the arch
+	if (g_QuestLair >= 0 && !immune)
 	{
 		u8 l = (u8)g_QuestLair;
 		s_BX = FP_PX(g_GuardX) + g_GuardBoxX[l];
@@ -489,7 +644,7 @@ void Quest_Touch()
 		}
 	}
 	bool visible = g_WulfState >= WULF_PROWLING ? g_WulfHere : g_WulfState != WULF_ABSENT && g_WulfState != WULF_ARRIVING;
-	if (visible)
+	if (visible && !immune)
 	{
 		s_BX = FP_PX(g_WulfX) + WULF_BOX_X;
 		s_BY = FP_PX(g_WulfY) + WULF_BOX_Y;

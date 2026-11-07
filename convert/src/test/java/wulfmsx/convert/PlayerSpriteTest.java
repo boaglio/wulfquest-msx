@@ -59,9 +59,13 @@ class PlayerSpriteTest {
         assertThat(vale.ids().get(2 * PlayerSprite.PER_VIEW + PlayerSprite.GAIT + 1)).isEqualTo("up_swing1");
         assertThat(vale.ids().get(3 * PlayerSprite.PER_VIEW + PlayerSprite.GAIT + PlayerSprite.POSES
                 + 2 * PlayerSprite.GAIT + 3)).isEqualTo("down_swing2_walk3");
+        int die = content.player().animation("die").frames().size();
         assertThat(vale.ids()).doesNotHaveDuplicates().hasSize(PlayerSprite.VIEWS.size() * PlayerSprite.PER_VIEW
-                + content.player().animation("die").frames().size());
+                + die + 2);
         assertThat(vale.ids().get(PlayerSprite.VIEWS.size() * PlayerSprite.PER_VIEW)).isEqualTo("die0");
+        // M8: sitting, knocked down, after the fall; right, then left.
+        assertThat(vale.ids().get(PlayerSprite.VIEWS.size() * PlayerSprite.PER_VIEW + die)).isEqualTo("side_sit");
+        assertThat(vale.ids().get(PlayerSprite.VIEWS.size() * PlayerSprite.PER_VIEW + die + 1)).isEqualTo("side_sit_l");
     }
 
     @Test

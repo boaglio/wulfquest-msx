@@ -53,17 +53,66 @@ static void XorShr(u8* a, u8 n)
 		a[i] ^= t[i];
 }
 
-// a *= m (mod 2^64): shift and add.
+// a *= m (mod 2^64): shift and add, in assembly (the C was 340 000 cycles a
+// multiplication, and a new game seeds a dozen times: M8).
+static u8 s_MA[8];     // the multiplicand, doubled each bit
+static u8 s_MB[8];     // the multiplier, shifted out a bit at a time
+static u8 s_MAcc[8];   // the product
+
+static void MulAsm() __naked
+{
+	__asm
+		ld	hl, #_s_MAcc
+		xor	a
+		ld	b, #8
+	00001$:
+		ld	(hl), a
+		inc	hl
+		djnz	00001$
+		ld	c, #64
+	00010$:
+		; carry = the multiplier's lowest bit, shifted out
+		ld	hl, #_s_MB + 7
+		or	a
+		ld	b, #8
+	00011$:
+		rr	(hl)
+		dec	hl
+		djnz	00011$
+		jr	nc, 00020$
+		; the product += the multiplicand
+		ld	hl, #_s_MAcc
+		ld	de, #_s_MA
+		or	a
+		ld	b, #8
+	00012$:
+		ld	a, (de)
+		adc	a, (hl)
+		ld	(hl), a
+		inc	hl
+		inc	de
+		djnz	00012$
+	00020$:
+		; the multiplicand doubled
+		ld	hl, #_s_MA
+		or	a
+		ld	b, #8
+	00021$:
+		rl	(hl)
+		inc	hl
+		djnz	00021$
+		dec	c
+		jr	nz, 00010$
+		ret
+	__endasm;
+}
+
 static void Mul(u8* a, const u8* m)
 {
-	u8 acc[8] = { 0 };
-	for (u8 i = 0; i < 64; i++)
-	{
-		if (m[i >> 3] & (1 << (i & 7)))
-			Add(acc, a);
-		Add(a, a);
-	}
-	Copy(a, acc);
+	Copy(s_MA, a);
+	Copy(s_MB, m);
+	MulAsm();
+	Copy(a, s_MAcc);
 }
 
 static const u8 c_Golden[8] = { 0x15, 0x7C, 0x4A, 0x7F, 0xB9, 0x79, 0x37, 0x9E };   // 0x9E3779B97F4A7C15
@@ -254,15 +303,13 @@ static u16 Mod() __naked
 		jr	nz, 00014$
 		ld	b, #7                   ; x[0]: its bit 0 is shifted out
 	00014$:
-		rla                             ; the next bit, into carry
-		push	af
-		adc	hl, hl                  ; remainder * 2 + bit
+		rla                             ; the next bit, into carry (the rest stay in a:
+		adc	hl, hl                  ; none of these touch it) remainder * 2 + bit
 		or	a
 		sbc	hl, de
 		jr	nc, 00015$
 		add	hl, de                  ; too small: back
 	00015$:
-		pop	af
 		djnz	00014$
 		dec	ix
 		ld	a, c
@@ -296,20 +343,55 @@ static void Xor(u8* a, const u8* b)
 		a[i] ^= b[i];
 }
 
+u8 g_RngValues[4][8];   // Rng_HashSeed's values
+
+void Rng_HashSeed(u8 n)
+{
+	u8 h[8];
+	Copy(h, c_Golden);
+	for (u8 i = 0; i < n; i++)
+	{
+		Xor(h, g_RngValues[i]);
+		Splitmix(h);
+	}
+	Rng_Seed(h);
+}
+
+void Rng_Save(u8* keep)
+{
+	for (u8 i = 0; i < 16; i++)
+		keep[i] = g_RngState[i];
+}
+
+void Rng_Restore(const u8* keep)
+{
+	for (u8 i = 0; i < 16; i++)
+		g_RngState[i] = keep[i];
+}
+
+void Rng_Value(u8 i, i32 v)
+{
+	u8* d = g_RngValues[i];
+	const u8* b = (const u8*)&v;   // little-endian, as the long's low half
+	d[0] = b[0];
+	d[1] = b[1];
+	d[2] = b[2];
+	d[3] = b[3];
+	u8 sign = (b[3] & 0x80) ? 0xFF : 0;
+	d[4] = sign;
+	d[5] = sign;
+	d[6] = sign;
+	d[7] = sign;
+}
+
 u16 Rng_Stream(const u8* seed, const u8* stream, u16 bound)
 {
 	u8 keep[16];
-	u8 h[8];
-	for (u8 i = 0; i < 16; i++)
-		keep[i] = g_RngState[i];
-	Copy(h, c_Golden);
-	Xor(h, seed);
-	Splitmix(h);
-	Xor(h, stream);
-	Splitmix(h);
-	Rng_Seed(h);
+	Rng_Save(keep);
+	Copy(g_RngValues[0], seed);
+	Copy(g_RngValues[1], stream);
+	Rng_HashSeed(2);
 	u16 v = Rng_Next(bound);
-	for (u8 i = 0; i < 16; i++)
-		g_RngState[i] = keep[i];
+	Rng_Restore(keep);
 	return v;
 }

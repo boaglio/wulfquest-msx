@@ -57,9 +57,24 @@ public final class Convert {
         RamTables tables = new RamTables();
         Jungle jungle = new Jungle(c, palette, bank, tables);
         Quest quest = new Quest(c, bank, tables);
+        Game game = new Game(c, palette, bank, tables);
         bank.tables(tables);
         blade.tables(tables);
         vale.tables(tables);
+        // Vale inked in each flower's colour that he wears (M8): untouchable orchids'.
+        List<byte[]> inked = new ArrayList<>();
+        int[] inkedChunk = new int[c.orchids().orchids().size()];
+        for (int o = 0; o < inkedChunk.length; o++) {
+            wulf.data.OrchidData.Orchid orchid = c.orchids().orchids().get(o);
+            inkedChunk[o] = 255;
+            if (orchid.untouchable()) {
+                int bright = c.palette().indexOf(wulf.data.OrchidValidator.bright(orchid.colour()));
+                inkedChunk[o] = inked.size();
+                inked.add(vale.inked(bright - 8, bright, c.palette().indexOf("black"),
+                        c.player().sprite() + "_" + orchid.colour(), vale.inkedChanges));
+            }
+        }
+        tables.u8("g_ValeInked", inkedChunk, "Each orchid: Vale's inked frames' chunk, player_inked_N.bin (255: none).");
         SpriteReport sprites = new SpriteReport(c, palette, vale, bank, blade);
 
         Gen.write(out.resolve("palette.h"), palette.header());
@@ -71,6 +86,7 @@ public final class Convert {
         Gen.write(out.resolve("blade.h"), blade.header());
         Gen.write(out.resolve("jungle_data.h"), jungle.header());
         Gen.write(out.resolve("quest_data.h"), quest.header());
+        Gen.write(out.resolve("game_data.h"), game.header());
         Gen.write(out.resolve("tables.h"), tables.header());
         Gen.write(out.resolve("sprites.txt"), sprites.listing());
         Gen.write(out.resolve("sprites.png"), sprites.picture());
@@ -86,6 +102,10 @@ public final class Convert {
         blobs.add(new Budget.Blob("rooms.bin", rooms.blob().length));
         Gen.write(out.resolve("player_frames.bin"), vale.blob());
         blobs.add(new Budget.Blob("player_frames.bin", vale.blob().length));
+        for (int i = 0; i < inked.size(); i++) {
+            Gen.write(out.resolve("player_inked_" + i + ".bin"), inked.get(i));
+            blobs.add(new Budget.Blob("player_inked_" + i + ".bin", inked.get(i).length));
+        }
         List<byte[]> spriteChunks = bank.chunks();
         for (int i = 0; i < spriteChunks.size(); i++) {
             Gen.write(out.resolve("sprites_" + i + ".bin"), spriteChunks.get(i));
@@ -93,6 +113,15 @@ public final class Convert {
         }
         Gen.write(out.resolve("blade.bin"), blade.blob());
         blobs.add(new Budget.Blob("blade.bin", blade.blob().length));
+        List<byte[]> ways = game.ways();
+        for (int i = 0; i < ways.size(); i++) {
+            Gen.write(out.resolve("ways_" + i + ".bin"), ways.get(i));
+            blobs.add(new Budget.Blob("ways_" + i + ".bin", ways.get(i).length));
+        }
+        Gen.write(out.resolve("frames.bin"), bank.frameInfo());
+        blobs.add(new Budget.Blob("frames.bin", bank.frameInfo().length));
+        Gen.write(out.resolve("rooms_more.bin"), game.rooms());
+        blobs.add(new Budget.Blob("rooms_more.bin", game.rooms().length));
         Gen.write(out.resolve("tables.bin"), tables.blob());
         blobs.add(new Budget.Blob("tables.bin", tables.blob().length));
         MapBits map = new MapBits(new WorldGrid(c.rooms()));

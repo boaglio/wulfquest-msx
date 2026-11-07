@@ -100,6 +100,18 @@
               </arguments>
             </configuration>
           </execution>
+          <!-- test/moves.sh: exec:java@game-traces, M8's whole game as the Java game runs it. -->
+          <execution>
+            <id>game-traces</id>
+            <configuration>
+              <mainClass>wulfmsx.convert.MoveTraces</mainClass>
+              <arguments>
+                <argument>${project.basedir}/../wulfquest/data</argument>
+                <argument>${project.basedir}/../test/game.json</argument>
+                <argument>${project.basedir}/../build/test/game</argument>
+              </arguments>
+            </configuration>
+          </execution>
           <!-- test/moves.sh: exec:java@flip-traces, M4's flips as the Java game makes them. -->
           <execution>
             <id>flip-traces</id>

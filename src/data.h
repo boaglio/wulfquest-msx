@@ -52,6 +52,7 @@ void Data_LoadCells(u8 room, u8* cells);
 // One of Vale's frames (player.h): its four 16x16 sprite patterns to video
 // RAM, its four colour tables (64 bytes) to colours.
 void Data_LoadValeFrame(u8 frame, u8 vramHigh, u16 vramLow, u8* colours);
+extern u8 g_ValeInk;   // the inked set Data_LoadValeFrame reads (M8: player_inked_N.bin), 0xFF his own
 
 // A frame of the sprite bank (sprite_bank.h): its blocks' base and overlay
 // patterns to video RAM, their colour tables (32 bytes a block) to colours.
@@ -80,3 +81,22 @@ extern u8 g_CodeSeg;
 extern void (*g_BankFn)();
 void Bank_Call(u8 seg);
 #define BANKED(seg, fn)	do { g_BankFn = (fn); Bank_Call(seg); } while (0)
+
+// M8: room's extra bytes (game_data.h's GAME_ROOM_BYTES: its orchid's spot, its
+// treasures' places, flags), and n bytes of video RAM at addr (page 0, so
+// below 10000h), in or out. The game's state below the screen is at
+// VRAM_STATE (game.h).
+void Data_LoadRoomMore(u8 room, u8* out);
+// The beasts' spot in a room (§12.9): into g_SpotX (the sprite's left), g_SpotY (its feet).
+extern u8 g_SpotX;
+extern u8 g_SpotY;
+void Data_RoomSpot(u8 room);
+// A bank frame's origin, into g_FrameOX, g_FrameOY (Data_LoadSpriteFrame sets them too).
+extern u8 g_FrameOX;
+extern u8 g_FrameOY;
+void Data_FrameOrigin(u8 frame);
+// The looking glass's way out of a room (M8): its edge (0 n, 1 e, 2 s, 3 w) << 6
+// and the cell along it, or 0xFF where it ends in the room.
+u8 Data_Way(u8 set, u8 taken, u8 room);
+void Data_VramRead(u16 addr, u8* dst, u8 n);
+void Data_VramWrite(u16 addr, const u8* src, u8 n);

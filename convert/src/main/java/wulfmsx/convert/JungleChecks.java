@@ -121,6 +121,42 @@ final class JungleChecks {
         return sb.toString();
     }
 
+    private static final Field FLAME_WAIT = field(Simulation.class, "flameWait");
+    private static final Field ORCHID_START = field(Simulation.class, "orchidCycleStart");
+    private static final Field ORCHID_BASE = field(Simulation.class, "orchidBase");
+    private static final Field ROOM_ORCHIDS = field(Simulation.class, "roomOrchids");
+
+    /**
+     * The rest of the game (M8): {@code M SCORE BEST CONTINUES_USED EFFECT ORCHID REMAINING
+     * TREASURES MAP EYES GLASSES WAY HINT HINT_DIR HINT_EXIT FLAME_WAIT ORCHID_START}: the effect as
+     * EffectKind's ordinal, the eyes and glasses taken as bits, the room's orchid's cycle start
+     * ({@code -} when it has none).
+     */
+    static String gameLine(Simulation sim) {
+        Quest q = sim.quest();
+        int eyes = 0;
+        for (int i = 0; i < sim.landmarks().items().eyes().size(); i++) {
+            eyes |= q.eyeTaken(i) ? 1 << i : 0;
+        }
+        int glasses = 0;
+        for (int i = 0; i < sim.landmarks().items().glass().all().size(); i++) {
+            glasses |= q.glassTaken(i) ? 1 << i : 0;
+        }
+        String orchid;
+        try {
+            int[] anchors = (int[]) ROOM_ORCHIDS.get(sim);
+            orchid = anchors.length == 0 ? "-"
+                    : String.valueOf(((long[]) ORCHID_START.get(sim))[ORCHID_BASE.getInt(sim)]);
+        } catch (IllegalAccessException e) {
+            throw new IllegalStateException(e);
+        }
+        return "M " + sim.score() + ' ' + sim.bestScore() + ' ' + sim.continuesUsed() + ' '
+                + sim.effect().kind().ordinal() + ' ' + sim.effect().orchid() + ' ' + sim.effect().remainingTicks() + ' '
+                + sim.treasuresTaken() + ' ' + (q.mapTaken() ? 1 : 0) + ' ' + eyes + ' ' + glasses + ' ' + q.wayTicks()
+                + ' ' + q.hintTicks() + ' ' + q.hintDirection().ordinal() + ' ' + (q.hintToExit() ? 1 : 0) + ' '
+                + get(FLAME_WAIT, sim) + ' ' + orchid;
+    }
+
     /** Plays the scenario in the Java game and fails unless its check shows. */
     static void hold(Content c, WorldGrid grid, MoveTraces.Scenario s) {
         if (s.check().equals("-")) {
@@ -140,6 +176,7 @@ final class JungleChecks {
             beastY[i] = sim.beasts().get(i).yFp();
         }
         int t = 0;
+        java.util.Set<String> seen = new java.util.HashSet<>();
         for (int k : s.keys()) {
             List<Creature> before = List.copyOf(sim.creatures());
             int[] modesBefore = before.stream().mapToInt(x -> x.mode().ordinal()).toArray();
@@ -194,8 +231,21 @@ final class JungleChecks {
                 case "guardian-parry" -> shown |= sim.quest().inLair()
                         && sim.quest().guardian().aux() == c.questRules().orbit().stunTicks();
                 case "win" -> shown |= p.mode() == Player.Mode.WON;
+                case "flame" -> shown |= sim.creatures().stream().anyMatch(x -> x.speciesIndex()
+                        == sim.ecosystem().creatures().creatures().size());
+                case "treasure" -> shown |= sim.treasuresTaken() > 0;
+                case "item" -> shown |= sim.quest().mapTaken() || sim.quest().wayTicks() > 0
+                        || sim.quest().eyeTaken(0) || sim.quest().eyeTaken(1);
+                case "hint" -> shown |= sim.quest().hintTicks() > 0;
+                case "continue" -> shown |= sim.continuesUsed() > 0;
                 default -> {
-                    if (s.check().startsWith("set:")) {
+                    if (s.check().startsWith("effects:")) {
+                        // Every one named, at some tick: "effects:TORPOR+HASTE".
+                        seen.add(sim.effect().kind().name());
+                        shown = seen.containsAll(List.of(s.check().substring("effects:".length()).split("\\+")));
+                    } else if (s.check().startsWith("effect:")) {
+                        shown |= sim.effect().kind().name().equals(s.check().substring("effect:".length()));
+                    } else if (s.check().startsWith("set:")) {
                         shown = sim.landmarks().amuletSet() == Integer.parseInt(s.check().substring("set:".length()));
                     } else if (s.check().startsWith("pieces:")) {
                         shown = sim.quest().piecesHeld() >= Integer.parseInt(s.check().substring("pieces:".length()));

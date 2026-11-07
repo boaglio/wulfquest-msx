@@ -486,19 +486,49 @@ static void LoadSprite(u8 segment, const u8* src, u8 patternBytes, u8 vramHigh, 
 	SET_BANK_SEGMENT(ROM_DATA_BANK, g_CodeSeg);
 }
 
+u8 g_ValeInk = 0xFF;
+
 void Data_LoadValeFrame(u8 frame, u8 vramHigh, u16 vramLow, u8* colours)
 {
-	LoadSprite(PLAYER_FRAMES_BIN_SEG,
-		(const u8*)(ROM_DATA_ADDR + PLAYER_FRAMES_BIN_REL) + (u16)frame * PLAYER_FRAME_BYTES,
+	u8 seg = PLAYER_FRAMES_BIN_SEG;
+	u16 rel = PLAYER_FRAMES_BIN_REL;
+	if (g_ValeInk != 0xFF)
+	{
+		seg = g_InkedSeg[g_ValeInk];   // inked in a flower's colour (M8)
+		rel = g_InkedRel[g_ValeInk];
+	}
+	LoadSprite(seg, (const u8*)(ROM_DATA_ADDR + rel) + (u16)frame * PLAYER_FRAME_BYTES,
 		PLAYER_PATTERN_BYTES, vramHigh, vramLow, colours, PLAYER_FRAME_BYTES - PLAYER_PATTERN_BYTES);
 }
 
+// A bank frame's numbers, from frames.bin (sprite_bank.h): its offset in its
+// chunk, its chunk, its blocks, its origin.
+u8 g_FrameOX = 0;
+u8 g_FrameOY = 0;
+static u8 s_Info[FRAME_INFO_BYTES];
+
+void Data_FrameOrigin(u8 frame)
+{
+	SET_BANK_SEGMENT(ROM_DATA_BANK, FRAMES_BIN_SEG);
+	const u8* src = (const u8*)(ROM_DATA_ADDR + FRAMES_BIN_REL) + ((u16)frame << 3);
+	for (u8 i = 0; i < FRAME_INFO_BYTES; i++)
+		s_Info[i] = src[i];
+	SET_BANK_SEGMENT(ROM_DATA_BANK, g_CodeSeg);
+	g_FrameOX = s_Info[4];
+	g_FrameOY = s_Info[5];
+}
+
+#if FRAME_INFO_BYTES != 8
+#error "frames.bin is read at frame * 8"
+#endif
+
 u8 Data_LoadSpriteFrame(u8 frame, u8 vramHigh, u16 vramLow, u8* colours)
 {
-	u8 b = g_SpriteBlocks[frame];
+	Data_FrameOrigin(frame);
+	u8 b = s_Info[3];
 	u8 blocks = (b >> 4) * (b & 15);
-	u8 c = g_SpriteChunk[frame];
-	LoadSprite(g_SpriteChunkSeg[c], (const u8*)(ROM_DATA_ADDR + g_SpriteChunkRel[c]) + g_SpriteOffset[frame],
+	u8 c = s_Info[2];
+	LoadSprite(g_SpriteChunkSeg[c], (const u8*)(ROM_DATA_ADDR + g_SpriteChunkRel[c]) + (s_Info[0] | ((u16)s_Info[1] << 8)),
 		blocks * (SPRITE_BLOCK_BYTES / 3 * 2), vramHigh, vramLow, colours, blocks * (SPRITE_BLOCK_BYTES / 3));
 	return b;
 }
@@ -507,4 +537,73 @@ void Data_LoadBlade(u8 shape, u8 vramHigh, u16 vramLow)
 {
 	LoadSprite(BLADE_BIN_SEG, (const u8*)(ROM_DATA_ADDR + BLADE_BIN_REL) + (u16)shape * BLADE_SHAPE_BYTES,
 		BLADE_SHAPE_BYTES, vramHigh, vramLow, 0, 0);
+}
+
+//-----------------------------------------------------------------------------
+// M8: a room's extra bytes (the converter's rooms_more.bin, Game.java), and
+// the game's state kept in video RAM, in page 0's lines below the screen.
+
+#include "game_data.h"
+
+void Data_LoadRoomMore(u8 room, u8* out)
+{
+	SET_BANK_SEGMENT(ROM_DATA_BANK, ROOMS_MORE_BIN_SEG);
+	const u8* src = (const u8*)(ROM_DATA_ADDR + ROOMS_MORE_BIN_REL) + ((u16)room << 4);
+	for (u8 i = 0; i < GAME_ROOM_BYTES; i++)
+		out[i] = src[i];
+	SET_BANK_SEGMENT(ROM_DATA_BANK, g_CodeSeg);
+}
+
+u8 g_SpotX = 0;
+u8 g_SpotY = 0;
+
+void Data_RoomSpot(u8 room)
+{
+	SET_BANK_SEGMENT(ROM_DATA_BANK, ROOMS_MORE_BIN_SEG);
+	const u8* src = (const u8*)(ROM_DATA_ADDR + ROOMS_MORE_BIN_REL) + ((u16)room << 4) + 8;
+	g_SpotX = src[0];
+	g_SpotY = src[1];
+	SET_BANK_SEGMENT(ROM_DATA_BANK, g_CodeSeg);
+}
+
+#if GAME_ROOM_BYTES != 16
+#error "rooms_more.bin is read at room * 16"
+#endif
+
+void Data_VramRead(u16 addr, u8* dst, u8 n)
+{
+	__asm__("di");
+	s_VdpCtrl = (u8)(addr >> 14);   // R#14: bits 16-14, bit 16 clear (page 0)
+	s_VdpCtrl = 0x80 | 14;
+	s_VdpCtrl = (u8)addr;
+	s_VdpCtrl = (u8)((addr >> 8) & 0x3F);   // and "read"
+	while (n--)
+		*dst++ = s_VdpData;
+	__asm__("ei");
+}
+
+void Data_VramWrite(u16 addr, const u8* src, u8 n)
+{
+	__asm__("di");
+	s_VdpCtrl = (u8)(addr >> 14);
+	s_VdpCtrl = 0x80 | 14;
+	s_VdpCtrl = (u8)addr;
+	s_VdpCtrl = (u8)(((addr >> 8) & 0x3F) | 0x40);
+	while (n--)
+		s_VdpData = *src++;
+	__asm__("ei");
+}
+
+// The glass's way out of a room (Game.java's ways_N.bin): for amulet set
+// k, the quarters taken (a bit a lair), the room: its edge (n e s w) << 6
+// and the cell along it, or 0xFF where the way ends in the room.
+u8 Data_Way(u8 set, u8 taken, u8 room)
+{
+	u16 at = (((u16)(set & 3) << 4) + taken) << 8 | room;
+	u8 seg = set < 4 ? WAYS_0_BIN_SEG : WAYS_1_BIN_SEG;
+	const u8* src = (const u8*)(ROM_DATA_ADDR + (set < 4 ? WAYS_0_BIN_REL : WAYS_1_BIN_REL)) + at;
+	SET_BANK_SEGMENT(ROM_DATA_BANK, seg);
+	u8 v = *src;
+	SET_BANK_SEGMENT(ROM_DATA_BANK, g_CodeSeg);
+	return v;
 }

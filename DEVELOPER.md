@@ -81,6 +81,10 @@ the Java game's `Content.load` and writes `build/gen/`:
 | `player.h`, `player_hand.h`, `player_frames.bin` | Ranger Vale: every frame he can be shown in, as four layered 16x16 sprites (two blocks of a base and an overlay with the CC bit) with their colour tables, the frame table's layout, the hand each frame holds the blade in, and where a new game starts him |
 | `blade.h`, `blade.bin` | his blade: a shape for each facing and fence pose, as two one-colour sprites, where they go from the hand, and how the ROM picks the pose as the Java game does |
 | `sprite_bank.h`, `sprites_N.bin` | the other sprites the ROM shows (the list is `convert/src/main/resources/wulfmsx/convert/sprites.json`): every frame, cut as Vale's, and its number; the bank in chunks of a ROM segment, each frame's chunk in `g_SpriteChunk` |
+| `game_data.h`, `rooms_more.bin` | the rest of the game (M8, `Game`): orchids, effects, flame, treasures, items, shrines, score, Easy; and 16 bytes a room: its orchid's spot, its treasures' places, a shrine, the beasts' spot |
+| `player_inked_N.bin` | Vale in each untouchable flower's colours (M8), a segment a flower, laid out as `player_frames.bin` |
+| `ways_N.bin` | the looking glass's way out of each room, for every amulet set and state of the quarters taken (M8, `Wayfinder`) |
+| `frames.bin` | the sprite bank's frames' numbers: where each starts, its chunk, blocks and origin (read on demand: RAM is short) |
 | `quest_data.h` | the quest and the Wulf (M7, `Quest`): the amulet's sets, the lairs, the guardians, the Keeper, the way out, the original's Wulf; their tables are in `tables.h` |
 | `sprites.txt`, `sprites.png` | every pixel a sprite shows in another colour than the art's, and pictures of those frames, the art beside the MSX2's; `sprites.json` accepts so many a sprite, and the converter fails past that |
 | `jungle.h`, `jungle_data.h` | the swarm's roster and the big beasts' kinds, placings and sleepers (M6), from `entities/jungle.json` and `creatures.json` |
@@ -104,6 +108,14 @@ adds), and no `const` tables (they land in segment 0 or 1: use `tables.h`).
 `build.sh` checks the calls in the listings and each file's segment; a new
 banked file goes in segment 24 or up, and `build/gen/report.txt` shows what
 the data uses below.
+
+**RAM is short.** The game's variables live in page 3 below the BIOS's work
+area at F380h; `build.sh` prints where they end and fails when less than 512
+bytes are left for the stack. Tables read rarely go in ROM blobs read on
+demand (`data.c`: `frames.bin`, `rooms_more.bin`); game state too big for RAM
+goes in video RAM below the screen (page 0's lines 212-231: `game.h`'s
+`VRAM_TREASURES`, `VRAM_ORCHIDS`), read and written with `Data_VramRead` and
+`Data_VramWrite`.
 
 **MSXgl's start-up does not clear RAM.** A C global with no initial value
 starts as whatever the RAM held, which on openMSX is not zero. Give every
@@ -191,9 +203,13 @@ ignores it, so the submodule stays clean.
   "set:K"` for the first seed that hides the amulet in set K, `"room":
   "lair:N"` for lair N's room in that game; `"endless": true` for the Java
   game's infiniteLives (the ROM's `g_TestEndless`); and `"questRoute": true`,
-  whose keys `QuestRoute` finds by playing the Java game to a win. Their
+  whose keys `QuestRoute` finds by playing the Java game to a win. A fifth,
+  `test/game.json` (M8), plays the game as it ships (`"game": true`,
+  `"easy": true`, an `M` line a tick: the score and the rest);
+  `"orchidScene": N` makes keys that pick the room's orchid at each bloom
+  and walk with its effect (`OrchidScene`). Their
   timing slipped (AGENTS.md M6): plans named in `MOVES_TIMING_SLIPPED`
-  (default `jungle quest`) print late frames as `SLIP` lines instead of
+  (default `moves jungle quest game`) print late frames as `SLIP` lines instead of
   failing; set it empty to see them fail.
 - **`test/boot.sh`** also checks Vale is on screen where a new game starts
   him, in his first frame, in his colours; its pictures draw the sprites from
@@ -246,13 +262,14 @@ src/             the game: wulfquest.c (main), data.c (the ROM's data; stays in
                  the scenery or the map), spawn.c (where Vale gets up),
                  rng.c (the Java game's random numbers), quest.c and
                  wulf.c (the amulet, the guardians, the Keeper, the
-                 Wulf); wulfquest_sN_b1.c, the banked segments; MSXgl's
+                 Wulf), game.c (the score, orchids, treasures, items,
+                 continues, Easy); wulfquest_sN_b1.c, the banked segments; MSXgl's
                  project_config.js and msxgl_config.h
 pom.xml          builds wulfquest/core and convert/ together
 convert/         the converter (Java)
 tools/           check-no-binaries.sh
 test/            boot.*, rooms.*, moves.*, sprites.*, flips.json, jungle.json,
-                 quest.json,
+                 quest.json, game.json,
                  check_*.py,
                  vdp_sprites.py, gate.sh
 wulfquest/       submodule: the Java game, for its data/

@@ -23,10 +23,11 @@ import wulf.world.RoomAddress;
 public final class Jungle {
 
     /** The small creatures' behaviours the ROM has, by their data names; the order is the ROM's. */
-    static final List<String> BEHAVIOURS = List.of("DART", "HOME_IN");
+    static final List<String> BEHAVIOURS = List.of("DART", "HOME_IN", "FLAME");
     static final List<String> DART = List.of("speedMinFp", "speedStepFp", "speedSteps", "runTicks", "pauseMinTicks",
             "pauseSpanTicks");
     static final List<String> HOME_IN = List.of("accelFp", "maxFp");
+    static final List<String> FLAME = List.of("steerTicks", "homingPer10k");
     /** The beasts' parameters the ROM reads, each kind's that it has, 0 for the others. */
     static final List<String> BEAST_PARAMS = List.of("paceFp", "shovedFp", "walkSlowFp", "walkFastFp", "chargeFp",
             "wakeTicks", "hintPx");
@@ -39,12 +40,16 @@ public final class Jungle {
         CreatureData roster = c.originalCreatures();
         SwarmRules swarm = c.swarmRules();
         BeastRules beasts = c.beastRules();
-        List<CreatureData.Species> small = roster.creatures();
+        // The roster, and the flame after it (M8): Simulation puts it in the room's
+        // creatures as species roster.size() (§12.7).
+        List<CreatureData.Species> small = new java.util.ArrayList<>(roster.creatures());
+        small.add(c.flame().asSpecies());
 
         h.append(Gen.banner("data/entities/jungle.json and creatures.json"));
         h.append("#pragma once\n\n");
         h.append("// The swarm's roster (Content.originalCreatures), in its order.\n");
-        h.append("#define CREATURES\t\t").append(small.size()).append('\n');
+        h.append("#define CREATURES\t\t").append(small.size() - 1).append('\n');
+        h.append("#define FLAME_SPECIES\t\t").append(small.size() - 1).append("\t// the flame, after the roster\n");
         for (int i = 0; i < BEHAVIOURS.size(); i++) {
             h.append("#define BEHAVIOUR_").append(BEHAVIOURS.get(i)).append('\t').append(i).append('\n');
         }
@@ -57,6 +62,7 @@ public final class Jungle {
         for (Beast.Kind k : Beast.Kind.values()) {
             h.append("#define BEAST_").append(k.name()).append('\t').append(k.ordinal()).append('\n');
         }
+        h.append("#define BEAST_PARAMS_N\t\t").append(BEAST_PARAMS.size()).append('\n');
         h.append("\n// The tables are in tables.h.\n");
 
         // The roster.
@@ -83,7 +89,7 @@ public final class Jungle {
                 throw new ConvertException(where + " behaves as " + s.behaviour().kind() + "; the ROM has "
                         + BEHAVIOURS);
             }
-            List<String> names = kind[i] == 0 ? DART : HOME_IN;
+            List<String> names = kind[i] == 0 ? DART : kind[i] == 1 ? HOME_IN : FLAME;
             for (int p = 0; p < names.size(); p++) {
                 params[p][i] = s.behaviour().param(names.get(p));
             }
@@ -213,9 +219,7 @@ public final class Jungle {
                         + " does not fit a byte");
             }
         }
-        note = "Each room's spot (§12.9): x the sprite's left, y its feet, room-local.";
-        array("unsigned char", "g_SpotX", sx);
-        array("unsigned char", "g_SpotY", sy);
+        // The spots go in rooms_more.bin (Game), read when a beast is set down.
     }
 
     private String note;

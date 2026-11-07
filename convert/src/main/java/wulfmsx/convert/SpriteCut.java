@@ -59,7 +59,8 @@ public final class SpriteCut {
 
     /** The list in sprites.json. */
     public record Sprites(List<String> rom, List<String> silhouettes, List<String> later,
-                          Map<String, Integer> accepted) {
+                          Map<String, Integer> accepted, Map<String, String> inked, List<String> unmirrored,
+                          List<String> silhouettesOnly) {
 
         List<String> all(Content c) {
             List<String> out = new ArrayList<>();
@@ -86,7 +87,20 @@ public final class SpriteCut {
         for (Map.Entry<String, JsonNode> e : n.get("accepted").properties()) {
             accepted.put(e.getKey(), e.getValue().asInt());
         }
-        Sprites s = new Sprites(rom, n.has("silhouettes") ? names(n.get("silhouettes")) : List.of(), later, accepted);
+        Map<String, String> inked = new LinkedHashMap<>();
+        if (n.has("inked")) {
+            for (Map.Entry<String, JsonNode> e : n.get("inked").properties()) {
+                inked.put(e.getKey(), e.getValue().asString());
+            }
+        }
+        Sprites s = new Sprites(rom, n.has("silhouettes") ? names(n.get("silhouettes")) : List.of(), later, accepted,
+                inked, n.has("unmirrored") ? names(n.get("unmirrored")) : List.of(),
+                n.has("silhouettesOnly") ? names(n.get("silhouettesOnly")) : List.of());
+        for (String name : inked.keySet()) {
+            if (!rom.contains(name)) {
+                throw new ConvertException("convert/.../sprites.json: inked '" + name + "' is not in 'rom'");
+            }
+        }
         for (String name : s.silhouettes()) {
             if (!rom.contains(name)) {
                 throw new ConvertException("convert/.../sprites.json: silhouette '" + name + "' is not in 'rom'");
@@ -114,6 +128,9 @@ public final class SpriteCut {
      * hardware sprites, as how many pixels of each distinct colour it has
      * (by {@link VdpPalette#group}), with how often each such line occurs.
      */
+    /** How much more a line of Vale's counts in the palette's order than another sprite's (M8). */
+    static final int PLAYER_WEIGHT = 4;
+
     static Map<List<Integer>, Integer> lines(Content c, VdpPalette plain) {
         Map<List<Integer>, Integer> lines = new HashMap<>();
         int groups = plain.groups();
@@ -121,6 +138,8 @@ public final class SpriteCut {
             SpriteData sprite = c.sprites().get(name);
             int w = sprite.size().w();
             int h = sprite.size().h();
+            // Vale is on the screen all the time: his lines count for more than a still icon's.
+            int weight = name.equals(c.player().sprite()) ? PLAYER_WEIGHT : 1;
             for (byte[] px : sprite.decode("data/art/sprites/" + name + ".sprite.json").values()) {
                 for (int y = 0; y < h; y++) {
                     for (int x0 = 0; x0 < w; x0 += BLOCK) {
@@ -141,7 +160,7 @@ public final class SpriteCut {
                                     key.add(count[g]);
                                 }
                             }
-                            lines.merge(List.copyOf(key), 1, Integer::sum);
+                            lines.merge(List.copyOf(key), weight, Integer::sum);
                         }
                     }
                 }
