@@ -42,10 +42,40 @@ extern u8  g_ValeFreeze;
 // nothing (the movement tests' open world).
 extern u8  g_ValeOpen;
 
+// What he is doing (Player.Mode): on his feet, falling, down, or out of lives.
+enum { MODE_ALIVE, MODE_DYING, MODE_DOWN, MODE_GAME_OVER };
+extern u8  g_ValeMode;
+extern u8  g_ValeModeTick;
+extern u8  g_ValeLives;       // in reserve
+extern u8  g_ValeInvuln;      // ticks of spawn invulnerability left
+extern u8  g_ValeVisible;     // not blinked out (PlayerPainter.visible)
+extern u8  g_SwingSerial;     // goes up with each swing: a swing hits a creature once
+extern u32 g_SimTick;         // Simulation.tick(): ticks since the game began
+
+// His room's top-left, and the cells' around it (s_Cells), world pixels.
+extern i16 g_RoomX;
+extern i16 g_RoomY;
+extern i16 g_CellsX;
+extern i16 g_CellsY;
+extern u8  s_Cells[];
+
+// Whether any cell of s_Cells under a box is solid: the box in the cells'
+// pixels, wholly inside them (vale.c, assembly).
+extern u16 g_CbLeft;
+extern u8  g_CbTop;
+extern u8  g_CbW;
+extern u8  g_CbH;
+u8 Cells_Blocked();
+
+// Lethal contact (Simulation.kill): he falls, unless invulnerable or already
+// down. TRUE when it landed.
+bool Vale_Kill();
+
 // Once, at start: the speed tables.
 void Vale_Init();
 
-// Stand him at rest at a world position, in the room it is in.
+// A new game's Vale, at rest at a world position, in the room it is in: his
+// lives full, the game's tick at 0.
 void Vale_Place(i32 x, i32 y);
 
 // One tick of the game: the sabre, then the walk, then the room he is in,

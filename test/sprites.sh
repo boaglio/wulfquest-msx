@@ -16,7 +16,7 @@ command -v openmsx >/dev/null || { echo "sprites.sh: openMSX is needed" >&2; exi
 mkdir -p build/test
 
 names="g_DrawCount g_TestGallery g_TestValeFrame g_TestValeBlade g_TestValeX g_TestValeY g_TestCount
-       g_TestFrame g_TestSpriteX g_TestSpriteY g_SpritesCrowded g_BenchGo g_BenchOp g_BenchW g_BenchH
+       g_TestFrame g_TestSpriteX g_TestSpriteY g_SpritesCrowded g_BenchGo g_BenchOp g_BenchW g_BenchH g_FlipDraw g_ShownDraw
        Test_Shown Test_BenchStart Test_BenchEnd"
 syms=""
 for n in $names; do

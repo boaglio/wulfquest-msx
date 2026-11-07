@@ -5,8 +5,10 @@
 #            (and on an MSX2 the first 64 KB of video RAM, for the sprites)
 #   after    the screen memory again, after F5 (the debug key for the next room) has been pressed
 #
-# C-BIOS shows its own logo for a few seconds before it starts a cartridge,
-# hence the wait. Emulated time, with the throttle off: it takes a moment.
+# Each is taken as the ROM puts a room on screen: its Test_Shown
+# ($env(BOOT_SHOWN)) once g_DrawCount ($env(BOOT_COUNT)) says the room is
+# drawn. On an MSX1, which shows no room, after C-BIOS's logo (a few
+# seconds; emulated time, with the throttle off, so it takes a moment).
 
 set throttle off
 
@@ -39,18 +41,42 @@ proc step {body} {
     }
 }
 
-after time 10 { step {
-    set f [open $env(BOOT_OUT) w]
-    dump $f before
+proc dumpto {tag} {
+    set f [open $::env(BOOT_OUT) [expr {$tag eq "before" ? "w" : "a"}]]
+    dump $f $tag
     close $f
+}
+proc drawn {} {
+    expr {[debug read memory $::env(BOOT_COUNT)] | ([debug read memory [expr {$::env(BOOT_COUNT) + 1}]] << 8)}
+}
+# The game (an MSX2): "before" as its first room is put on screen, Vale on
+# it (the jungle is live, so later he may be anywhere, or down); F5 then, and
+# "after" as the next room is put on screen.
+set ::state 0
+debug breakpoint create -address $env(BOOT_SHOWN) -command { step {
+    if {$::state == 0 && [drawn] >= 1} {
+        dumpto before
+        keymatrixdown 7 0x02
+        set ::state 1
+        after time 0.2 { keymatrixup 7 0x02 }
+    } elseif {$::state == 1 && [drawn] >= 2} {
+        dumpto after
+        exit
+    }
+} }
+# No room by then (an MSX1: the ROM says it needs an MSX2, and stays): the
+# screen as it is, before and after F5.
+after time 10 { step {
+    if {$::state != 0} { return }
+    set ::state 2
+    dumpto before
     keymatrixdown 7 0x02
     after time 0.2 { step {
         keymatrixup 7 0x02
         after time 0.5 { step {
-            set f [open $env(BOOT_OUT) a]
-            dump $f after
-            close $f
+            dumpto after
             exit
         } }
     } }
 } }
+after time 30 { step { error "no room shown, and no MSX1 message" } }

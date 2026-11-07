@@ -28,7 +28,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import vdp_sprites  # noqa: E402
 
 TABLES = 128 + 512 + 2048
-PER_PAGE = 13
+SMALL = 6   # the ROM's slots: 6 of one block, then 5 of up to 2x2 (sprites.h)
+BIG = 5
 TURN_FRAMES = 10
 
 
@@ -44,11 +45,30 @@ def plan(gen):
         pages.append([f, f % shapes if f in hand else -1, 100, 12])
     for s in range(shapes):
         pages.append([hand[s % len(hand)], s, 100, 12])
-    # The bank's frames, a grid of them under Vale on each page, 3 a row (6 sprites a line).
-    for i in range(bank):
-        page = pages[i // PER_PAGE]
-        k = i % PER_PAGE
-        page.append((i, 16 + (k % 3) * 40, 70 + (k // 3) * 20))
+    # The bank's frames under Vale on each page: one-block ones in the 6 small slots, 3 a row
+    # (6 sprites a line), bigger ones in the 5 big slots, 2 a row (8 a line), below, as many
+    # as the 32 sprites hold: more would take turns, and a page is one frame.
+    small = [i for i in range(bank) if g.blocks[i] == 0x11]
+    big = [i for i in range(bank) if g.blocks[i] != 0x11]
+    p = 0
+    while small or big:
+        if p >= len(pages):
+            pages.append([0, -1, 100, 12])
+        objs = []
+        for k in range(SMALL):
+            if small:
+                objs.append((small.pop(0), 16 + (k % 3) * 40, 60 + (k // 3) * 20))
+        while len(objs) < SMALL:
+            objs.append(None)
+        # As many as the 32 sprites hold with Vale's 4, the blade's 2 and the small slots' 12.
+        room = 32 - 4 - 2 - 2 * SMALL
+        for k in range(BIG):
+            n = 2 * (g.blocks[big[0]] >> 4) * (g.blocks[big[0]] & 15) if big else 0
+            if big and n <= room:
+                room -= n
+                objs.append((big.pop(0), 16 + (k % 2) * 48, 104 + (k // 2) * 34))
+        pages[p] += [o for o in objs]
+        p += 1
     # Partly off the left edge, and partly over the panel.
     pages.append([hand[0], 0, -6, 60, (0, -9, 100), (1, 230, 166)])
     pages.append([0, -1, 40, 160, (2, -15, 120)])
@@ -56,6 +76,10 @@ def plan(gen):
     out = []
     for p in pages:
         head, objs = p[:4], p[4:]
+        # An empty small slot: a frame held far off the screen.
+        objs = [o if o is not None else (0, -200, -200) for o in objs]
+        while objs and objs[-1] == (0, -200, -200):
+            objs.pop()
         out.append("page " + " ".join(map(str, head)) + f" {len(objs)} " + " ".join(f"{f} {x} {y}" for f, x, y in objs))
     # Turns: 14 sprites on lines 88..103.
     objs = [(i, 80 + 24 * i, 88) for i in range(5)]

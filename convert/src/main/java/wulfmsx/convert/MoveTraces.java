@@ -13,7 +13,13 @@ import wulf.engine.Fixed;
 import wulf.input.InputState;
 import wulf.sim.Player;
 import wulf.sim.PixelRect;
+import wulf.data.FlameData;
+import wulf.data.OrchidData;
+import wulf.sim.Ecosystem;
+import wulf.sim.QuestRules;
+import wulf.sim.RoomPopulator;
 import wulf.sim.Simulation;
+import wulf.sim.WulfRules;
 import wulf.tools.MapAudit;
 import wulf.world.CollisionMask;
 import wulf.world.CollisionWorld;
@@ -47,7 +53,7 @@ import wulf.world.WorldGrid;
  *
  * <ul>
  *   <li>{@code OUT_PREFIX_plan.txt}, for test/moves.tcl: per scenario
- *       {@code scenario NAME ROOM OPEN X_FP Y_FP CHECK}, then {@code keys} and
+ *       {@code scenario NAME ROOM OPEN X_FP Y_FP CHECK SEED}, then {@code keys} and
  *       a key byte a tick (up 1, down 2, left 4, right 8, fire 16);
  *   <li>{@code OUT_PREFIX_expected.txt}: per scenario {@code scenario NAME},
  *       then after each tick {@code X_FP Y_FP FACING SWING WALK SX SY SW SH ROOM FREEZE FRAME BLADE}:
@@ -55,7 +61,8 @@ import wulf.world.WorldGrid;
  *       (-1 none), ticks walked, the sabre's hit box (all 0 when none), the
  *       room (row * 16 + col), the frozen ticks left, the frame he is drawn in
  *       (player.h) and the blade's shape (blade.h; -1 none), as the Java
- *       game's PlayerPainter picks them.
+ *       game's PlayerPainter picks them; with the jungle ({@code "jungle": SEED}),
+ *       a second line after it, {@link JungleChecks#line}.
  * </ul>
  */
 public final class MoveTraces {
@@ -64,7 +71,12 @@ public final class MoveTraces {
     }
 
     /** A start, a key byte a tick, and what test/check_moves.py checks on top of equality ("-" nothing). */
-    record Scenario(String name, RoomAddress room, boolean open, int xFp, int yFp, List<Integer> keys, String check) {
+    record Scenario(String name, RoomAddress room, boolean open, int xFp, int yFp, List<Integer> keys, String check,
+                    long seed) {
+        /** With the jungle: the swarm and the big beasts, seeded (else, -1, the empty jungle). */
+        boolean jungle() {
+            return seed >= 0;
+        }
     }
 
     public static void main(String[] args) throws IOException {
@@ -96,8 +108,24 @@ public final class MoveTraces {
     static final CollisionWorld OPEN = (gx, gy) -> gx < 0 || gy < 0 || gx >= WorldGrid.COLS || gy >= WorldGrid.ROWS;
 
     static Simulation simulation(Content c, WorldGrid grid, boolean open, int xFp, int yFp) {
+        return simulation(c, grid, open, xFp, yFp, -1);
+    }
+
+    static Simulation simulation(Content c, WorldGrid grid, boolean open, int xFp, int yFp, long seed) {
+        if (seed >= 0) {
+            return Simulation.at(c.player(), grid, c.game().transition().freezeTicks(), xFp, yFp, jungle(c), seed);
+        }
         return open ? Simulation.at(c.player(), OPEN, 0, xFp, yFp)
                 : Simulation.at(c.player(), grid, c.game().transition().freezeTicks(), xFp, yFp);
+    }
+
+    /**
+     * M6's jungle (AGENTS.md §10): the game's own swarm and big beasts, and nothing else yet —
+     * no Wulf, no quest, no orchids, no flame, no score for a first visit.
+     */
+    static Ecosystem jungle(Content c) {
+        return new Ecosystem(c.originalCreatures(), RoomPopulator.NONE, 0, WulfRules.NONE, QuestRules.NONE,
+                OrchidData.NONE, FlameData.NONE, c.swarmRules(), c.beastRules());
     }
 
     static Scenario scenario(Content c, WorldGrid grid, JsonNode s) {
@@ -123,12 +151,13 @@ public final class MoveTraces {
                     + " is not in room " + room.col() + "," + room.row());
         }
         String check = s.has("check") ? s.get("check").asString() : "-";
+        long seed = s.has("jungle") ? s.get("jungle").asLong() : -1;
 
         if (s.has("route")) {
             int rooms = s.get("route").asInt();
             Route route = Route.plan(c, grid, xFp, yFp, rooms);
             return new Scenario(name, room, false, xFp, yFp, route.keys(),
-                    "route:" + rooms + ":" + route.target().index());
+                    "route:" + rooms + ":" + route.target().index(), -1);
         }
         List<Integer> keys = new ArrayList<>();
         for (JsonNode k : s.get("keys")) {
@@ -137,7 +166,11 @@ public final class MoveTraces {
                 keys.add(bits);
             }
         }
-        return new Scenario(name, room, open, xFp, yFp, keys, check);
+        Scenario sc = new Scenario(name, room, open, xFp, yFp, keys, check, seed);
+        if (sc.jungle()) {
+            JungleChecks.hold(c, grid, sc);
+        }
+        return sc;
     }
 
     /**
@@ -179,7 +212,7 @@ public final class MoveTraces {
             List<Integer> keys = crossAndBack(c, grid, name, xFp, yFp, there, back, seam.to().index(),
                     seam.from().index());
             out.add(new Scenario(name, seam.from(), false, xFp, yFp, keys,
-                    "seam:" + seam.from().index() + ":" + seam.to().index()));
+                    "seam:" + seam.from().index() + ":" + seam.to().index(), -1));
         }
         return out;
     }
@@ -208,7 +241,7 @@ public final class MoveTraces {
     static void plan(Scenario s, StringBuilder plan) {
         plan.append("scenario ").append(s.name()).append(' ').append(s.room().index()).append(' ')
                 .append(s.open() ? 1 : 0).append(' ').append(s.xFp()).append(' ').append(s.yFp()).append(' ')
-                .append(s.check()).append("\nkeys");
+                .append(s.check()).append(' ').append(s.seed()).append("\nkeys");
         for (int k : s.keys()) {
             plan.append(' ').append(k);
         }
@@ -217,7 +250,7 @@ public final class MoveTraces {
 
     static void trace(Content c, WorldGrid grid, Scenario s, StringBuilder expected) {
         expected.append("scenario ").append(s.name()).append('\n');
-        Simulation sim = simulation(c, grid, s.open(), s.xFp(), s.yFp());
+        Simulation sim = simulation(c, grid, s.open(), s.xFp(), s.yFp(), s.seed());
         List<String> frames = PlayerSprite.frameIds(c.player());
         boolean fireWas = false;
         for (int k : s.keys()) {
@@ -232,6 +265,9 @@ public final class MoveTraces {
                     .append(' ').append(sim.room().index()).append(' ').append(sim.freezeRemaining())
                     .append(' ').append(frame(frames, p, c.player(), s))
                     .append(' ').append(Painter.bladeShape(p, c.player(), !b.isEmpty(), sim.tick())).append('\n');
+            if (s.jungle()) {
+                expected.append(JungleChecks.line(sim)).append('\n');
+            }
         }
     }
 

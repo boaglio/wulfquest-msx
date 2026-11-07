@@ -46,6 +46,14 @@ cp "$rom" build/wulfquest.rom
 main_at=$(awk '$2 == "_main" { print $1 }' build/msxgl/wulfquest.map)
 [[ -n "$main_at" ]] && (( 16#$main_at < 16#8000 )) \
     || die "src/data.c no longer fits in ROM segment 0 (main at ${main_at:-?}h)"
+# And everything data.c calls must be there too: with bank 1 switched to a
+# data segment, a call above 8000h (SDCC's library, for a division) lands in
+# data. Every call in data.c's listing, to an address in the map, below 8000h.
+bad=$(awk '$NF ~ /^_/ && $(NF-1) == "call" { print $NF }' build/msxgl/data.lst | sort -u | while read -r f; do
+    a=$(awk -v s="$f" '$2 == s { print $1 }' build/msxgl/wulfquest.map)
+    if [[ -n "$a" ]] && (( 16#$a >= 16#8000 )); then echo "$f"; fi
+done)
+[[ -z "$bad" ]] || die "src/data.c calls code above 8000h, which its bank switching hides: $bad"
 echo "build.sh: build/wulfquest.rom ($(stat -c %s build/wulfquest.rom) bytes)"
 
 if [[ "${1:-}" == test ]]; then

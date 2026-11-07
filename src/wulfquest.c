@@ -3,9 +3,10 @@
 //
 // The game loop: 50 ticks a second, driven by the vertical interrupt; on a
 // 60 Hz machine every sixth frame has no tick, so the game runs at the same
-// speed (§6). A frame starts by showing Vale as the last tick left him, four
-// layered hardware sprites and his blade (sprites.c), while the screen is
-// blank; then its ticks run,
+// speed (§6). A frame starts by showing the sprites the last frame drew (two
+// sets of sprite tables, sprites.c: the blank only points the VDP at the
+// other); then its ticks run, and the sprites they leave are drawn into the
+// set not shown,
 // each reading one input state and moving him (vale.c).
 //
 // When he walks into another room, it is drawn on the hidden page while the
@@ -32,9 +33,12 @@
 #include "vale.h"
 #include "overlay.h"
 #include "sprites.h"
-#include "player_hand.h"
-#define BLADE_TABLES
+#include "jungle.h"
+#include "rng.h"
+#include "jungle_data.h"
+#include "sprite_bank.h"
 #include "blade.h"
+#include "tables.h"
 
 // MSXgl's start-up does not clear RAM: a global with no initial value starts
 // as whatever the RAM held. So every one here has one.
@@ -67,7 +71,8 @@ static RoomData s_Room;
 static u8 s_Shown = 0;   // the page on screen: 0 or 1
 static i16 s_RoomX;  // the room's top-left, world pixels
 static i16 s_RoomY;
-static u8 s_ValeFrame = 0xFF;
+// What each set of sprite tables has loaded (sprites.h): the back set's is drawn.
+static u8 s_ValeFrame[2] = { 0xFF, 0xFF };
 
 static void DrawSprites();
 
@@ -94,10 +99,15 @@ static void ShowRoom()
 	g_Room = room;
 	s_RoomX = (i16)(room % GRID_W) * PLAYFIELD_W;
 	s_RoomY = (i16)(room / GRID_W) * PLAYFIELD_H;
-	Halt();
-	VDP_SetPage(hidden);
+	DrawSprites();   // Vale in it, into the back set
+	// The page and the sprites, both in the next blank (data.c's hook).
+	g_FlipR2 = (hidden << 5) | 0x1F;   // R#2 in SCREEN 5: the page's address bits 16-15
+	__asm__("di");
+	g_FlipPending |= FLIP_PAGE;
+	__asm__("ei");
+	while (g_FlipPending)
+		Halt();
 	s_Shown = hidden;
-	DrawSprites();
 	Test_Shown();
 }
 
@@ -242,18 +252,177 @@ i8  g_TestValeBlade = -1;
 i16 g_TestValeX = 0;
 i16 g_TestValeY = 0;
 u8  g_TestCount = 0;
-u8  g_TestFrame[SPR_SMALL] = { 0 };
-i16 g_TestSpriteX[SPR_SMALL] = { 0 };
-i16 g_TestSpriteY[SPR_SMALL] = { 0 };
+u8  g_TestFrame[SPR_SMALL + SPR_BIG];
+i16 g_TestSpriteX[SPR_SMALL + SPR_BIG];
+i16 g_TestSpriteY[SPR_SMALL + SPR_BIG];
 
-static i8 s_BladeShape = -1;
+// test/jungle.sh (M6): with g_TestJungle set, a test's start is a new game
+// with the jungle, its random numbers seeded from g_TestSeed (the Java
+// game's long, little-endian); without it, the empty jungle.
+u8  g_TestJungle = 0;
+u8  g_TestSeed[8];
+
+static i8 s_BladeShape[2] = { -1, -1 };
 static bool s_Loaded = FALSE;   // DrawSprites loaded a frame or a shape this frame
-static u8 s_SmallFrame[SPR_SMALL] = { 0 };
+// The frame each slot from SLOT_SMALL on holds, and the tint it is in.
+static u8 s_SlotFrame[2][SPR_SMALL + SPR_BIG];
+static u8 s_SlotTint[2][SPR_SMALL + SPR_BIG];
+
+// Show bank frame f, in tint (0: its own colours; a silhouette takes the
+// tint), its feet at (x, y) on the screen, in slot SLOT_SMALL + n.
+static void PutFrame(u8 n, u8 f, u8 tint, i16 x, i16 y)
+{
+	u8 slot = SLOT_SMALL + n;
+	u8 set = Sprites_Back();
+	if (f != s_SlotFrame[set][n] || tint != s_SlotTint[set][n])
+	{
+		s_Loaded = TRUE;
+		u8* c = Sprites_Colours(slot);
+		u8 blocks = Data_LoadSpriteFrame(f, g_SpritePatternHigh, Sprites_PatternAddress(slot), c);
+		if (tint)
+		{
+			u8 n2 = (blocks >> 4) * (blocks & 15);
+			for (u8 b = 0; b < n2; b++, c += 32)
+				for (u8 l = 0; l < 16; l++)
+					c[l] = tint;   // the base's lines; the overlay is empty
+		}
+		Sprites_SetBlocks(slot, blocks);
+		Sprites_Changed(slot);
+		s_SlotFrame[set][n] = f;
+		s_SlotTint[set][n] = tint;
+	}
+	Sprites_Put(slot, x - g_SpriteOriginX[f], y - g_SpriteOriginY[f]);
+}
+
+// The walk's frame: (s_Clock / CREATURE_WALK_TICKS_PER_FRAME) & 1, the Java
+// game's, without SDCC's division (2 000 cycles): s_Clock mod 12 >= 6. A
+// u32's bytes b0..b3 are b0 + 4 (b1 + b2 + b3) mod 12, 256 being 4 mod 12.
+#if CREATURE_WALK_TICKS_PER_FRAME != 6
+#error "WalkPhase divides by 6"
+#endif
+static u32 s_Clock;
+static u8 WalkPhase() __naked
+{
+	__asm
+		ld	hl, #_s_Clock + 1
+		ld	a, (hl)
+		inc	hl
+		ld	e, a
+		ld	d, #0
+		ld	a, (hl)
+		inc	hl
+		add	a, e
+		ld	e, a
+		jr	nc, 00001$
+		inc	d
+	00001$:
+		ld	a, (hl)
+		add	a, e
+		ld	e, a
+		jr	nc, 00002$
+		inc	d
+	00002$:
+		ex	de, hl                  ; b1 + b2 + b3
+		add	hl, hl
+		add	hl, hl
+		ld	a, (_s_Clock)
+		ld	e, a
+		ld	d, #0
+		add	hl, de                  ; + b0: up to 3 315
+		ld	de, #-768               ; 12 * 64
+	00010$:
+		add	hl, de
+		jr	c, 00010$
+		ld	de, #768
+		add	hl, de
+		ld	de, #-96
+	00020$:
+		add	hl, de
+		jr	c, 00020$
+		ld	de, #96
+		add	hl, de
+		ld	a, l                    ; under 96
+	00030$:
+		sub	a, #12
+		jr	nc, 00030$
+		add	a, #12                  ; mod 12
+		cp	a, #6
+		ld	a, #0
+		ret	c
+		inc	a
+		ret
+	__endasm;
+}
+
+// CreaturePainter: the room's beasts, then its small creatures back to front
+// by their feet; put here front to back, after Vale.
+static u8 s_Order[CREATURE_POOL];
+
+static void DrawJungle()
+{
+	u8 n = 0;
+	for (i8 b = BEASTS - 1; b >= 0 && n < SPR_BIG; b--)
+	{
+		if (g_Beast[b].At != g_ValeRoom)
+			continue;
+		u8 k = g_BKind[b];
+		u8 v = 4;
+		if (!g_BAsleep[b])
+		{
+			s_Clock = g_Beast[b].MoveTicks;
+			v = s_Clock ? WalkPhase() : 0;
+		}
+		if (g_BFace[b] < 0)
+			v += v == 4 ? 1 : 2;
+		PutFrame(SPR_SMALL + n, g_BeastFrame[k * 6 + v], 0,
+			FP_PX(g_Beast[b].X) - s_RoomX, FP_PX(g_Beast[b].Y) - s_RoomY);
+		n++;
+	}
+	// Front to back: the creature nearest the bottom first, the later of two level.
+	u8 m = g_HereN > SPR_SMALL ? SPR_SMALL : g_HereN;
+	for (u8 k = 0; k < g_HereN; k++)
+		s_Order[k] = g_Here[k];
+	for (u8 a = 0; a < g_HereN; a++)
+		for (u8 b = a + 1; b < g_HereN; b++)
+		{
+			u8 i = s_Order[a];
+			u8 j = s_Order[b];
+			if (g_CY[j] > g_CY[i] || (g_CY[j] == g_CY[i] && g_CId[j] > g_CId[i]))
+			{
+				s_Order[a] = j;
+				s_Order[b] = i;
+			}
+		}
+	for (u8 k = 0; k < m; k++)
+	{
+		u8 i = s_Order[k];
+		u8 f;
+		u8 tint = 0;
+		u8 half = g_CModeTick[i] < CREATURE_PUFF_TICKS / 2;
+		if (g_CMode[i] == CREATURE_APPEARING)
+		{
+			f = g_PuffFrame[half ? 3 : 2];   // the puff run backwards, in its tint
+			tint = g_CTint[i];
+		}
+		else if (g_CMode[i] == CREATURE_DYING)
+			f = g_PuffFrame[half ? 0 : 1];
+		else
+		{
+			u8 s = g_CSpecies[i];
+			bool flier = g_CreatureFlier[s];
+			s_Clock = flier ? g_SimTick : g_CMoveTicks[i];
+			u8 v = (flier || g_CMoveTicks[i] > 0) ? WalkPhase() : 0;
+			f = g_CreatureFrame[s * 4 + v + (g_CFace[i] < 0 ? 2 : 0)];
+		}
+		PutFrame(k, f, tint, FP_PX(g_CX[i]) - s_RoomX, FP_PX(g_CY[i]) - s_RoomY);
+	}
+}
 
 // Vale (four layered sprites, PlayerPainter's frame), his blade out of his
 // hand while it is out, and whatever else is to be shown, in a frame's blank.
 static void DrawSprites()
 {
+	Sprites_Prepare();
 	u8 f = g_ValeFrame;
 	i8 blade = g_ValeBlade;
 	i16 sx = FP_PX(g_ValeX) - s_RoomX - PLAYER_ORIGIN_X;
@@ -266,23 +435,24 @@ static void DrawSprites()
 		sy = g_TestValeY;
 	}
 	s_Loaded = FALSE;
-	if (f != s_ValeFrame)
+	u8 set = Sprites_Back();
+	if (f != s_ValeFrame[set])
 	{
 		s_Loaded = TRUE;
 		Data_LoadValeFrame(f, g_SpritePatternHigh, Sprites_PatternAddress(SLOT_VALE), Sprites_Colours(SLOT_VALE));
 		Sprites_Changed(SLOT_VALE);
-		s_ValeFrame = f;
+		s_ValeFrame[set] = f;
 	}
 	Sprites_Begin();
 	if (blade < 0 || g_PlayerHand[f * 2] < 0)
 		Sprites_Put(SLOT_BLADE, -128, -128);   // off the screen: held below it
 	else
 	{
-		if (blade != s_BladeShape)
+		if (blade != s_BladeShape[set])
 		{
 			s_Loaded = TRUE;
 			Data_LoadBlade((u8)blade, g_SpritePatternHigh, Sprites_PatternAddress(SLOT_BLADE));
-			s_BladeShape = blade;
+			s_BladeShape[set] = blade;
 		}
 		const i8* at = g_BladeAt + ((u8)blade << 2);
 		i8 hx = g_PlayerHand[f * 2];
@@ -291,21 +461,19 @@ static void DrawSprites()
 		Sprites_SetOffset(SLOT_BLADE, 1, hx + at[2], hy + at[3]);
 		Sprites_Put(SLOT_BLADE, sx, sy);
 	}
-	Sprites_Put(SLOT_VALE, sx, sy);
+	if (g_TestGallery || g_ValeVisible)
+		Sprites_Put(SLOT_VALE, sx, sy);
+	else
+		Sprites_Put(SLOT_VALE, -128, -128);   // blinked out: held below the screen
 	if (g_TestGallery)
 	{
+		// Bank frames at their top-lefts: the origin added back.
 		for (u8 i = 0; i < g_TestCount; i++)
-		{
-			if (g_TestFrame[i] != s_SmallFrame[i])
-			{
-				Data_LoadSpriteFrame(g_TestFrame[i], g_SpritePatternHigh, Sprites_PatternAddress(SLOT_SMALL + i),
-					Sprites_Colours(SLOT_SMALL + i));
-				Sprites_Changed(SLOT_SMALL + i);
-				s_SmallFrame[i] = g_TestFrame[i];
-			}
-			Sprites_Put(SLOT_SMALL + i, g_TestSpriteX[i], g_TestSpriteY[i]);
-		}
+			PutFrame(i, g_TestFrame[i], 0, g_TestSpriteX[i] + g_SpriteOriginX[g_TestFrame[i]],
+				g_TestSpriteY[i] + g_SpriteOriginY[g_TestFrame[i]]);
 	}
+	else if (g_JungleOn)
+		DrawJungle();
 	Sprites_End();
 }
 
@@ -323,12 +491,20 @@ static void SpritesInit()
 		c[16 + l] = BLADE_HILT;
 	}
 	Sprites_Changed(SLOT_BLADE);
-	for (u8 i = 0; i < SPR_SMALL; i++)
-		s_SmallFrame[i] = 0xFF;
+	for (u8 i = 0; i < SPR_SMALL + SPR_BIG; i++)
+	{
+		for (u8 set = 0; set < 2; set++)
+		{
+			s_SlotFrame[set][i] = 0xFF;
+			s_SlotTint[set][i] = 0;
+		}
+	}
 }
 
 void main()
 {
+	Data_LoadTables();
+	Data_InstallFlip();
 	VDP_SetMode(VDP_MODE_SCREEN5);
 	VDP_EnableVBlank(TRUE);
 	VDP_ClearVRAM();
@@ -343,6 +519,15 @@ void main()
 	Vale_Init();
 	s_Skip60 = VDP_GetFrequency() == VDP_FREQ_60HZ;
 
+	// A new game: the jungle, its random numbers seeded from the clock until
+	// the title screen gives a better one (M10).
+	for (u8 i = 0; i < 8; i++)
+		g_TestSeed[i] = 0;
+	g_TestSeed[0] = (u8)g_JIFFY;
+	g_TestSeed[1] = (u8)(g_JIFFY >> 8);
+	Rng_Seed(g_TestSeed);
+	Jungle_NewGame();
+	g_JungleOn = 1;
 	EnterRoom(PLAYER_START_X_FP, PLAYER_START_Y_FP);
 
 	bool f5 = FALSE;
@@ -359,20 +544,25 @@ void main()
 		if (frames > 1)
 			g_LateFrames += frames - 1;
 
-		// First what the last ticks did, while the screen is blank.
-		DrawSprites();
+		// What the last frame drew is on screen: the blank's hook showed it.
 		Test_Shown();
 
 		u8 ticks = g_TestGallery ? 0 : TicksIn(frames);
 		if (ticks > MAX_CATCHUP_TICKS)
 			ticks = MAX_CATCHUP_TICKS;
+		bool flipped = FALSE;
 		while (ticks--)
 			if (Tick())
 			{
 				Flip();
+				flipped = TRUE;
 				last = g_JIFFY;   // the frames the drawing took are not late
 				break;
 			}
+		// What these ticks left, into the back set, for the next frame
+		// (a flip has drawn it already).
+		if (!flipped)
+			DrawSprites();
 		// The debug line, but not in a frame that loaded sprites: those are the busy ones.
 		if (!s_Loaded)
 			Overlay_Update(s_Shown);
@@ -388,6 +578,12 @@ void main()
 		{
 			g_TestMode = 1;
 			g_ValeOpen = g_TestOpen;
+			g_JungleOn = g_TestJungle;
+			if (g_JungleOn)
+			{
+				Rng_Seed(g_TestSeed);
+				Jungle_NewGame();
+			}
 			EnterRoom(g_TestX, g_TestY);
 			g_TestStart = 0;
 			g_LateFrames = 0;

@@ -16,7 +16,7 @@ MakeLib   = `${SDCCPath}bin/sdar`;
 
 ProjName    = "wulfquest";
 // data first: it must sit in ROM segment 0 (see data.c; build.sh checks it)
-ProjModules = [ "data", ProjName, "room", "vale", "overlay", "sprites" ];
+ProjModules = [ "data", ProjName, "room", "vale", "overlay", "sprites", "rng", "jungle", "spawn", "move" ];
 LibModules  = [ "system", "bios", "vdp", "print", "input", "memory" ];
 
 //-- Headers the converter generates (build/gen/, AGENTS.md §4)

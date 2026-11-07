@@ -76,6 +76,18 @@
               </arguments>
             </configuration>
           </execution>
+          <!-- test/moves.sh: exec:java@jungle-traces, M6's jungle as the Java game runs it. -->
+          <execution>
+            <id>jungle-traces</id>
+            <configuration>
+              <mainClass>wulfmsx.convert.MoveTraces</mainClass>
+              <arguments>
+                <argument>${project.basedir}/../wulfquest/data</argument>
+                <argument>${project.basedir}/../test/jungle.json</argument>
+                <argument>${project.basedir}/../build/test/jungle</argument>
+              </arguments>
+            </configuration>
+          </execution>
           <!-- test/moves.sh: exec:java@flip-traces, M4's flips as the Java game makes them. -->
           <execution>
             <id>flip-traces</id>

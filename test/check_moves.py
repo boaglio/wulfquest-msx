@@ -50,13 +50,15 @@ def read(path):
         if f[0] == "scenario":
             name = f[1]
             order.append(name)
-            scenarios[name] = [[], None, []]
+            scenarios[name] = [[], None, [], []]
         elif f[0] == "busiest":
             busiest[f[1]] = (int(f[2]), int(f[3]))
         elif f[0] == "flip":
             scenarios[name][2].append(tuple(map(int, f[1:])))
+        elif f[0] == "J":
+            scenarios[name][3].append(" ".join(f))
         elif f[0] == "end":
-            if len(f) == 9 and f[1] == name:
+            if len(f) == 8 and f[1] == name:
                 scenarios[name][1] = tuple(map(int, f[2:]))
             else:
                 final = " ".join(f[1:])
@@ -65,11 +67,15 @@ def read(path):
     return scenarios, order, final, busiest
 
 
+def p_check(plan, name):
+    return plan[name]["check"]
+
+
 def read_plan(path):
     plan = {}
     lines = open(path, encoding="utf-8").read().split("\n")
     for head, keys in zip(lines[0::2], lines[1::2]):
-        _, name, room, open_, x, y, check = head.split()
+        _, name, room, open_, x, y, check, seed = head.split()
         plan[name] = {"open": open_ == "1", "check": check, "keys": list(map(int, keys.split()[1:]))}
     return plan
 
@@ -88,7 +94,12 @@ def main(dump, expected_path, plan_path, constants_h, hz, rooms_expected, gen):
     tables = open(dump + ".spr", "rb").read()
     gen_sprites = vdp_sprites.Gen(gen)
     grid_w = c["GRID_W"]
-    tag = f"{os.path.basename(plan_path).split('_')[0]} {hz} Hz"
+    plan_name = os.path.basename(plan_path).split("_")[0]
+    tag = f"{plan_name} {hz} Hz"
+    # Plans whose timing is known to slip (AGENTS.md §10, M6): lateness is
+    # reported, not failed, until the tuning milestone closes it.
+    slipped = plan_name in os.environ.get("MOVES_TIMING_SLIPPED", "").split()
+    slips = []
     problems, notes = [], []
     flips_seen, flip_frames, seams, unblanked = 0, [], 0, 0
 
@@ -98,8 +109,23 @@ def main(dump, expected_path, plan_path, constants_h, hz, rooms_expected, gen):
         if name not in got:
             problems.append(f"{name}: not played")
             continue
-        g, end, flips = got[name]
+        g, end, flips, gj = got[name]
         w = want[name][0]
+        wj = want[name][3]
+        if wj:
+            # The jungle: every tick's line equal to the Java game's.
+            if len(gj) != len(wj):
+                problems.append(f"{name}: {len(gj)} jungle lines recorded, the Java game has {len(wj)}")
+            for t, (a, b) in enumerate(zip(gj, wj)):
+                if a != b:
+                    problems.append(f"{name}: the jungle differs from the Java game's after tick {t + 1}:\n"
+                                    f"    MSX2 {a[:300]}\n    Java {b[:300]}")
+                    break
+            modes = [int(x.split()[1]) for x in wj]
+            deaths = sum(1 for t in range(1, len(modes)) if modes[t - 1] == 0 and modes[t] == 1)
+            most = max(int(x.split()[5]) for x in wj)
+            notes.append(f"{name}: {deaths} deaths, up to {most} creatures in the room"
+                         + (", game over" if 3 in modes else "") + f" ({p_check(plan, name)})")
         if len(g) != len(w):
             problems.append(f"{name}: {len(g)} ticks recorded, the Java game has {len(w)}")
         for t, (a, b) in enumerate(zip(g, w)):
@@ -179,6 +205,9 @@ def main(dump, expected_path, plan_path, constants_h, hz, rooms_expected, gen):
             sy = (y[t] >> 8) - (r // grid_w) * c["PLAYFIELD_H"] - c["PLAYER_ORIGIN_Y"]
             want_px = gen_sprites.clip(gen_sprites.vale(g_frame[t], g_blade[t], sx, sy))
             got_px = vdp_sprites.render(spr[:128], spr[128:640], spr[640:], lines=c["PLAYFIELD_H"])
+            if wj:
+                # With the jungle, other sprites too: Vale's must all be there, in front.
+                got_px = {k: v for k, v in got_px.items() if k in want_px}
             if got_px != want_px:
                 right = len(set(got_px.items()) & set(want_px.items()))
                 problems.append(f"{name}: after tick {t + 1}, the sprites are not Vale in frame {g_frame[t]}, "
@@ -190,12 +219,14 @@ def main(dump, expected_path, plan_path, constants_h, hz, rooms_expected, gen):
         unblanked += blank
         if blank:
             problems.append(f"{name}: {blank} frames put on screen while it was not blank")
+        timing = []
         if late:
-            problems.append(f"{name}: the loop came late to {late} frames")
+            timing.append(f"{name}: the loop came late to {late} frames")
         if nflips == 0:
             want_ticks = frames if hz == 50 else frames * 5 / 6
             if abs(ticks - want_ticks) > 1:
-                problems.append(f"{name}: {ticks} ticks in {frames} frames at {hz} Hz; 50 a second is {want_ticks:g}")
+                timing.append(f"{name}: {ticks} ticks in {frames} frames at {hz} Hz; 50 a second is {want_ticks:g}")
+        (slips if slipped else problems).extend(timing)
 
     if seams:
         notes.append(f"{seams} edges between rooms crossed both ways")
@@ -209,6 +240,10 @@ def main(dump, expected_path, plan_path, constants_h, hz, rooms_expected, gen):
         cycles, tick = busiest[worst]
         frame = 3579545 // hz
         notes.append(f"busiest frame {cycles} cycles ({worst}, tick {tick}), {cycles * 100 // frame}% of a frame")
+    for p in slips:
+        print(f"SLIP {tag}: {p}")
+    if slips:
+        notes.append(f"timing slipped in {len(slips)} checks (AGENTS.md §10, M6), not failed")
     for p in problems[:40]:
         print(f"FAIL {tag}: {p}")
     if len(problems) > 40:

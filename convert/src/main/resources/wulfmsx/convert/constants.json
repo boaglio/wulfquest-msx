@@ -50,6 +50,33 @@
     { "name": "SABRE_REACH_PX",            "from": "entities/player#/sabre/reachPx" },
     { "name": "SABRE_THICKNESS_PX",        "from": "entities/player#/sabre/thicknessPx" },
     { "name": "SABRE_DIAGONAL_OFFSET_PX",  "from": "entities/player#/sabre/diagonalOffsetPx" },
-    { "name": "SABRE_FENCE_EVERY_TICKS",   "from": "entities/player#/sabre/fence/everyTicks" }
+    { "name": "SABRE_FENCE_EVERY_TICKS",   "from": "entities/player#/sabre/fence/everyTicks" },
+
+    { "name": "PLAYER_DEATH_ANIM_TICKS",   "from": "entities/player#/death/animTicks" },
+    { "name": "PLAYER_DEATH_FREEZE_TICKS", "from": "entities/player#/death/freezeTicks" },
+    { "name": "PLAYER_DIE_TICKS_PER_FRAME", "from": "entities/player#/animations/die/ticksPerFrame" },
+
+    { "name": "CREATURE_DIAGONAL_SCALE_FP", "from": "entities/creatures#/diagonalScaleFp" },
+    { "name": "CREATURE_PUFF_TICKS",       "from": "entities/creatures#/puffTicks" },
+    { "name": "CREATURE_HURT_FLASH_TICKS", "from": "entities/creatures#/hurtFlashTicks" },
+    { "name": "CREATURE_WALK_TICKS_PER_FRAME", "from": "entities/creatures#/walkTicksPerFrame" },
+
+    { "name": "SWARM_ROOM_MAX",            "from": "entities/jungle#/swarm/roomMax" },
+    { "name": "SWARM_SLOTS",               "from": "entities/jungle#/swarm/slots" },
+    { "name": "SWARM_EVERY_TICKS",         "from": "entities/jungle#/swarm/everyTicks" },
+    { "name": "SWARM_APPEAR_TICKS",        "from": "entities/jungle#/swarm/appearTicks" },
+    { "name": "SWARM_LINGER_TICKS",        "from": "entities/jungle#/swarm/lingerTicks" },
+    { "name": "SWARM_QUIET_TICKS",         "from": "entities/jungle#/swarm/quietAfterGettingUpTicks" },
+    { "name": "SWARM_AREA_X",              "from": "entities/jungle#/swarm/area/x" },
+    { "name": "SWARM_AREA_Y",              "from": "entities/jungle#/swarm/area/y" },
+    { "name": "SWARM_AREA_W",              "from": "entities/jungle#/swarm/area/w" },
+    { "name": "SWARM_AREA_H",              "from": "entities/jungle#/swarm/area/h" },
+    { "name": "SWARM_CLEARANCE_PX",        "from": "entities/jungle#/swarm/playerClearancePx" },
+    { "name": "SWARM_PICK_OPEN",           "from": "entities/jungle#/swarm/pick/open" },
+    { "name": "SWARM_PICK_OPEN_PER_QUARTER", "from": "entities/jungle#/swarm/pick/openPerQuarter" },
+    { "name": "SWARM_PICK_FOLD",           "from": "entities/jungle#/swarm/pick/fold" },
+
+    { "name": "BEAST_FOLLOW_ROWS",         "from": "entities/jungle#/beasts/followRows" },
+    { "name": "BEAST_FOLLOW_COLUMNS",      "from": "entities/jungle#/beasts/followColumns" }
   ]
 }

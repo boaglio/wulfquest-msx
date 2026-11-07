@@ -12,8 +12,8 @@
 # ("X_FP Y_FP FACING SWING WALK SX SY SW SH ROOM FREEZE FRAME BLADE"), and
 # "end NAME LATE TICKS FRAMES FLIPS FLIP_FRAMES UNBLANKED": frames the loop
 # came late to, ticks run and frames seen from the first tick to the last,
-# flips and the frames they took, and frames put on screen (Test_Shown) while
-# the screen was not blank. Then "end ok", or "end error ...".
+# flips and the frames they took, and changes put on screen (the page or the
+# sprite tables, in data.c's Data_Flip) while the screen was not blank. Then "end ok", or "end error ...".
 #
 # At each flip, when the ROM has put the new room on screen, a line
 # "flip TICKS PAGE DRAW_FRAMES" (ticks played so far, the page shown, the
@@ -24,6 +24,8 @@
 # a flip, and the ticks played when it came.
 
 set throttle off
+set ::jungle 0
+set ::beasts [expr {[info exists env(MOVES_BEASTS)] ? $env(MOVES_BEASTS) : 0}]
 
 foreach pair $env(MOVES_SYMS) {
     lassign [split $pair =] name addr
@@ -69,6 +71,37 @@ proc finish {msg} {
     exit
 }
 
+# The jungle (M6): Vale's mode, his creatures in list order, the beasts.
+proc jungle {} {
+    set s "J [peek g_ValeMode] [peek g_ValeModeTick] [peek g_ValeLives] [peek g_ValeInvuln] [peek g_HereN]"
+    for {set k 0} {$k < [peek g_HereN]} {incr k} {
+        set i [debug read memory [expr {$::a(g_Here) + $k}]]
+        append s " [peekat g_CSpecies $i 1 0] [peekat g_CMode $i 1 0] [peekat g_CModeTick $i 1 0]"
+        append s " [peekat g_CX $i 4 1] [peekat g_CY $i 4 1] [peekat g_CTimer $i 2 1] [peekat g_CPhase $i 2 1]"
+        append s " [peekat g_CAux $i 2 1] [peekat g_CFace $i 1 1] [peekat g_CHome $i 1 0]"
+    }
+    append s " B"
+    for {set b 0} {$b < $::beasts} {incr b} {
+        # Beast (jungle.h): X 0, VX 4, Y 9, VY 13, At 18, MoveTicks 19; 29 bytes.
+        set at [expr {$::a(g_Beast) + 29 * $b}]
+        append s " [peekat g_BKind $b 1 0] [rd [expr {$at + 18}] 1 0] [rd $at 4 1] [rd [expr {$at + 9}] 4 1]"
+        append s " [rd [expr {$at + 4}] 2 1] [rd [expr {$at + 13}] 2 1] [peekat g_BFace $b 1 1]"
+        append s " [peekat g_BAsleep $b 1 0] [peekat g_BPause $b 1 0] [rd [expr {$at + 19}] 2 0]"
+    }
+    return $s
+}
+proc rd {addr n signed} {
+    set v 0
+    for {set i [expr {$n - 1}]} {$i >= 0} {incr i -1} {
+        set v [expr {($v << 8) | [debug read memory [expr {$addr + $i}]]}]
+    }
+    if {$signed && $v >= (1 << (8 * $n - 1))} { set v [expr {$v - (1 << (8 * $n))}] }
+    return $v
+}
+proc peekat {name i n signed} {
+    rd [expr {$::a($name) + $n * $i}] $n $signed
+}
+
 proc state {} {
     set sw [peek g_SabreW]
     set box [expr {$sw == 0 ? "0 0 0 0" : "[peek g_SabreX 2 1] [peek g_SabreY 2 1] $sw [peek g_SabreH]"}]
@@ -82,9 +115,15 @@ proc next_scenario {} {
     incr ::scenario
     if {$::scenario >= [llength $::plan]} { finish ok }
     lassign [lindex $::plan $::scenario] head ::keys
-    lassign $head ::name room open x y
+    lassign $head ::name room open x y check seed
     puts $::out "scenario $::name"
     poke g_TestOpen $open
+    set ::jungle [expr {$seed >= 0}]
+    poke g_TestJungle $::jungle
+    if {$::jungle} {
+        # The seed as the Java game's long, little-endian (Tcl's integers are unbounded).
+        for {set i 0} {$i < 8} {incr i} { debug write memory [expr {$::a(g_TestSeed) + $i}] [expr {($seed >> (8 * $i)) & 0xFF}] }
+    }
     poke g_TestX $x 4
     poke g_TestY $y 4
     poke g_TestStart 1
@@ -109,6 +148,7 @@ proc on_tick {} {
             set ::unblanked 0
         } else {
             puts $::out [state]
+            if {$::jungle} { puts $::out [jungle] }
         }
         if {$::tick == [llength $::keys]} {
             set ticks [expr {([peek g_Ticks 2] - $::ticks0) & 0xFFFF}]
@@ -140,7 +180,6 @@ set unblanked 0
 proc on_shown {} {
     if {[catch {
         if {!$::running || [peek g_TestStart] != 0 || $::tick == 0} { return }
-        if {!([debug read {VDP status regs} 2] & 0x40)} { incr ::unblanked }
         set flips [peek g_Flips 2]
         if {$flips == $::flips} { return }
         set ::flips $flips
@@ -156,6 +195,16 @@ proc on_shown {} {
     } err] == 1} { finish "error $err" }
 }
 debug breakpoint create -address $::a(Test_Shown) -command on_shown
+
+# A flip (the page, the sprite tables) is made in the blank's hook, data.c's
+# Data_Flip: when one is waiting there, the screen must be blank (the VDP's
+# status register 2, bit 6).
+proc on_flip {} {
+    if {$::running && [peek g_FlipPending] != 0 && !([debug read {VDP status regs} 2] & 0x40)} {
+        incr ::unblanked
+    }
+}
+debug breakpoint create -address $::a(Data_Flip) -command on_flip
 
 # The busiest frame of each scenario: from the frame's start to the end of its
 # work, frames with a flip left out (a flip is a hitch, timed apart).

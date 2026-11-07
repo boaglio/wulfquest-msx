@@ -12,8 +12,12 @@ rom=build/wulfquest.rom
 command -v openmsx >/dev/null || { echo "boot.sh: openMSX is needed" >&2; exit 1; }
 mkdir -p build/test build/shots
 
+map=build/msxgl/wulfquest.map
+addr() { awk -v s="_$1" '$2 == s { print "0x" substr($1, length($1) - 3) }' "$map"; }
+shown=$(addr Test_Shown); count=$(addr g_DrawCount)
+[[ -n "$shown" && -n "$count" ]] || { echo "boot.sh: Test_Shown or g_DrawCount is not in $map" >&2; exit 1; }
 run() {   # machine, output file
-    BOOT_OUT="$PWD/$2" timeout 120 env SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy \
+    BOOT_OUT="$PWD/$2" BOOT_SHOWN="$shown" BOOT_COUNT="$count" timeout 120 env SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy \
         openmsx -machine "$1" -carta "$rom" -script test/boot.tcl >"$2.log" 2>&1 \
         || { echo "boot.sh: openMSX failed on $1 (see $2.log)" >&2; return 1; }
 }

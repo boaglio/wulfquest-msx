@@ -33,6 +33,8 @@ public final class PlayerSprite {
     public static final int POSES = 3;
     public static final int PER_VIEW = GAIT + POSES + POSES * GAIT;
     public static final int FRAME_BYTES = 2 * SpriteCut.BLOCK_BYTES;
+    /** The animation he falls with. */
+    static final String DIE = "die";
     private static final int W = 16;
     private static final int H = 24;
 
@@ -115,6 +117,8 @@ public final class PlayerSprite {
                 }
             }
         }
+        // After the views, the fall (§11.7): the die animation, its last frame held while he is down.
+        ids.addAll(rules.animation(DIE).frames());
         return ids;
     }
 
@@ -162,6 +166,8 @@ public final class PlayerSprite {
         sb.append("#define PLAYER_GAIT\t\t").append(GAIT).append('\n');
         sb.append("#define PLAYER_FRAME_POSE\t").append(GAIT).append('\n');
         sb.append("#define PLAYER_FRAME_POSE_GAIT\t").append(GAIT + POSES).append('\n');
+        sb.append("#define PLAYER_FRAME_DIE\t").append(VIEWS.size() * PER_VIEW).append("\t// the die frames, after the views\n");
+        sb.append("#define PLAYER_DIE_FRAMES\t").append(ids.size() - VIEWS.size() * PER_VIEW).append('\n');
         for (int v = 0; v < VIEWS.size(); v++) {
             sb.append("#define PLAYER_VIEW_").append(Gen.cName(VIEWS.get(v))).append('\t').append(v).append('\n');
         }
@@ -176,19 +182,9 @@ public final class PlayerSprite {
         return sb.toString();
     }
 
-    /** The hand each frame holds the blade in (x, y from the sprite's top-left; -1, -1 none): player_hand.h. */
-    public String handHeader() {
-        StringBuilder sb = new StringBuilder();
-        sb.append(Gen.banner("data/art/sprites/player.sprite.json"));
-        sb.append("#pragma once\n\n");
-        sb.append("// Where each of Vale's frames (player.h) holds the blade: x, y from the sprite's\n");
-        sb.append("// top-left; -1 in the frames that hold none.\n");
-        sb.append("static const signed char g_PlayerHand[").append(ids.size()).append(" * 2] = {\n");
-        for (int i = 0; i < ids.size(); i++) {
-            sb.append("\t").append(hand[2 * i]).append(", ").append(hand[2 * i + 1]).append(",\t// ")
-                    .append(ids.get(i)).append('\n');
-        }
-        sb.append("};\n");
-        return sb.toString();
+    /** The hand each frame holds the blade in: x, y from the sprite's top-left; -1, -1 none. */
+    void tables(RamTables t) {
+        t.i8("g_PlayerHand", hand, "Where each of Vale's frames (player.h) holds the blade: x, y from the sprite's"
+                + " top-left; -1 in the frames that hold none.");
     }
 }

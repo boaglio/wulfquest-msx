@@ -23,6 +23,7 @@
 
 #include "sprites.h"
 #include "constants.h"
+#include "data.h"
 
 #define NONE		0xFF
 #define BANDS		((PLAYFIELD_H + 3) / 4)
@@ -32,46 +33,102 @@
 
 u16 g_SpritesCrowded = 0;
 
-// Each slot's first sprite and its count; slot sprites are numbered 0..31 in slot order.
+// Each slot's first sprite; slot sprites are numbered in slot order. And
+// the sprites it shows now: its first plus two a block.
 static const u8 c_First[SPR_SLOTS + 1] = {
-	0, 2, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32
+	0, 2, 6, 8, 10, 12, 14, 16, 18, 26, 34, 42, 50, 58
 };
-#if SPR_SLOTS != 15
-#error "c_First is laid out for 15 slots"
+#if SPR_SLOTS != 13 || SPR_SPRITES != 58
+#error "c_First is laid out for 13 slots: the blade, Vale, 6 small, 5 big"
 #endif
+static u8 s_SlotEnd[SPR_SLOTS] = { 2, 6, 8, 10, 12, 14, 16, 18, 26, 34, 42, 50, 58 };
 
-static u8 s_Colour[SPR_SPRITES * 16] = { 0 };   // as loaded, by sprite
-static i8 s_DX[SPR_SPRITES] = { 0 };
-static i8 s_DY[SPR_SPRITES] = { 0 };
-static u8 s_Serial[SPR_SLOTS] = { 0 };          // goes up when a slot's colours change
+static u8 s_Colour[SPR_SPRITES * 16];   // as loaded, by sprite
+static i8 s_DX[SPR_SPRITES];
+static i8 s_DY[SPR_SPRITES];
+static u8 s_Serial[SPR_SLOTS];          // goes up when a slot's colours change
 
-// What the colour table holds at each place in the attribute table.
-static u8 s_PlaceSprite[SPR_SPRITES] = { 0 };
-static u8 s_PlaceSerial[SPR_SPRITES] = { 0 };
-static u8 s_PlaceLook[SPR_SPRITES] = { 0 };     // EC bit, and the first clipped line
+// Two sets of sprite tables, the one shown and the one drawn (the back):
+// colours, attributes and patterns at 7400h, 7600h, 7800h (page 0's lines
+// past the screen), or at F400h, F600h, F800h (page 1's). A frame's
+// sprites are drawn into the back set whenever, and shown by pointing the
+// VDP at it in the blank: no sprite ever changes on screen mid-picture.
+static u8 s_Set = 1;          // the back set
+static u8 s_SetOff = SPR_PLACES;   // its place records' offset: s_Set * SPR_PLACES
+static u16 s_ColourBase = 0xF400;
+static u16 s_SatBase = 0xF600;
+#define COLOURS_0	0x7400
+#define SAT_0		0x7600
+#define PATTERNS_0	0x7800
+#define SET_1		0x8000   // set 1 is set 0 plus this
+
+// What each set's colour table holds at each place in its attribute table.
+static u8 s_PlaceSprite[2 * SPR_PLACES];
+static u8 s_PlaceSerial[2 * SPR_PLACES];
+static u8 s_PlaceLook[2 * SPR_PLACES];     // EC bit, and the first clipped line
 
 // This frame's slots, in the order put.
 static u8 s_Puts = 0;
 static u8 s_Pinned = 0;                         // of them, before SLOT_SMALL
-static u8 s_PutSlot[SPR_SLOTS] = { 0 };
-static i16 s_PutX[SPR_SLOTS] = { 0 };
-static i16 s_PutY[SPR_SLOTS] = { 0 };
+static u8 s_PutSlot[SPR_SLOTS];
+static i16 s_PutX[SPR_SLOTS];
+static i16 s_PutY[SPR_SLOTS];
 static u8 s_Turn = 0;
 
-static u8 s_Sat[SPR_SPRITES * 4 + 1] = { 0 };
-static u8 s_Band[BANDS] = { 0 };
+static u8 s_Sat[SPR_PLACES * 4 + 1];
+static u8 s_Band[BANDS];
 
+// Arrays without initial values (they would cost their size in ROM): cleared
+// here, or set before they are read.
 void Sprites_Init()
 {
+	for (u16 i = 0; i < sizeof(s_Colour); i++)
+		s_Colour[i] = 0;
 	for (u8 i = 0; i < SPR_SPRITES; i++)
+	{
+		s_DX[i] = 0;
+		s_DY[i] = 0;
+	}
+	for (u8 i = 0; i < SPR_SLOTS; i++)
+		s_Serial[i] = 0;
+	for (u8 i = 0; i < 2 * SPR_PLACES; i++)
+	{
 		s_PlaceSprite[i] = NONE;
+		s_PlaceSerial[i] = 0;
+		s_PlaceLook[i] = 0;
+	}
 	s_Sat[0] = TERMINATOR;
-	VDP_WriteVRAM(s_Sat, g_SpriteAttributeLow, g_SpriteAttributeHigh, 1);
+	VDP_WriteVRAM(s_Sat, SAT_0, 0, 1);
+	VDP_WriteVRAM(s_Sat, SAT_0 + SET_1, 0, 1);
+	// Set 0 shown.
+	VDP_RegWrite(11, 0);
+	VDP_RegWrite(6, PATTERNS_0 >> 11);
+	g_SpritesShown = 0;
+	Sprites_Prepare();
+}
+
+void Sprites_Prepare()
+{
+	// A draw still waiting for its blank is in the back set, which this one
+	// is about to write over: it is never shown (a frame dropped), rather
+	// than shown half written.
+	__asm__("di");
+	g_FlipPending &= ~FLIP_SPRITES;
+	__asm__("ei");
+	s_Set = g_SpritesShown ? 0 : 1;   // the one not shown
+	s_SetOff = s_Set ? SPR_PLACES : 0;
+	s_ColourBase = COLOURS_0 + (s_Set ? SET_1 : 0);
+	s_SatBase = SAT_0 + (s_Set ? SET_1 : 0);
+}
+
+u8 Sprites_Back()
+{
+	return s_Set;
 }
 
 u16 Sprites_PatternAddress(u8 slot)
 {
-	return g_SpritePatternLow + ((u16)c_First[slot] << 5);
+	return PATTERNS_0 + (s_Set ? SET_1 : 0) + ((u16)c_First[slot] << 5);
 }
 
 u8* Sprites_Colours(u8 slot)
@@ -91,6 +148,21 @@ void Sprites_SetOffset(u8 slot, u8 i, i8 dx, i8 dy)
 	s_DY[s] = dy;
 }
 
+void Sprites_SetBlocks(u8 slot, u8 blocks)
+{
+	u8 s = c_First[slot];
+	for (u8 by = 0; by < (blocks & 15); by++)
+		for (u8 bx = 0; bx < (blocks >> 4); bx++)
+		{
+			s_DX[s] = (i8)(bx << 4);
+			s_DY[s] = (i8)(by << 4);
+			s_DX[s + 1] = (i8)(bx << 4);
+			s_DY[s + 1] = (i8)(by << 4);
+			s += 2;
+		}
+	s_SlotEnd[slot] = s;
+}
+
 void Sprites_Begin()
 {
 	s_Puts = 0;
@@ -108,7 +180,7 @@ void Sprites_Put(u8 slot, i16 x, i16 y)
 }
 
 // This frame's order: indices into the puts. And PlaceAll's working values.
-static u8 s_Order[SPR_SLOTS] = { 0 };
+static u8 s_Order[SPR_SLOTS];
 static u8 s_Placed = 0;     // sprites written to the attribute table
 static u8 s_K = 0;
 static u8 s_Slot = 0;
@@ -118,6 +190,7 @@ static i16 s_BY = 0;
 static i16 s_TX = 0;
 static i16 s_TY = 0;
 static u8 s_LookNow = 0;
+static u8 s_Full = 0;       // PlaceAll ran out of places
 
 #if PLAYFIELD_H + 15 > 255
 #error "PlaceAll keeps y + 15 in a byte"
@@ -139,6 +212,7 @@ static void PlaceAll() __naked
 		xor	a
 		ld	(_s_Placed), a
 		ld	(_s_K), a
+		ld	(_s_Full), a
 		ld	ix, #_s_Sat
 	00010$:                         ; the next slot put
 		ld	a, (_s_K)
@@ -178,13 +252,21 @@ static void PlaceAll() __naked
 		ld	hl, #_c_First
 		add	hl, de
 		ld	b, (hl)                 ; b = its first sprite
-		inc	hl
+		ld	hl, #_s_SlotEnd
+		add	hl, de
 		ld	a, (hl)
 		ld	(_s_End), a
 	00020$:                         ; sprite b
 		ld	a, (_s_End)
 		cp	b
-		jr	z, 00010$
+		jp	z, 00010$
+		ld	a, (_s_Placed)          ; the table full: the rest wait their turn
+		cp	a, #SPR_PLACES
+		jr	c, 00025$
+		ld	a, #1
+		ld	(_s_Full), a
+		jp	00090$
+	00025$:
 		ld	e, b
 		ld	d, #0
 		ld	hl, #_s_DX
@@ -270,7 +352,10 @@ static void PlaceAll() __naked
 		inc	ix
 		inc	ix
 		; the colours at this place: the same sprite, frame and look?
+		ld	a, (_s_SetOff)
+		ld	e, a
 		ld	a, (_s_Placed)
+		add	a, e
 		ld	e, a
 		ld	d, #0
 		ld	hl, #_s_PlaceSprite
@@ -314,23 +399,22 @@ static void PlaceAll() __naked
 		push	bc
 		ld	a, c
 		ld	(_s_LookNow), a
-		; video RAM address: the colour table + place * 16
+		; video RAM address: the colour table + place * 16 (the set's offset off)
+		ld	a, (_s_SetOff)
+		neg
+		add	a, e
+		ld	e, a
 		ex	de, hl
 		add	hl, hl
 		add	hl, hl
 		add	hl, hl
 		add	hl, hl
-		ld	de, (_g_SpriteColorLow)
+		ld	de, (_s_ColourBase)
 		add	hl, de
-		ld	a, (_g_SpriteColorHigh)
-		add	a, a
-		add	a, a
-		ld	e, a
 		ld	a, h
 		rlca
 		rlca
-		and	a, #0x03
-		or	a, e
+		and	a, #0x03                ; the address is under 10000h
 		di
 		out	(#0x99), a              ; R#14: address bits 16-14
 		ld	a, #0x8E
@@ -392,6 +476,90 @@ static void PlaceAll() __naked
 	__endasm;
 }
 
+// The attribute table's sprites a band of 4 lines, s_Band; 1 if a band has
+// more than PER_LINE. A sprite's top is its Y + 1, from -15 (Y 240 and on:
+// 256 less) to PLAYFIELD_H - 1; held below the screen (Y + 1 past the
+// playfield), it counts in none. Assembly: in C, 600 cycles a sprite.
+#if PLAYFIELD_H + 15 > 255 || PLAYFIELD_H > 240
+#error "CountBands keeps a sprite's top + 15 in a byte, and the tops from 240 on as above the screen"
+#endif
+static u8 CountBands() __naked
+{
+	__asm
+		ld	hl, #_s_Band
+		ld	b, #BANDS
+		xor	a
+	00001$:
+		ld	(hl), a
+		inc	hl
+		djnz	00001$
+		ld	a, (_s_Placed)
+		or	a
+		ret	z
+		ld	b, a
+		ld	hl, #_s_Sat
+	00010$:
+		ld	a, (hl)
+		inc	a                       ; the top, a byte
+		inc	hl
+		inc	hl
+		inc	hl
+		inc	hl
+		cp	a, #240
+		jr	nc, 00020$
+		cp	a, #PLAYFIELD_H
+		jr	nc, 00050$              ; held below the screen
+		ld	c, a
+		srl	c
+		srl	c                       ; c = the first band
+		add	a, #15
+		cp	a, #PLAYFIELD_H
+		jr	c, 00015$
+		ld	a, #(PLAYFIELD_H - 1)
+	00015$:
+		srl	a
+		srl	a                       ; a = the last band
+		jr	00030$
+	00020$:
+		sub	a, #241                 ; above the screen: top + 15, 0..14
+		srl	a
+		srl	a
+		ld	c, #0
+	00030$:
+		sub	a, c
+		inc	a                       ; the bands it covers
+		push	hl
+		push	bc
+		ld	b, a
+		ld	l, c
+		ld	h, #0
+		ld	de, #_s_Band
+		add	hl, de
+	00040$:
+		inc	(hl)
+		inc	hl
+		djnz	00040$
+		pop	bc
+		pop	hl
+	00050$:
+		djnz	00010$
+		; any band over PER_LINE?
+		ld	hl, #_s_Band
+		ld	b, #BANDS
+		ld	a, #PER_LINE
+	00060$:
+		cp	a, (hl)
+		jr	c, 00070$
+		inc	hl
+		djnz	00060$
+		xor	a
+		ret
+	00070$:
+		ld	a, #1
+		ret
+	__endasm;
+}
+
 void Sprites_End()
 {
 	// The pinned ones as put; then the others from this frame's turn on.
@@ -409,31 +577,21 @@ void Sprites_End()
 		}
 	}
 	PlaceAll();
-	VDP_WriteVRAM(s_Sat, g_SpriteAttributeLow, g_SpriteAttributeHigh, (s_Placed << 2) + 1);
+	VDP_WriteVRAM(s_Sat, s_SatBase, 0, (s_Placed << 2) + 1);
+	// Ready: the next blank shows it (data.c's H.TIMI hook).
+	g_FlipR11 = s_Set;   // R#11: the attribute table's address bit 15
+	g_FlipR6 = (u8)((PATTERNS_0 + (s_Set ? SET_1 : 0)) >> 11);   // R#6: the patterns' bits 16-11
+	__asm__("di");
+	g_FlipDraw++;
+	g_FlipPending |= FLIP_SPRITES;
+	__asm__("ei");
 
 	// More than 8 on a line? Only possible with more than 8 shown. Counted in bands of 4 lines.
-	if (s_Placed <= PER_LINE)
+	bool crowded = s_Full;
+	if (s_Placed <= PER_LINE && !crowded)
 		return;
-	for (u8 b = 0; b < BANDS; b++)
-		s_Band[b] = 0;
-	const u8* a = s_Sat - 4;
-	for (u8 i = 0; i < s_Placed; i++)
-	{
-		a += 4;
-		i16 top = (i16)a[0] + 1;
-		if (top >= 256 - 16)
-			top -= 256;
-		if (top >= PLAYFIELD_H)
-			continue;   // held below the screen
-		u8 b0 = top < 0 ? 0 : (u8)top >> 2;
-		u8 b1 = (u8)((top + 15 >= PLAYFIELD_H ? PLAYFIELD_H - 1 : top + 15) >> 2);
-		for (u8 b = b0; b <= b1; b++)
-			s_Band[b]++;
-	}
-	bool crowded = FALSE;
-	for (u8 b = 0; b < BANDS; b++)
-		if (s_Band[b] > PER_LINE)
-			crowded = TRUE;
+	if (CountBands())
+		crowded = TRUE;
 	if (crowded)
 	{
 		g_SpritesCrowded++;

@@ -84,15 +84,22 @@ def defines(path):
     return {m[0]: int(m[1], 0) for m in re.findall(r"#define (\w+)\t+\(?(-?(?:0x[0-9A-Fa-f]+|\d+))[UL]*\)?", text)}
 
 
-def array(path, name):
-    text = open(path, encoding="utf-8").read()
-    body = re.search(name + r"\[[^]]*\] = \{(.*?)\};", text, re.S)[1]
-    body = re.sub(r"//[^\n]*", "", body)
-    return [int(v) for v in re.findall(r"-?\d+", body)]
+def table(gen, name):
+    """A table of tables.h, read from tables.bin: (type, offset, count) from its #define."""
+    text = open(gen + "/tables.h", encoding="utf-8").read()
+    t, off, n = re.search(r"#define " + name + r"\t\(\(const (\w+)\*\)\(g_Tables \+ (\d+)\)\)\t// \[(\d+)\]", text).groups()
+    blob = open(gen + "/tables.bin", "rb").read()
+    off, n = int(off), int(n)
+    size = 2 if t in ("u16", "i16") else 1
+    out = []
+    for i in range(n):
+        v = int.from_bytes(blob[off + size * i:off + size * (i + 1)], "little", signed=t.startswith("i"))
+        out.append(v)
+    return out
 
 
-def layered(blob, at, blocks):
-    """A cut frame (SpriteCut.java) back to {(x, y): colour}: blocks stacked 16 px apart."""
+def layered(blob, at, blocks, cols=1):
+    """A cut frame (SpriteCut.java) back to {(x, y): colour}: blocks row by row, cols a row."""
     out = {}
     colours = at + blocks * 64
     for b in range(blocks):
@@ -105,7 +112,7 @@ def layered(blob, at, blocks):
                 on0, on1 = blob[base + i] & bit, blob[over + i] & bit
                 v = (a | c if on1 else a) if on0 else (c if on1 else 0)
                 if v:
-                    out[(x, b * 16 + y)] = v
+                    out[((b % cols) * 16 + x, (b // cols) * 16 + y)] = v
     return out
 
 
@@ -120,8 +127,10 @@ class Gen:
         self.frames = open(gen + "/player_frames.bin", "rb").read()
         self.sprites = open(gen + "/sprites.bin", "rb").read()
         self.shapes = open(gen + "/blade.bin", "rb").read()
-        self.hand = array(gen + "/player_hand.h", "g_PlayerHand")
-        self.blade_at = array(gen + "/blade.h", "g_BladeAt")
+        self.hand = table(gen, "g_PlayerHand")
+        self.blade_at = table(gen, "g_BladeAt")
+        self.offset = table(gen, "g_SpriteOffset")
+        self.blocks = table(gen, "g_SpriteBlocks")
 
     def vale(self, frame, blade, left, top):
         """Vale in a frame, his top-left at left, top, and his blade (-1 none) over him."""
@@ -141,8 +150,9 @@ class Gen:
         return out
 
     def bank_frame(self, frame, left, top):
-        n = self.bank["SPRITE_FRAME_BYTES"]
-        return {(left + x, top + y): v for (x, y), v in layered(self.sprites, frame * n, 1).items()}
+        cols, rows = self.blocks[frame] >> 4, self.blocks[frame] & 15
+        return {(left + x, top + y): v
+                for (x, y), v in layered(self.sprites, self.offset[frame], cols * rows, cols).items()}
 
     def clip(self, pixels):
         """To the playfield: the screen's width, and above the panel."""

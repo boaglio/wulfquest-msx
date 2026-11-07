@@ -7,18 +7,28 @@ import wulf.Content;
 import wulf.data.SpriteData;
 
 /**
- * The ROM's sprites besides Vale (AGENTS.md §10, M5): every frame of each
- * sprite sprites.json lists for the ROM, its mirrored ones included, cut into
- * two layered 16x16 sprites ({@link SpriteCut}). They all fit one block.
+ * The ROM's sprites besides Vale (AGENTS.md §10, M5 and M6): every frame of
+ * each sprite sprites.json lists for the ROM, its mirrored ones included, cut
+ * into 16x16 blocks of two layered sprites ({@link SpriteCut}); and for the
+ * sprites it lists as silhouettes, each frame again as one colour, with
+ * {@code _ink} after its id, for the ROM to draw tinted.
  *
- * <p>{@code sprites.bin}: {@link SpriteCut#BLOCK_BYTES} a frame: the base and
- * overlay patterns, then their colour tables. {@code sprite_bank.h}: each frame's
- * number, {@code SPRITE_<NAME>_<FRAME>}, and each sprite's origin.
+ * <p>{@code sprites.bin}: the frames one after another, each its blocks' base
+ * and overlay patterns, then their colour tables ({@link SpriteCut#BLOCK_BYTES}
+ * a block). {@code sprite_bank.h}: each frame's number,
+ * {@code SPRITE_<NAME>_<FRAME>}, each sprite's origin and size in blocks, and
+ * (with SPRITE_TABLES defined) where each frame starts and its blocks.
  */
 public final class RomSprites {
 
-    /** A frame in the bank: its sprite and id, and its number. */
-    public record Entry(String sprite, String frame, int index, int w, int h, int originX, int originY) {
+    /** The suffix of a silhouette's frame id. */
+    public static final String INK = "_ink";
+    /** The colour a silhouette's lines have in the blob: the ROM sets the tint. */
+    static final int SILHOUETTE_COLOUR = 1;
+
+    /** A frame in the bank: its sprite and id, its number, and where it starts in the blob. */
+    public record Entry(String sprite, String frame, int index, int w, int h, int originX, int originY, int offset,
+                        int cols, int rows) {
     }
 
     private final List<Entry> entries = new ArrayList<>();
@@ -29,24 +39,39 @@ public final class RomSprites {
     public RomSprites(Content c, VdpPalette vdp) {
         SpriteCut.Sprites list = SpriteCut.sprites(c);
         List<byte[]> frames = new ArrayList<>();
+        int offset = 0;
         for (String name : list.rom()) {
             SpriteData s = c.sprites().get(name);
             String source = "data/art/sprites/" + name + ".sprite.json";
-            if (s.size().w() > SpriteCut.BLOCK || s.size().h() > SpriteCut.BLOCK) {
-                throw new ConvertException(source + ": " + s.size().w() + "x" + s.size().h() + "; the ROM's sprite"
-                        + " bank holds sprites of one 16x16 block");
+            int w = s.size().w();
+            int h = s.size().h();
+            int cols = (w + SpriteCut.BLOCK - 1) / SpriteCut.BLOCK;
+            int rows = (h + SpriteCut.BLOCK - 1) / SpriteCut.BLOCK;
+            if (cols > 2 || rows > 2) {
+                throw new ConvertException(source + ": " + w + "x" + h + "; the ROM's sprites are at most 2x2 blocks");
             }
-            for (Map.Entry<String, byte[]> f : s.decode(source).entrySet()) {
-                SpriteCut.Frame cut = SpriteCut.cut(vdp, name, f.getKey(), f.getValue(), s.size().w(), s.size().h());
-                entries.add(new Entry(name, f.getKey(), frames.size(), s.size().w(), s.size().h(),
-                        s.origin().x(), s.origin().y()));
+            Map<String, byte[]> decoded = s.decode(source);
+            for (Map.Entry<String, byte[]> f : decoded.entrySet()) {
+                SpriteCut.Frame cut = SpriteCut.cut(vdp, name, f.getKey(), f.getValue(), w, h);
+                entries.add(new Entry(name, f.getKey(), frames.size(), w, h, s.origin().x(), s.origin().y(), offset,
+                        cols, rows));
                 frames.add(cut.bytes());
+                offset += cut.bytes().length;
                 changes.addAll(cut.changes());
             }
+            if (list.silhouettes().contains(name)) {
+                for (Map.Entry<String, byte[]> f : decoded.entrySet()) {
+                    byte[] ink = SpriteCut.silhouette(f.getValue(), w, h, SILHOUETTE_COLOUR);
+                    entries.add(new Entry(name, f.getKey() + INK, frames.size(), w, h, s.origin().x(),
+                            s.origin().y(), offset, cols, rows));
+                    frames.add(ink);
+                    offset += ink.length;
+                }
+            }
         }
-        this.blob = new byte[frames.size() * SpriteCut.BLOCK_BYTES];
+        this.blob = new byte[offset];
         for (int i = 0; i < frames.size(); i++) {
-            System.arraycopy(frames.get(i), 0, blob, i * SpriteCut.BLOCK_BYTES, SpriteCut.BLOCK_BYTES);
+            System.arraycopy(frames.get(i), 0, blob, entries.get(i).offset(), frames.get(i).length);
         }
         // The big ones are cut too, for the report: they go into the ROM later.
         for (String name : list.later()) {
@@ -63,6 +88,17 @@ public final class RomSprites {
         return List.copyOf(entries);
     }
 
+    /** A frame's number in the bank. */
+    public int index(String sprite, String frame) {
+        for (Entry e : entries) {
+            if (e.sprite().equals(sprite) && e.frame().equals(frame)) {
+                return e.index();
+            }
+        }
+        throw new ConvertException("data/art/sprites/" + sprite + ".sprite.json: no frame '" + frame
+                + "', which the ROM shows");
+    }
+
     public byte[] blob() {
         return blob.clone();
     }
@@ -77,23 +113,48 @@ public final class RomSprites {
         return later;
     }
 
+    /** Where each frame starts in sprites.bin, its blocks (columns << 4 | rows), and its origin. */
+    void tables(RamTables t) {
+        int n = entries.size();
+        int[] off = new int[n];
+        int[] blocks = new int[n];
+        int[] ox = new int[n];
+        int[] oy = new int[n];
+        for (int i = 0; i < n; i++) {
+            Entry e = entries.get(i);
+            off[i] = e.offset();
+            blocks[i] = e.cols() << 4 | e.rows();
+            ox[i] = e.originX();
+            oy[i] = e.originY();
+        }
+        t.u16("g_SpriteOffset", off, "The sprite bank's frames: where each starts in sprites.bin, its blocks"
+                + " (columns << 4 | rows), its origin (its feet, from its top-left).");
+        t.u8("g_SpriteBlocks", blocks, null);
+        t.u8("g_SpriteOriginX", ox, null);
+        t.u8("g_SpriteOriginY", oy, null);
+    }
+
     public String header() {
         StringBuilder sb = new StringBuilder();
         sb.append(Gen.banner("data/art/sprites/"));
         sb.append("#pragma once\n\n");
-        sb.append("// sprites.bin: SPRITE_FRAME_BYTES a frame: base and overlay 16x16 patterns, then\n");
-        sb.append("// their colour tables, the overlay's with CC (convert/.../SpriteCut.java).\n");
+        sb.append("// sprites.bin: each frame's blocks, row by row: their base and overlay 16x16\n");
+        sb.append("// patterns, then their colour tables, the overlays' with CC (convert/.../SpriteCut.java).\n");
+        sb.append("// A silhouette (_INK) has all its pixels in the base, its lines in colour ")
+                .append(SILHOUETTE_COLOUR).append(".\n");
         sb.append("#define SPRITE_FRAMES\t\t").append(entries.size()).append('\n');
-        sb.append("#define SPRITE_FRAME_BYTES\t").append(SpriteCut.BLOCK_BYTES).append('\n');
+        sb.append("#define SPRITE_BLOCK_BYTES\t").append(SpriteCut.BLOCK_BYTES).append('\n');
         String last = null;
         for (Entry e : entries) {
             if (!e.sprite().equals(last)) {
                 last = e.sprite();
                 String n = Gen.cName(e.sprite());
                 sb.append("\n// ").append(e.sprite()).append(", ").append(e.w()).append('x').append(e.h())
-                        .append(": its origin from the top-left, then its frames.\n");
+                        .append(": its origin from the top-left, its blocks, then its frames.\n");
                 sb.append("#define SPRITE_").append(n).append("_ORIGIN_X\t").append(e.originX()).append('\n');
                 sb.append("#define SPRITE_").append(n).append("_ORIGIN_Y\t").append(e.originY()).append('\n');
+                sb.append("#define SPRITE_").append(n).append("_COLS\t").append(e.cols()).append('\n');
+                sb.append("#define SPRITE_").append(n).append("_ROWS\t").append(e.rows()).append('\n');
             }
             sb.append("#define SPRITE_").append(Gen.cName(e.sprite())).append('_').append(Gen.cName(e.frame()))
                     .append('\t').append(e.index()).append('\n');

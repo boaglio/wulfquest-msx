@@ -465,6 +465,10 @@ the list, a script tries each); no flicker or tearing on a flip.
   (the VDP's VR bit at `Test_Shown`). The M3 open-world scenarios have no
   frozen ticks (the Java game's with `transitionFreezeTicks` 0), so their
   movement numbers still hold across a flip.
+- **Corrected in M6:** `check_moves.py` read each scenario's end line with
+  the wrong number of fields, so the "never late" and "put on screen while
+  blank" checks above **never ran** in M4 or M5. Fixed in M6; since then the
+  moves and flips plans pass both, at 50 and 60 Hz.
 - **Timing:** the busiest frame is **38 421 Z80 cycles, 53% of a 50 Hz
   frame (64% at 60 Hz)**, up from M3's 30 356: about 6 700 for the interrupt
   and drawing Vale, 27 100 for the tick (pushing into a corner), 4 500 for
@@ -565,7 +569,8 @@ the big-creature decision is made, measured and written down.
   every blade shape and every bank frame, at the left edge and over the
   panel too, 143 pages, each exactly as cut; 14 sprites on a line, Vale and
   the blade whole every frame, the five creatures whole in 4 of 10 each.
-  `test/boot.sh` checks Vale in colour. openMSX cannot render headless (a
+  `test/boot.sh` checks Vale in colour. (As in M4, the lateness and blank
+  checks did not run; see M4's correction.) openMSX cannot render headless (a
   screenshot comes out black), so the V9938 model is the oracle.
 - **Timing:** the busiest frame is **49 672 Z80 cycles, 69% of a 50 Hz frame
   (84% at 60 Hz)**, up from M4's 38 421: Vale pushing into a corner, fencing,
@@ -596,6 +601,49 @@ scripted openMSX scene (a spider bursts on a facing swing, kills on a touch;
 a rhino turns at its corridor's end; a tribesman follows through a flip); a
 room with Vale and three small creatures holds 50 ticks a second; the
 budget report shows CPU use per tick in the busiest room.
+
+**Landed (2026-11-07), timing slipped.** The behaviour, all of it; the
+"50 ticks a second" does not hold yet. The user chose to finish the whole game
+first and tune after (see M13). Specifics:
+
+- **The jungle** (`src/jungle.c`) is the Java game's `tickCreatures`,
+  `tickSwarm`, `tickBeasts` and `resolveCombat`, in the same order and with
+  the same random draws: the swarm and its puffs, bursting on a facing swing
+  and killing on a touch; the eight beasts (four rhinos, three tribesmen, the
+  sleeper: hippo or warthog by the seed) walking the whole map, wrapping round
+  its ends, tribesmen following Vale across rooms. Death, respawn
+  (`src/spawn.c`, the Java `SpawnFinder` as a flood of box classes rather
+  than of pixels), lives, and game over as a plain message. Left for their
+  milestones: the score (M8), the amulet a tribesman calls at (M7), the
+  flowers (M8).
+- **Random numbers** (`src/rng.c`): the Java `Rng` bit for bit, xorshift128+
+  seeded by splitmix64; a draw in assembly.
+- **The converter** writes the creatures' and beasts' tables
+  (`Jungle.java`, `RamTables.java`, `MapBits.java`) and refuses a beast
+  speed of a cell or more, or a box too big for the assembly step.
+- **Tests:** `test/moves.sh`'s third plan, `test/jungle.json`: five scenes
+  (fencing, standing, rhinos, follow, game over), **11 000 ticks equal to the
+  Java game's at 50 and 60 Hz**: Vale, every creature and every beast, each
+  field. Each scene's point is checked in the Java game first
+  (`JungleChecks`): a facing swing bursts, a touch kills, a rhino turns, a
+  tribesman follows through a flip, the game ends. The sleeper wakes and
+  charges in all five. The sprite gallery and boot tests now wait for their
+  own draw (numbered draws, `g_FlipDraw`/`g_ShownDraw`), and a late frame
+  never starts over the sprite tables still waiting to be shown.
+- **Timing, slipped.** Busiest room, 8,10 with Vale fencing and three
+  creatures, Z80 cycles a frame, measured with a sampling profiler in
+  openMSX: **the tick about 64 000** (beasts 28 000, small creatures 21 000,
+  combat 7 500, swarm 1 400), **the sprites about 57 000** (the jungle's
+  placing 23 000, PlaceAll 17 000, the line count 8 000), the interrupt about
+  3 000: **about 123 000, against 71 600 at 50 Hz and 59 700 at 60 Hz.**
+  Already in assembly: the beasts' step (only the new strip of cells tested,
+  a blocked strip remembered per beast), their loop, the line count, the
+  walk phase. In the rhinos scene: tick 36 000, sprites 38 500. Until the
+  tuning, `test/moves.sh` prints the jungle's lateness as `SLIP` lines
+  instead of failing (`MOVES_TIMING_SLIPPED`); every other check still
+  fails. Ideas measured but not taken: the rest in assembly gives perhaps
+  65-75 000; running the tick from the interrupt and drawing from a copy,
+  dropping pictures but never ticks, would change §6.
 
 ### M7 — The Wulf, the guardians and the amulet
 
@@ -711,6 +759,9 @@ against the data); the plane intro plays and any key returns to the title.
 
 **For:** the game as players will run it.
 
+- **The tuning, slipped from M6:** the jungle's busiest room must hold 50
+  ticks a second at 50 and 60 Hz (M6's record has the budget), with the rest
+  of the game in; then `MOVES_TIMING_SLIPPED` goes from `test/moves.sh`.
 - Check every timing on a 60 Hz machine: the tick-skip keeps game speed equal
   to 50 Hz; music and effects keep their pitch and tempo.
 - Run on real MSX2 hardware (at least one European and one Japanese machine,

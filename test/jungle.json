@@ -1,0 +1,21 @@
+{
+  "comment": [
+    "test/moves.sh's third plan (AGENTS.md §10, M6): Vale in the jungle, the swarm and the big beasts",
+    "with him, every tick equal to the Java game's (convert's MoveTraces, its jungle). 'jungle' is the",
+    "run's seed; 'check' a thing the scenario is there to show, which the Java game must show first",
+    "(convert's JungleChecks): burst-facing, touch-kills, rhino-turns, follow-flip, deaths:N, game-over.",
+    "'at' is the feet, world pixels, or 'start': the Java game's spot in 'room'."
+  ],
+  "scenarios": [
+    { "name": "fencing", "room": "8,10", "at": "start", "jungle": 1, "check": "burst-facing",
+      "keys": [["F", 800]] },
+    { "name": "standing", "room": "8,10", "at": "start", "jungle": 1, "check": "touch-kills",
+      "keys": [["", 800]] },
+    { "name": "rhinos", "room": "8,9", "at": "start", "jungle": 1, "check": "rhino-turns",
+      "keys": [["", 1200]] },
+    { "name": "follow", "room": "8,9", "at": [2176, 1761], "jungle": 1, "check": "follow-flip",
+      "keys": [["D", 200]] },
+    { "name": "game-over", "room": "8,10", "at": "start", "jungle": 1, "check": "game-over",
+      "keys": [["", 8000]] }
+  ]
+}

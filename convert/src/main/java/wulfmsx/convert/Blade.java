@@ -167,6 +167,15 @@ public final class Blade {
         return offsets.length;
     }
 
+    /** Each shape's sprites' top-left from the hand: blade x, y, crossguard x, y. */
+    void tables(RamTables t) {
+        int[] at = new int[offsets.length * 4];
+        for (int i = 0; i < offsets.length; i++) {
+            System.arraycopy(offsets[i], 0, at, 4 * i, 4);
+        }
+        t.i8("g_BladeAt", at, "The blade's shapes: each sprite's top-left from the hand, blade x, y, crossguard x, y.");
+    }
+
     public String header() {
         StringBuilder sb = new StringBuilder();
         sb.append(Gen.banner("data/entities/player.json"));
@@ -186,15 +195,6 @@ public final class Blade {
         sb.append("// (32 bits), pose = (h ^ (h >> BLADE_HASH_SHIFT)) & (BLADE_GUARDS - 1).\n");
         sb.append(String.format("#define BLADE_HASH\t\t0x%08XUL%n", HASH_LOW));
         sb.append("#define BLADE_HASH_SHIFT\t").append(HASH_SHIFT).append('\n');
-        sb.append("\n// Each shape's sprites' top-left from the hand: blade x, y, crossguard x, y. In the\n");
-        sb.append("// one file that defines BLADE_TABLES before it includes this.\n");
-        sb.append("#ifdef BLADE_TABLES\n");
-        sb.append("static const signed char g_BladeAt[BLADE_SHAPES * 4] = {\n");
-        for (int s = 0; s < offsets.length; s++) {
-            int[] o = offsets[s];
-            sb.append(String.format("\t%d, %d, %d, %d,%n", o[0], o[1], o[2], o[3]));
-        }
-        sb.append("};\n#endif\n");
         return sb.toString();
     }
 }

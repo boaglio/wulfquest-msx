@@ -82,6 +82,9 @@ the Java game's `Content.load` and writes `build/gen/`:
 | `blade.h`, `blade.bin` | his blade: a shape for each facing and fence pose, as two one-colour sprites, where they go from the hand, and how the ROM picks the pose as the Java game does |
 | `sprite_bank.h`, `sprites.bin` | the other sprites the ROM shows (the list is `convert/src/main/resources/wulfmsx/convert/sprites.json`): every frame, cut as Vale's, and its number |
 | `sprites.txt`, `sprites.png` | every pixel a sprite shows in another colour than the art's, and pictures of those frames, the art beside the MSX2's; `sprites.json` accepts so many a sprite, and the converter fails past that |
+| `jungle.h`, `jungle_data.h` | the swarm's roster and the big beasts' kinds, placings and sleepers (M6), from `entities/jungle.json` and `creatures.json` |
+| `tables.h`, `tables.bin` | tables the jungle reads often, copied into RAM at start (`RamTables`) |
+| `map_0.bin`, `map_1.bin` | the whole map's solid cells as one bitmap, a bit a cell (`MapBits`), for the beasts and for where Vale gets up |
 | `rom.h`, `rawfiles.json` | which ROM segment each blob goes in: `rawfiles.json` for MSXgl (`src/project_config.js` reads it), `rom.h` for the C |
 | `report.txt` | how far each colour moved, the atlas size, and the ROM budget |
 
@@ -162,9 +165,20 @@ ignores it, so the submodule stays clean.
   reports the hitch a flip makes and the busiest frame in Z80 cycles, from
   breakpoints on `Test_FrameStart` and `Test_FrameEnd`.
   `MOVES_PLANS=flips test/moves.sh` runs one plan.
+  A third plan, `test/jungle.json` (M6), puts the jungle round him: the
+  swarm, the beasts, deaths and game over. `exec:java@jungle-traces` plays it
+  with a seed per scene, `JungleChecks` first checks in the Java game that the
+  scene shows what it is there for (a facing swing bursts a creature, a touch
+  kills, a rhino turns, a tribesman follows through a flip, the game ends),
+  and each tick's `J` line, every creature and beast field by field, must be
+  equal. Its timing slipped (AGENTS.md M6): plans named in
+  `MOVES_TIMING_SLIPPED` (default `jungle`) print late frames as `SLIP` lines
+  instead of failing; set it empty to see them fail.
 - **`test/boot.sh`** also checks Vale is on screen where a new game starts
   him, in his first frame, in his colours; its pictures draw the sprites from
-  the sprite tables.
+  the sprite tables. It takes them as the ROM shows each room (`Test_Shown`,
+  `g_DrawCount`), not at fixed times, since the jungle is live from the
+  start; on an MSX1, where no room comes, it falls back to its timed path.
 - **`test/sprites.sh`** (M5) shows, through the ROM's test gallery
   (`g_TestGallery` in `wulfquest.c`), every frame of Vale, every shape of his
   blade and every frame of the sprite bank, some at the screen's left edge
@@ -175,6 +189,9 @@ ignores it, so the submodule stays clean.
   whole every frame, the creatures in turn. And it times the blitter on a big
   creature's size (`Bench` in `wulfquest.c`), the measurement behind
   drawing big creatures as sprites.
+  Each page waits for its own draw on screen: the ROM numbers its sprite
+  draws (`g_FlipDraw`, and `g_ShownDraw` once a draw is shown), as a page
+  that loads many sprites takes more than a frame.
 - **How the V9938 draws sprites** is in `test/vdp_sprites.py`, shared by the
   checks: sprite mode 2, the 8-a-line limit, the early clock, and the CC bit
   (an overlay with it is drawn only on a line where a sprite without it,
@@ -203,12 +220,16 @@ run.sh           build, then play it in openMSX
 src/             the game: wulfquest.c (main), data.c (the ROM's data; stays in
                  segment 0), room.c (drawing), vale.c (Ranger Vale),
                  overlay.c (the debug line on the panel), sprites.c (the
-                 hardware sprites and their turns); MSXgl's
+                 hardware sprites and their turns), jungle.c (the swarm,
+                 the beasts, combat, deaths), move.c (box movement against
+                 the scenery or the map), spawn.c (where Vale gets up),
+                 rng.c (the Java game's random numbers); MSXgl's
                  project_config.js and msxgl_config.h
 pom.xml          builds wulfquest/core and convert/ together
 convert/         the converter (Java)
 tools/           check-no-binaries.sh
-test/            boot.*, rooms.*, moves.*, sprites.*, flips.json, check_*.py,
+test/            boot.*, rooms.*, moves.*, sprites.*, flips.json, jungle.json,
+                 check_*.py,
                  vdp_sprites.py, gate.sh
 wulfquest/       submodule: the Java game, for its data/
 msxgl/           submodule: MSXgl

@@ -2,9 +2,11 @@
 # it shows $env(SPRITES_PLAN) (check_sprites.py's plan) through the ROM's test
 # gallery and writes what the VDP holds to $env(SPRITES_OUT).
 #
-# The ROM calls Test_Shown when a frame's sprites are on screen. A breakpoint
-# there saves the sprite tables of the page asked for the frame before, then
-# asks for the next. Output: a line "shown" a page or a frame of the turns,
+# The ROM calls Test_Shown at the start of each frame. A breakpoint there
+# asks for a page and waits until a draw made after it is on screen (the
+# ROM numbers its draws, g_FlipDraw, and the blank's hook records the one it
+# shows, g_ShownDraw: a page that loads many frames takes more than a frame
+# to draw), saves the sprite tables, then asks for the next. Output: a line "shown" a page or a frame of the turns,
 # its tables in $env(SPRITES_OUT).spr (attributes 128 bytes, colours 512,
 # patterns 2048); "crowded N", the frames the ROM found a line with more than
 # 8 sprites in during the turns; then "bench OP W H US", the blitter's time
@@ -82,6 +84,9 @@ set dump 0
 proc on_shown {} {
     if {[catch {
         if {[peek g_DrawCount 2] == 0 || $::step == -2} { return }
+        # The draw asked for, or a later one, on screen yet? A draw takes
+        # longer than a frame when it loads many frames.
+        if {$::dump && (([peek g_ShownDraw 2] - $::want) & 0x8000)} { return }
         if {$::dump} {
             tables
             puts $::out "shown"
@@ -95,6 +100,7 @@ proc on_shown {} {
             return
         }
         lassign [lindex $::items $::step] kind fields
+        set ::want [expr {([peek g_FlipDraw 2] + 1) & 0xFFFF}]
         switch $kind {
             show { layout $fields; set ::dump 1 }
             turns { layout $fields; set ::crowded0 [peek g_SpritesCrowded 2]; set ::dump 1 }

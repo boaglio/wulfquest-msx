@@ -14,6 +14,8 @@
 #include "constants.h"
 #include "player.h"
 #include "blade.h"
+#include "jungle.h"
+#include "spawn.h"
 
 #define ONE			(1 << FIXED_SHIFT)
 #define LEVELS		(PLAYER_MOMENTUM_MAX / PLAYER_MOMENTUM_STEP)
@@ -49,16 +51,28 @@ u8  g_SabreH;
 u8  g_ValeRoom = 0;
 u8  g_ValeFreeze = 0;
 u8  g_ValeOpen = 0;   // the rest are set by Vale_Init and Vale_Place
+u8  g_ValeMode = MODE_ALIVE;
+u8  g_ValeModeTick = 0;
+u8  g_ValeLives = 0;
+u8  g_ValeInvuln = 0;
+u8  g_ValeVisible = 1;
+u8  g_SwingSerial = 0;
+u32 g_SimTick = 0;
+i16 g_RoomX = 0;
+i16 g_RoomY = 0;
+i16 g_CellsX = 0;
+i16 g_CellsY = 0;
 
 static i8 s_LevelX;
 static i8 s_LevelY;
 static u8 s_FramePhase;   // tick % PLAYER_MOMENTUM_TICKS_PER_FRAME
 static u8 s_GaitTick;     // g_ValeWalk % PLAYER_WALK_TICKS_PER_FRAME
 static u8 s_Gait;         // g_ValeWalk / PLAYER_WALK_TICKS_PER_FRAME % PLAYER_GAIT
-static i16 s_RoomX;       // the room's top-left, world pixels
-static i16 s_RoomY;
-static i16 s_CellsX;      // the top-left of the cells around it, world pixels
-static i16 s_CellsY;
+// The room's top-left, and the cells' around it, world pixels (vale.h).
+#define s_RoomX		g_RoomX
+#define s_RoomY		g_RoomY
+#define s_CellsX	g_CellsX
+#define s_CellsY	g_CellsY
 
 // Worked out once, so a tick needs no multiplication or division (the Z80
 // has neither): a speed level's pace on each axis, straight and on a
@@ -77,7 +91,7 @@ static const i8 c_FaceDY[8] = { -1, -1, 0, 1, 1, 1, 0, -1 };
 
 // The cells of his room and a margin around it, a byte each, unpacked when
 // he enters it: a byte is quicker to test than a bit.
-static u8 s_Cells[CELLS_H * CELLS_W];
+u8 s_Cells[CELLS_H * CELLS_W];
 
 static void EnterRoom(u8 room)
 {
@@ -87,6 +101,8 @@ static void EnterRoom(u8 room)
 	s_CellsX = s_RoomX - CELLS_MARGIN * CELL;
 	s_CellsY = s_RoomY - CELLS_MARGIN * CELL;
 	Data_LoadCells(room, s_Cells);
+	if (g_JungleOn)
+		Jungle_EnterRoom();
 }
 
 void Vale_Init()
@@ -128,6 +144,13 @@ void Vale_Place(i32 x, i32 y)
 	s_GaitTick = 0;
 	s_Gait = 0;
 	g_ValeFreeze = 0;
+	g_ValeMode = MODE_ALIVE;
+	g_ValeModeTick = 0;
+	g_ValeLives = PLAYER_LIVES_START;
+	g_ValeInvuln = 0;
+	g_ValeVisible = 1;
+	g_SwingSerial = 0;
+	g_SimTick = 0;
 	ResetTicks();
 	g_ValeFrame = Vale_Frame();
 	g_ValeBlade = -1;
@@ -148,6 +171,115 @@ void Vale_Place(i32 x, i32 y)
 #if CELL != 8
 #error "Blocked divides by CELL with a shift"
 #endif
+// Cells_Blocked's arguments: a box in the window's pixels, wholly inside it.
+u16 g_CbLeft = 0;
+u8  g_CbTop = 0;
+u8  g_CbW = 0;
+u8  g_CbH = 0;
+
+#if CELLS_W != 36
+#error "Cells_Blocked multiplies by CELLS_W as 32 + 4"
+#endif
+
+// Whether any of the window's cells under the box is solid. Assembly: the
+// C was about 2 000 cycles a call, and a tick against a wall makes 8 (M6).
+u8 Cells_Blocked() __naked
+{
+	__asm
+		; the first row: s_Cells + (top >> 3) * 36
+		ld	a, (_g_CbTop)
+		ld	c, a                    ; c = top
+		rrca
+		rrca
+		rrca
+		and	a, #0x1F
+		ld	l, a
+		ld	h, #0
+		add	hl, hl
+		add	hl, hl
+		ld	e, l
+		ld	d, h                    ; de = row * 4
+		add	hl, hl
+		add	hl, hl
+		add	hl, hl                  ; hl = row * 32
+		add	hl, de
+		ld	de, #_s_Cells
+		add	hl, de
+		push	hl
+		; columns: cx0 = left >> 3, n = ((left + w - 1) >> 3) - cx0 + 1
+		ld	hl, (_g_CbLeft)
+		ld	a, (_g_CbW)
+		dec	a
+		ld	e, a
+		ld	d, #0
+		push	hl
+		add	hl, de
+		srl	h
+		rr	l
+		srl	h
+		rr	l
+		srl	h
+		rr	l
+		ld	b, l                    ; b = cx1
+		pop	hl
+		srl	h
+		rr	l
+		srl	h
+		rr	l
+		srl	h
+		rr	l                       ; l = cx0
+		ld	a, b
+		sub	a, l
+		inc	a
+		ld	b, a                    ; b = columns
+		ld	e, l                    ; de = cx0
+		; rows: n = ((top + h - 1) >> 3) - (top >> 3) + 1
+		ld	a, (_g_CbH)
+		dec	a
+		add	a, c
+		rrca
+		rrca
+		rrca
+		and	a, #0x1F
+		ld	d, a
+		ld	a, c
+		rrca
+		rrca
+		rrca
+		and	a, #0x1F
+		ld	c, a
+		ld	a, d
+		sub	a, c
+		inc	a
+		ld	c, a                    ; c = rows
+		ld	d, #0
+		pop	hl
+		add	hl, de                  ; hl = the first cell under the box
+	00010$:
+		push	hl
+		push	bc
+	00020$:
+		ld	a, (hl)
+		or	a
+		jr	nz, 00090$
+		inc	hl
+		djnz	00020$
+		pop	bc
+		pop	hl
+		ld	de, #CELLS_W
+		add	hl, de
+		dec	c
+		jr	nz, 00010$
+		xor	a
+		ret
+	00090$:
+		pop	bc
+		pop	hl
+		ld	a, #1
+		ret
+	__endasm;
+}
+
 static bool Blocked(i16 x, i16 y)
 {
 	i16 left = x + PLAYER_BOX_X;
@@ -158,21 +290,14 @@ static bool Blocked(i16 x, i16 y)
 			|| top + (PLAYER_BOX_H - 1) >= WORLD_ROWS * CELL;
 	left -= s_CellsX;
 	top -= s_CellsY;
-	if (left < 0 || top < 0 || left + (PLAYER_BOX_W - 1) >= CELLS_W * CELL || top + (PLAYER_BOX_H - 1) >= CELLS_H * CELL)
+	// Outside the window, below or past it, is solid: one unsigned compare each.
+	if ((u16)left > CELLS_W * CELL - PLAYER_BOX_W || (u16)top > CELLS_H * CELL - PLAYER_BOX_H)
 		return TRUE;
-	u8 cx0 = (u8)((u16)left >> 3);
-	u8 cx1 = (u8)((u16)(left + (PLAYER_BOX_W - 1)) >> 3);
-	u8 cy0 = (u8)top >> 3;   // CELLS_H * CELL fits a byte
-	u8 cy1 = (u8)(top + (PLAYER_BOX_H - 1)) >> 3;
-	const u8* row = s_Cells + (u16)cy0 * CELLS_W;
-	for (u8 cy = cy0; cy <= cy1; cy++)
-	{
-		for (u8 cx = cx0; cx <= cx1; cx++)
-			if (row[cx])
-				return TRUE;
-		row += CELLS_W;
-	}
-	return FALSE;
+	g_CbLeft = (u16)left;
+	g_CbTop = (u8)top;
+	g_CbW = PLAYER_BOX_W;
+	g_CbH = PLAYER_BOX_H;
+	return Cells_Blocked();
 }
 #if CELLS_H * CELL > 255
 #error "Blocked keeps a row of the cells in a byte"
@@ -189,19 +314,11 @@ static i32 FixedOf(i16 px)
 	return v;
 }
 
-// One axis (Collision.resolve): free, the target; blocked, the nearest free
-// whole pixel between here and the target; none, here, fraction and all.
-// The search runs in whole pixels: a whole pixel c is past pos going up when
-// c > px(pos), and going down when c < px(pos), or c == px(pos) and pos has a
-// fraction.
-static i32 Resolve(i32 pos, i16 delta, i16 other, bool alongX)
+// The open world's (the movement tests'): every candidate through Blocked.
+static i32 ResolveSlow(i32 pos, i16 delta, i16 other, bool alongX)
 {
-	if (delta == 0)
-		return pos;
 	i32 target = pos + delta;
 	i16 t = FP_PX(target);
-	if (!(alongX ? Blocked(t, other) : Blocked(other, t)))
-		return target;
 	i16 p = FP_PX(pos);
 	if (delta > 0)
 	{
@@ -214,6 +331,79 @@ static i32 Resolve(i32 pos, i16 delta, i16 other, bool alongX)
 		bool fraction = *(u8*)&pos != 0;
 		for (i16 c = t + 1; c < p || (c == p && fraction); c++)
 			if (!(alongX ? Blocked(c, other) : Blocked(other, c)))
+				return FixedOf(c);
+	}
+	return pos;
+}
+
+// One axis (Collision.resolve): free, the target; blocked, the nearest free
+// whole pixel between here and the target; none, here, fraction and all.
+// The search runs in whole pixels: a whole pixel c is past pos going up when
+// c > px(pos), and going down when c < px(pos), or c == px(pos) and pos has a
+// fraction.
+// Resolve's candidates: a candidate pixel along the axis plus s_RBase is the
+// box's edge in the window's pixels; past s_RLimit (or below 0, as unsigned)
+// it is outside the window, solid. The other axis is set in g_Cb* once.
+static i16 s_RBase = 0;
+static u16 s_RLimit = 0;
+static bool s_RAlongX = FALSE;
+
+static bool Try(i16 c)
+{
+	u16 e = (u16)(c + s_RBase);
+	if (e > s_RLimit)
+		return TRUE;
+	if (s_RAlongX)
+		g_CbLeft = e;
+	else
+		g_CbTop = (u8)e;
+	return Cells_Blocked();
+}
+
+static i32 Resolve(i32 pos, i16 delta, i16 other, bool alongX)
+{
+	if (delta == 0)
+		return pos;
+	i32 target = pos + delta;
+	i16 t = FP_PX(target);
+	if (g_ValeOpen)
+		return (alongX ? Blocked(t, other) : Blocked(other, t)) ? ResolveSlow(pos, delta, other, alongX) : target;
+	// The other axis, once: outside the window, every candidate is solid.
+	g_CbW = PLAYER_BOX_W;
+	g_CbH = PLAYER_BOX_H;
+	s_RAlongX = alongX;
+	if (alongX)
+	{
+		u16 top = (u16)(other + PLAYER_BOX_Y - s_CellsY);
+		if (top > CELLS_H * CELL - PLAYER_BOX_H)
+			return pos;
+		g_CbTop = (u8)top;
+		s_RBase = PLAYER_BOX_X - s_CellsX;
+		s_RLimit = CELLS_W * CELL - PLAYER_BOX_W;
+	}
+	else
+	{
+		u16 left = (u16)(other + PLAYER_BOX_X - s_CellsX);
+		if (left > CELLS_W * CELL - PLAYER_BOX_W)
+			return pos;
+		g_CbLeft = left;
+		s_RBase = PLAYER_BOX_Y - s_CellsY;
+		s_RLimit = CELLS_H * CELL - PLAYER_BOX_H;
+	}
+	if (!Try(t))
+		return target;
+	i16 p = FP_PX(pos);
+	if (delta > 0)
+	{
+		for (i16 c = t; c > p; c--)
+			if (!Try(c))
+				return FixedOf(c);
+	}
+	else
+	{
+		bool fraction = *(u8*)&pos != 0;
+		for (i16 c = t + 1; c < p || (c == p && fraction); c++)
+			if (!Try(c))
 				return FixedOf(c);
 	}
 	return pos;
@@ -236,7 +426,10 @@ static void UpdateSwing(bool fire)
 	else if (g_ValeCooldown > 0)
 		g_ValeCooldown--;
 	if (g_ValeSwing < 0 && g_ValeCooldown == 0 && fire)
+	{
 		g_ValeSwing = 0;
+		g_SwingSerial++;   // each swing may hit each creature once
+	}
 }
 
 static void ComputeSabre()
@@ -436,6 +629,9 @@ static void ResetTicks()
 // PlayerPainter.paint: the blade, while the sabre's hit box is out.
 static void Looks()
 {
+	// PlayerPainter.visible: spawn invulnerability blinks, half a period shown.
+	g_ValeVisible = g_ValeMode != MODE_ALIVE || g_ValeInvuln == 0
+		|| g_ValeInvuln % PLAYER_SPAWN_BLINK_TICKS < (PLAYER_SPAWN_BLINK_TICKS + 1) / 2;
 	g_ValeFrame = Vale_Frame();
 	if (g_SabreW == 0)
 	{
@@ -447,15 +643,90 @@ static void Looks()
 	g_ValeBlade = (i8)(g_ValeFacing * BLADE_POSES + (thrust ? BLADE_GUARDS : 0) + s_FencePose);
 }
 
+bool Vale_Kill()
+{
+	if (g_ValeMode != MODE_ALIVE || g_ValeInvuln > 0)
+		return FALSE;
+	g_ValeMode = MODE_DYING;
+	g_ValeModeTick = 0;
+	g_ValeSwing = -1;
+	g_ValeCooldown = 0;
+	g_ValeWalk = 0;
+	s_GaitTick = 0;
+	s_Gait = 0;
+	g_ValeFreeze = 0;
+	g_SabreW = 0;
+	g_SabreH = 0;
+	return TRUE;
+}
+
+// Simulation.respawn and getUp: a life from the reserve, none left and the
+// game is over; up where he fell, nudged to the nearest spot he can walk to
+// that keeps him wholly on screen (spawn.c).
+static void Respawn()
+{
+	if (g_ValeLives == 0)
+	{
+		g_ValeMode = MODE_GAME_OVER;
+		g_ValeModeTick = 0;
+		return;
+	}
+	g_ValeLives--;
+	Spawn_NearestFree(&g_ValeX, &g_ValeY);
+	g_ValeMode = MODE_ALIVE;
+	g_ValeModeTick = 0;
+	g_ValeInvuln = PLAYER_SPAWN_INVULN_TICKS;
+	g_ValeVX = 0;
+	g_ValeVY = 0;
+	s_LevelX = 0;
+	s_LevelY = 0;
+	if (g_JungleOn)
+		Jungle_GetUp();
+}
+
 bool Vale_Tick(u8 keys)
 {
+	g_SimTick++;
 	NextTick();
+	switch (g_ValeMode)
+	{
+	case MODE_GAME_OVER:
+		// No continues until the quest has them (M7): the game stays over.
+		Looks();
+		return FALSE;
+	case MODE_DYING:
+		// §11.7: the jungle carries on around him.
+		if (g_JungleOn)
+		{
+			Jungle_TickCreatures();
+			Jungle_TickBeasts();
+		}
+		if (++g_ValeModeTick >= PLAYER_DEATH_ANIM_TICKS)
+		{
+			g_ValeMode = MODE_DOWN;
+			g_ValeModeTick = 0;
+		}
+		Looks();
+		return FALSE;
+	case MODE_DOWN:
+		if (g_JungleOn)
+		{
+			Jungle_TickCreatures();
+			Jungle_TickBeasts();
+		}
+		if (++g_ValeModeTick >= PLAYER_DEATH_FREEZE_TICKS)
+			Respawn();
+		Looks();
+		return FALSE;
+	}
 	if (g_ValeFreeze)
 	{
 		g_ValeFreeze--;   // the flip's hitch: nothing moves
 		Looks();
 		return FALSE;
 	}
+	if (g_ValeInvuln > 0)
+		g_ValeInvuln--;
 	UpdateSwing((keys & VALE_FIRE) != 0);
 	Move(keys);
 	if (UpdateRoom())
@@ -466,6 +737,13 @@ bool Vale_Tick(u8 keys)
 		return TRUE;
 	}
 	ComputeSabre();
+	if (g_JungleOn)
+	{
+		Jungle_TickCreatures();
+		Jungle_TickSwarm();
+		Jungle_TickBeasts();
+		Jungle_Combat();
+	}
 	Looks();
 	return FALSE;
 }
@@ -475,6 +753,14 @@ bool Vale_Tick(u8 keys)
 
 u8 Vale_Frame()
 {
+	// PlayerPainter.frameFor: falling, the die animation, held on its last frame once down.
+	if (g_ValeMode == MODE_DYING)
+	{
+		u8 f = g_ValeModeTick / PLAYER_DIE_TICKS_PER_FRAME;
+		return PLAYER_FRAME_DIE + (f < PLAYER_DIE_FRAMES ? f : PLAYER_DIE_FRAMES - 1);
+	}
+	if (g_ValeMode != MODE_ALIVE)
+		return PLAYER_FRAME_DIE + PLAYER_DIE_FRAMES - 1;
 	i8 dx = c_FaceDX[g_ValeFacing];
 	u8 f = dx > 0 ? PLAYER_VIEW_SIDE * PLAYER_FRAMES_PER_VIEW
 		: dx < 0 ? PLAYER_VIEW_SIDE_L * PLAYER_FRAMES_PER_VIEW

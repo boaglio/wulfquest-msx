@@ -82,7 +82,8 @@ def vale_problems(tag, regs, vram, gen):
     left = (p["PLAYER_START_X_FP"] >> 8) - c["START_COL"] * c["PLAYFIELD_W"] - p["PLAYER_ORIGIN_X"]
     top = (p["PLAYER_START_Y_FP"] >> 8) - c["START_ROW"] * c["PLAYFIELD_H"] - p["PLAYER_ORIGIN_Y"]
     want = g.clip(g.vale(frame, -1, left, top))
-    got = sprite_pixels(regs, vram)
+    # The jungle's creatures may be on screen too (M6): Vale's pixels must all be there, in front.
+    got = {k: v for k, v in sprite_pixels(regs, vram).items() if k in want}
     if not want:
         return [f"{tag}: Vale's first frame is empty"]
     if got != want:

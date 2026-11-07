@@ -58,7 +58,8 @@ public final class SpriteCut {
     }
 
     /** The list in sprites.json. */
-    public record Sprites(List<String> rom, List<String> later, Map<String, Integer> accepted) {
+    public record Sprites(List<String> rom, List<String> silhouettes, List<String> later,
+                          Map<String, Integer> accepted) {
 
         List<String> all(Content c) {
             List<String> out = new ArrayList<>();
@@ -85,7 +86,12 @@ public final class SpriteCut {
         for (Map.Entry<String, JsonNode> e : n.get("accepted").properties()) {
             accepted.put(e.getKey(), e.getValue().asInt());
         }
-        Sprites s = new Sprites(rom, later, accepted);
+        Sprites s = new Sprites(rom, n.has("silhouettes") ? names(n.get("silhouettes")) : List.of(), later, accepted);
+        for (String name : s.silhouettes()) {
+            if (!rom.contains(name)) {
+                throw new ConvertException("convert/.../sprites.json: silhouette '" + name + "' is not in 'rom'");
+            }
+        }
         for (String name : s.all(c)) {
             if (!c.sprites().all().containsKey(name)) {
                 throw new ConvertException("convert/.../sprites.json names sprite '" + name
@@ -406,6 +412,35 @@ public final class SpriteCut {
             }
         }
         return best;
+    }
+
+    /**
+     * A frame as one colour: every pixel of the art in the base layer, the
+     * overlay empty; the base's lines in {@code colour}, which the ROM
+     * replaces with the tint it draws it in.
+     */
+    static byte[] silhouette(byte[] px, int w, int h, int colour) {
+        int cols = (w + BLOCK - 1) / BLOCK;
+        int rows = (h + BLOCK - 1) / BLOCK;
+        int blocks = cols * rows;
+        byte[] out = new byte[blocks * BLOCK_BYTES];
+        int colours = blocks * 2 * PATTERN_BYTES;
+        for (int b = 0; b < blocks; b++) {
+            for (int ly = 0; ly < BLOCK; ly++) {
+                out[colours + b * 2 * COLOUR_BYTES + ly] = (byte) colour;
+                out[colours + b * 2 * COLOUR_BYTES + COLOUR_BYTES + ly] = (byte) CC;
+            }
+        }
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                if (px[y * w + x] >= 0) {
+                    int b = (y / BLOCK) * cols + x / BLOCK;
+                    int lx = x % BLOCK;
+                    out[b * 2 * PATTERN_BYTES + (lx / 8) * 16 + y % BLOCK] |= (byte) (0x80 >> (lx % 8));
+                }
+            }
+        }
+        return out;
     }
 
     /**

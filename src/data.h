@@ -22,6 +22,24 @@ typedef struct
 #define CELLS_W			(CELL_COLS + 2 * CELLS_MARGIN)
 #define CELLS_H			(CELL_ROWS + 2 * CELLS_MARGIN)
 
+// Changes made in the blank (the H.TIMI hook): set the registers' values,
+// then g_FlipPending; the next interrupt writes them. Install once.
+#define FLIP_PAGE		1   // R#2: the page shown
+#define FLIP_SPRITES	2   // R#6, R#11: the sprite tables shown
+extern volatile u8 g_FlipPending;
+extern u8 g_FlipR2;
+extern u8 g_FlipR6;
+extern u8 g_FlipR11;
+extern volatile u8 g_SpritesShown;
+// Each sprite draw's number (sprites.c counts them in g_FlipDraw), and the
+// last one put on screen: for the tests, which wait for the draw they asked for.
+extern u16 g_FlipDraw;
+extern volatile u16 g_ShownDraw;
+void Data_InstallFlip();
+
+// Copy the tables (tables.h) into RAM. Once, first of all.
+void Data_LoadTables();
+
 // Copy the scenery atlas into video RAM pages 2-3. Once, at start.
 void Data_LoadScenery();
 
@@ -35,9 +53,23 @@ void Data_LoadCells(u8 room, u8* cells);
 // RAM, its four colour tables (64 bytes) to colours.
 void Data_LoadValeFrame(u8 frame, u8 vramHigh, u16 vramLow, u8* colours);
 
-// A frame of the sprite bank (sprite_bank.h): its base and overlay patterns to
-// video RAM, their colour tables (32 bytes) to colours.
-void Data_LoadSpriteFrame(u8 frame, u8 vramHigh, u16 vramLow, u8* colours);
+// A frame of the sprite bank (sprite_bank.h): its blocks' base and overlay
+// patterns to video RAM, their colour tables (32 bytes a block) to colours.
+// Returns its blocks: columns << 4 | rows.
+u8 Data_LoadSpriteFrame(u8 frame, u8 vramHigh, u16 vramLow, u8* colours);
+
+// Whether a box (world pixels) overlaps a solid cell of the map, from the
+// ROM's masks: past the map's ends it wraps round (wrap, the big beasts'
+// world, §12.9) or is solid (the Java game's WorldGrid).
+bool Data_BoxBlocked(i16 left, i16 top, u8 w, u8 h, bool wrap);
+
+// The same, its box in these: for assembly to call (no arguments, the answer in a).
+extern i16 g_BoxLeft;
+extern i16 g_BoxTop;
+extern u8 g_BoxW;
+extern u8 g_BoxH;
+extern u8 g_BoxWrap;
+u8 Data_BoxTest();
 
 // A shape of the blade (blade.h): its two patterns to video RAM.
 void Data_LoadBlade(u8 shape, u8 vramHigh, u16 vramLow);

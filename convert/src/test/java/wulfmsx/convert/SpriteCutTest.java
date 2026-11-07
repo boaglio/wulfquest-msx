@@ -20,12 +20,18 @@ class SpriteCutTest {
         RomSprites bank = new RomSprites(C, GAME);
         byte[] blob = bank.blob();
         for (RomSprites.Entry e : bank.entries()) {
-            byte[] px = C.sprites().get(e.sprite()).decode(e.sprite()).get(e.frame());
-            int[] shown = SpriteCut.shown(Arrays.copyOfRange(blob, e.index() * SpriteCut.BLOCK_BYTES,
-                    (e.index() + 1) * SpriteCut.BLOCK_BYTES), e.w(), e.h());
+            boolean ink = e.frame().endsWith(RomSprites.INK);
+            String id = ink ? e.frame().substring(0, e.frame().length() - RomSprites.INK.length()) : e.frame();
+            byte[] px = C.sprites().get(e.sprite()).decode(e.sprite()).get(id);
+            int[] shown = SpriteCut.shown(Arrays.copyOfRange(blob, e.offset(),
+                    e.offset() + e.cols() * e.rows() * SpriteCut.BLOCK_BYTES), e.w(), e.h());
             int[] want = new int[e.w() * e.h()];
             for (int i = 0; i < want.length; i++) {
-                want[i] = GAME.vdpColour(px[i]);
+                want[i] = px[i] < 0 ? 0 : ink ? RomSprites.SILHOUETTE_COLOUR : GAME.vdpColour(px[i]);
+            }
+            if (ink) {
+                assertThat(shown).as("%s %s", e.sprite(), e.frame()).isEqualTo(want);
+                continue;
             }
             for (SpriteCut.Change ch : bank.changes()) {
                 if (ch.sprite().equals(e.sprite()) && ch.frame().equals(e.frame())) {
