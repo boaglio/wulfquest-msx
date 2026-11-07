@@ -16,8 +16,8 @@
 // the frames it took: the hitch is the drawing, not the drawing and the freeze.
 //
 // Debug: F5 shows the next room by number, Vale standing at the same place in
-// it (test/rooms.sh walks every room that way); the panel shows his room and
-// position (overlay.c).
+// it (test/rooms.sh walks every room that way); F4 puts his room and
+// position on the panel's bottom line (panel.c).
 //
 // Test hooks, for test/moves.sh (through the symbol map): a script writes a
 // world position and g_TestStart = 1, and from then on sets g_TestKeys at a
@@ -31,7 +31,8 @@
 #include "data.h"
 #include "room.h"
 #include "vale.h"
-#include "overlay.h"
+#include "panel.h"
+#include "sound.h"
 #include "sprites.h"
 #include "jungle.h"
 #include "rng.h"
@@ -43,6 +44,7 @@
 #include "quest_data.h"
 #include "game.h"
 #include "game_data.h"
+#include "panel_data.h"
 
 // MSXgl's start-up does not clear RAM: a global with no initial value starts
 // as whatever the RAM held. So every one here has one.
@@ -96,7 +98,7 @@ static void ShowRoom()
 	u8 room = g_ValeRoom;
 	Data_LoadRoom(room, &s_Room);
 	Room_Draw(&s_Room, hidden);
-	Overlay_Draw(hidden);
+	Panel_Draw(hidden);
 	g_DrawFrames = (u8)(g_JIFFY - start);
 	if (g_DrawFrames > g_DrawWorst)
 		g_DrawWorst = g_DrawFrames;
@@ -272,6 +274,8 @@ u8  g_TestEndless = 0;
 // M8: with g_TestGame too, the whole game (Content.ecosystem()); g_TestEasy, in Easy.
 u8  g_TestGame = 0;
 u8  g_TestEasy = 0;
+// M9: test/sound.sh writes a sound's number + 1 here (0xFF stops the tune).
+u8  g_TestSound = 0;
 
 static i8 s_BladeShape[2] = { -1, -1 };
 static bool s_Loaded = FALSE;   // DrawSprites loaded a frame or a shape this frame
@@ -507,6 +511,40 @@ static u8 DrawLoot(u8 m)
 	return m;
 }
 
+// The border's flashes (Simulation.borderFlash, GamePainter): a death's
+// alarm, the white of a quarter or an item taken; else the border's own.
+static u8 s_Border = 0xFF;
+
+static void Border()
+{
+	u8 c = BORDER_IDLE;
+	if (BORDER_FLASHES)
+	{
+		if (g_ValeMode == MODE_DYING && g_ValeModeTick < BORDER_ALARM_TICKS
+			&& g_ValeModeTick % BORDER_ALARM_PERIOD < BORDER_ALARM_ON)
+			c = BORDER_ALARM;
+		else if (g_QuestFlash > 0)
+			c = BORDER_PICKUP;
+	}
+	if (c != s_Border)
+	{
+		s_Border = c;
+		VDP_SetColor(c);
+	}
+}
+
+// The shell's tunes (Shell.tuneFor): none in the jungle, the game over's
+// and the win's when the game ends (the rest are the title's, M10).
+static u8 s_TuneMode = 0xFF;
+
+static void Tunes()
+{
+	if (g_ValeMode == s_TuneMode)
+		return;
+	s_TuneMode = g_ValeMode;
+	Sound_Tune(g_ValeMode == MODE_GAME_OVER ? TUNE_GAME_OVER : g_ValeMode == MODE_WON ? TUNE_WIN : 0xFF);
+}
+
 static void DrawJungle()
 {
 	u8 n = g_QuestOn ? DrawQuest() : 0;
@@ -581,6 +619,29 @@ static void DrawJungle()
 	}
 	if (g_GameOn)
 		m = DrawLoot(m);
+	// A taken quarter flies to its place on the panel (QuestPainter.paintFlight):
+	// from where it lay to the slot's middle, a straight line over the flight's
+	// ticks. Sprites stop at the playfield's foot, so it goes out of sight there.
+	if (g_QuestOn && g_QuestFly > 0 && m < SPR_SMALL)
+	{
+		u8 slot = 0;
+		while (!(g_QuestFlyMask & (1 << slot)))
+			slot++;
+		u8 lair = 0;
+		while (lair < LAIRS && g_LairMask[lair] != g_QuestFlyMask)
+			lair++;
+		if (lair < LAIRS)
+		{
+			i16 done = AMULET_FLY_TICKS - g_QuestFly;
+			i16 fx = g_QuestFlyX - s_RoomX;
+			i16 fy = g_QuestFlyY - s_RoomY;
+			i16 tx = (256 - 16) / 2 + (slot & 1) * 8 + 4;
+			i16 ty = PLAYFIELD_H + 10 + (slot >> 1) * 8 + 4;
+			i16 x = fx + (tx - fx) * done / AMULET_FLY_TICKS;
+			i16 y = fy + (ty - fy) * done / AMULET_FLY_TICKS;
+			PutFrame(m++, g_PieceFrame[lair], 0, x, y + 8);   // its feet: the 16x16's foot
+		}
+	}
 }
 
 // Vale (four layered sprites, PlayerPainter's frame), his blade out of his
@@ -702,9 +763,10 @@ void main()
 	SpritesInit();
 	VDP_EnableSprite(TRUE);
 	Data_LoadScenery();
-	Overlay_Init();
+	Panel_Init();
 	Vale_Init();
 	s_Skip60 = VDP_GetFrequency() == VDP_FREQ_60HZ;
+	Sound_Init(s_Skip60);
 
 	// A new game: the jungle, its random numbers seeded from the clock until
 	// the title screen gives a better one (M10).
@@ -723,6 +785,7 @@ void main()
 	EnterRoom(PLAYER_START_X_FP, PLAYER_START_Y_FP);
 
 	bool f5 = FALSE;
+	bool f4 = FALSE;
 	u16 last = g_JIFFY;
 	while (TRUE)
 	{
@@ -755,9 +818,11 @@ void main()
 		// (a flip has drawn it already).
 		if (!flipped)
 			DrawSprites();
-		// The debug line, but not in a frame that loaded sprites: those are the busy ones.
+		// The panel, but not in a frame that loaded sprites: those are the busy ones.
 		if (!s_Loaded)
-			Overlay_Update(s_Shown);
+			Panel_Update(s_Shown);
+		Border();
+		Tunes();
 		Test_FrameEnd();
 
 		if (g_BenchGo)
@@ -794,6 +859,19 @@ void main()
 			g_LateFrames = 0;
 			last = g_JIFFY;
 		}
+		else if (g_TestSound)
+		{
+			u8 id = g_TestSound - 1;
+			g_TestSound = 0;
+			if (id == 0xFE)
+				Sound_Tune(0xFF);
+			else if (id < SFX_COUNT)
+				Sound_Play(id);
+			else
+				Sound_Tune(id);
+		}
+		else if (Pressed(KEY_F4, &f4))
+			g_PanelDebug ^= 1;
 		else if (Pressed(KEY_F5, &f5))
 		{
 			// Debug: the next room, Vale where he stood in this one.

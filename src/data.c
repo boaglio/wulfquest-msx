@@ -201,6 +201,18 @@ void Data_Flip() __naked
 		xor	a
 		ld	(_g_FlipPending), a
 	_Test_Flipped::
+		push	bc                      ; the BIOS's interrupt saves less than the C may use
+		push	de
+		push	hl
+		push	ix
+		push	iy
+		call	_Sound_Frame            ; the sound's frame (sound.c, segment 0 too)
+		pop	iy
+		pop	ix
+		pop	hl
+		pop	de
+		pop	bc
+	_Test_Sound::                       ; test/sound.sh reads the PSG here
 		pop	af
 		jp	_s_OldHook
 	__endasm;
@@ -345,6 +357,7 @@ static u8 BoxTest() __naked
 		ld	a, #MAP_1_BIN_SEG
 		ld	de, #(ROM_DATA_ADDR + MAP_1_BIN_REL)
 	00025$:
+		ld	(_g_Bank1Segment), a    ; recorded first: the interrupt's sound puts back what this says
 		ld	(ADDR_BANK_1), a
 		add	hl, hl
 		add	hl, hl
@@ -606,4 +619,148 @@ u8 Data_Way(u8 set, u8 taken, u8 room)
 	u8 v = *src;
 	SET_BANK_SEGMENT(ROM_DATA_BANK, g_CodeSeg);
 	return v;
+}
+
+//-----------------------------------------------------------------------------
+// The panel (M9; panel.c): a glyph of font.bin, an image or a string of
+// panel.bin, to video RAM at addr (page 0 or 1, below 10000h), x even.
+
+#include "panel_data.h"
+
+#if FONT_SMALL_H != 6
+#error "Data_Glyph takes the small font's glyphs at 6 bytes each"
+#endif
+
+static u8 s_Glyph[32];   // a glyph's lines, or an image's bytes
+static u8 s_Pair[4];     // two pixels of a glyph line's bits, as a byte: ground, ink
+static u16 s_GAddr;
+static u8 s_GLines;
+static u8 s_GBytes;      // bytes a line: 4 (8 pixels) or 2 (4)
+
+// s_GLines lines to video RAM from s_GAddr, 128 bytes apart: a glyph's
+// (its bits two by two through s_Pair, s_GBytes a line) or, with s_GBytes
+// 0, an image's (4 bytes a line, as they are). Assembly: the C was 18 000
+// cycles a glyph (M9).
+static void Lines() __naked
+{
+	__asm
+		ld	hl, #_s_Glyph
+		ld	de, (_s_GAddr)
+		ld	a, (_s_GLines)
+		ld	b, a
+		di
+	00001$:
+		push	bc
+		ld	a, d
+		rlca
+		rlca
+		and	a, #0x03
+		out	(#0x99), a              ; R#14: address bits 16-14 (below 10000h)
+		ld	a, #0x8E
+		out	(#0x99), a
+		ld	a, e
+		out	(#0x99), a
+		ld	a, d
+		and	a, #0x3F
+		or	a, #0x40
+		out	(#0x99), a              ; bits 13-8, and "write"
+		ld	a, (_s_GBytes)
+		or	a
+		jr	nz, 00010$
+		; an image's line: 4 bytes as they are
+		ld	b, #4
+	00005$:
+		ld	a, (hl)
+		out	(#0x98), a
+		inc	hl
+		djnz	00005$
+		jr	00020$
+	00010$:
+		; a glyph's line: its bits two at a time, through s_Pair
+		ld	b, a
+		ld	c, (hl)
+		inc	hl
+		push	hl
+	00012$:
+		ld	a, c
+		rlca
+		rlca
+		ld	c, a
+		and	a, #0x03
+		ld	hl, #_s_Pair
+		add	a, l
+		ld	l, a
+		adc	a, h
+		sub	a, l
+		ld	h, a
+		ld	a, (hl)
+		out	(#0x98), a
+		djnz	00012$
+		pop	hl
+	00020$:
+		ld	a, e
+		add	a, #0x80
+		ld	e, a
+		jr	nc, 00021$
+		inc	d
+	00021$:
+		pop	bc
+		djnz	00001$
+		ei
+		ret
+	__endasm;
+}
+
+// A glyph's lines, the big font's (8 wide, 4 bytes a line) or the small's
+// (4 wide, 2 bytes a line), in ink on ground.
+void Data_Glyph(u16 addr, u8 big, u8 ch, u8 ink, u8 ground)
+{
+	u8 lines = big ? 8 : FONT_SMALL_H;
+	u8 g = (u8)(ch - (big ? FONT_BIG_FIRST : FONT_SMALL_FIRST));
+	if (g >= (big ? FONT_BIG_GLYPHS : FONT_SMALL_GLYPHS))
+		g = 0;   // none: a space
+	u16 at = big ? (u16)g << 3 : FONT_SMALL_AT + ((u16)g << 2) + ((u16)g << 1);   // g * 6, no library
+	SET_BANK_SEGMENT(ROM_DATA_BANK, FONT_BIN_SEG);
+	const u8* src = (const u8*)(ROM_DATA_ADDR + FONT_BIN_REL) + at;
+	for (u8 i = 0; i < lines; i++)
+		s_Glyph[i] = src[i];
+	SET_BANK_SEGMENT(ROM_DATA_BANK, g_CodeSeg);
+	s_Pair[0] = (u8)((ground << 4) | ground);
+	s_Pair[1] = (u8)((ground << 4) | ink);
+	s_Pair[2] = (u8)((ink << 4) | ground);
+	s_Pair[3] = (u8)((ink << 4) | ink);
+	s_GAddr = addr;
+	s_GLines = lines;
+	s_GBytes = big ? 4 : 2;
+	Lines();
+}
+
+// An 8x8 image of panel.bin (4 bytes a line).
+void Data_Image(u16 addr, u8 index)
+{
+	SET_BANK_SEGMENT(ROM_DATA_BANK, PANEL_BIN_SEG);
+	const u8* src = (const u8*)(ROM_DATA_ADDR + PANEL_BIN_REL) + ((u16)index << 5);
+	for (u8 i = 0; i < 32; i++)
+		s_Glyph[i] = src[i];
+	SET_BANK_SEGMENT(ROM_DATA_BANK, g_CodeSeg);
+	s_GAddr = addr;
+	s_GLines = 8;
+	s_GBytes = 0;
+	Lines();
+}
+
+#if IMAGE_BYTES != 32
+#error "Data_Image takes an image at index * 32"
+#endif
+
+// A string of panel.bin at its offset: its characters into out, its length back.
+u8 Data_String(u16 at, u8* out)
+{
+	SET_BANK_SEGMENT(ROM_DATA_BANK, PANEL_BIN_SEG);
+	const u8* src = (const u8*)(ROM_DATA_ADDR + PANEL_BIN_REL) + at;
+	u8 n = *src++;
+	for (u8 i = 0; i < n; i++)
+		out[i] = src[i];
+	SET_BANK_SEGMENT(ROM_DATA_BANK, g_CodeSeg);
+	return n;
 }

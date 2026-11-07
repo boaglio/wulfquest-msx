@@ -15,6 +15,7 @@
 #include "quest_data.h"
 #include "constants.h"
 #include "tables.h"
+#include "sound.h"
 
 u8 g_GameOn = 0;
 u8 g_Easy = 0;
@@ -296,6 +297,7 @@ void Game_Orchids()
 		g_ValeSwing = -1;
 	}
 	Score_Add(g_OrchidScore[o]);
+	Sound_Play(SFX_ORCHID_PICK);
 	// Picked: straight back to seed.
 	g_OrchidStart = (i32)g_SimTick;
 	g_OrchidPhase = 0;

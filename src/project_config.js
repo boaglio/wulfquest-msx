@@ -17,7 +17,7 @@ MakeLib   = `${SDCCPath}bin/sdar`;
 ProjName    = "wulfquest";
 // data first: it must sit in ROM segment 0 (see data.c; build.sh checks it);
 // then what banked code calls (wulfquest_sN_b1.c), which must too: rng, move
-ProjModules = [ "data", "rng", "move", ProjName, "room", "vale", "overlay", "sprites" ];
+ProjModules = [ "data", "rng", "move", "sound", ProjName, "room", "vale", "panel", "sprites" ];
 // The simulation is banked code: src/wulfquest_sN_b1.c, one per segment (data.c's Bank_Call).
 LibModules  = [ "system", "bios", "vdp", "print", "input", "memory" ];
 

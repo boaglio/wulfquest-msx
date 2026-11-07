@@ -30,7 +30,7 @@ public final class Jungle {
     static final List<String> FLAME = List.of("steerTicks", "homingPer10k");
     /** The beasts' parameters the ROM reads, each kind's that it has, 0 for the others. */
     static final List<String> BEAST_PARAMS = List.of("paceFp", "shovedFp", "walkSlowFp", "walkFastFp", "chargeFp",
-            "wakeTicks", "hintPx");
+            "wakeTicks", "hintPx", "callEveryTicks");
 
     private final StringBuilder h = new StringBuilder();
     private final RamTables tables;
@@ -155,6 +155,12 @@ public final class Jungle {
                     throw new ConvertException("data/entities/jungle.json: beast '" + s.id() + "''s "
                             + BEAST_PARAMS.get(p) + " is a cell or more a tick; the ROM's beasts step less");
                 }
+            }
+            // jungle.c tests the call's tick with a mask: banked code has no division.
+            Integer call = s.behaviour().params().get("callEveryTicks");
+            if (call != null && (call <= 0 || (call & (call - 1)) != 0)) {
+                throw new ConvertException("data/entities/jungle.json: beast '" + s.id() + "''s callEveryTicks is "
+                        + call + "; the ROM takes a power of two");
             }
             // data.c's Data_BoxTest takes a box over 6 cells at most each way; move.c its edges in a byte.
             if (kbw[k] > 41 || kbh[k] > 41 || kbx[k] + kbw[k] - 1 > 127 || kby[k] + kbh[k] - 1 > 127

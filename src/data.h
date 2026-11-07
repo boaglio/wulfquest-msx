@@ -100,3 +100,10 @@ void Data_FrameOrigin(u8 frame);
 u8 Data_Way(u8 set, u8 taken, u8 room);
 void Data_VramRead(u16 addr, u8* dst, u8 n);
 void Data_VramWrite(u16 addr, const u8* src, u8 n);
+
+// The panel (M9): a glyph (the big font's, 8x8, or the small's, 4 wide) in an
+// ink on a ground, an 8x8 image of panel.bin, a string of panel.bin into out
+// (its length back). addr: the top-left byte in video RAM, below 10000h.
+void Data_Glyph(u16 addr, u8 big, u8 ch, u8 ink, u8 ground);
+void Data_Image(u16 addr, u8 index);
+u8 Data_String(u16 at, u8* out);

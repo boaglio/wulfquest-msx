@@ -79,7 +79,7 @@ while `data.c` reads them; segments 24-31 hold **banked code**, one
 `src/wulfquest_sN_b1.c` each, mapped into bank 1 while it runs (`data.c`'s
 `Bank_Call`, wrapped as `JUNGLE(fn)`, `SPAWN(fn)`, `QUEST(fn)`). Banked code
 replaces segment 1 while it runs, so it may call only code below 8000h
-(`data.c`, `rng.c`, `move.c`, linked first), keeps its tables in RAM
+(`data.c`, `rng.c`, `move.c`, `sound.c`, linked first), keeps its tables in RAM
 (`tables.h`), and uses no SDCC library routine (they are linked into segment
 1): `build.sh` checks every call in the listings, and that each file's
 segment is the one its header names.
@@ -832,6 +832,56 @@ a real television's worth of blur (checked in openMSX's TV mode); every
 effect and tune plays at the right pitch and length (compared with the Java
 game's); sound on costs no ticks in the busiest room.
 
+**Landed (2026-11-07).** Specifics:
+
+- **The panel** (`src/panel.c`), the Java panel's items in 36 lines: SCORE
+  and the score in bright white, HI and the run's best in white (the big
+  font, for a television's blur), LIVES and a head a life (five, then X and
+  the count), EASY in its colour, the amulet's four quarters at half size in
+  the middle, dim until held, and a line at the bottom: a shrine's hint (the
+  small font; the words are the Java game's own `GameSession.hint`, which the
+  converter calls), the flower's bar in its colour with what is left of it,
+  and for now `GAME OVER` and the tally's heading (`shell.json`'s, until
+  M10's screens). As the debug overlay before it, a cell at a time on the page
+  on show (two a frame), the whole on a room's hidden page. The overlay is
+  gone: F4 puts the room and Vale's feet on the bottom line, as the Java
+  game's dev mode does. The fonts, strings and images come from the converter
+  (`Panel`: `font.bin`, `panel.bin`).
+- **The border** flashes as `Simulation.borderFlash` says: a death's alarm,
+  the white of a quarter or an item taken. **The taken quarter flies** to its
+  place on the panel, as a sprite: sprites stop at the playfield's foot, so it
+  goes out of sight where the Java game's goes on over the panel.
+- **The sound** (`src/sound.c`, in segment 0, run from the frame's interrupt):
+  the 17 effects and 5 tunes rendered by the converter (`Sound`) into the
+  PSG's periods, noise and volumes a frame at a time, for 50 and 60 Hz
+  (`sound50.bin`, `sound60.bin`, 2 KB each); the Java Mixer's voices: two for
+  the effects, taken by priority, the tune on the third, silent while voice A
+  plays. The simulation asks for every effect where the Java game does (the
+  footstep's cadence too, faster in haste; the Wulf's growl while it is about);
+  the game over's and the win's tunes play, the rest are the title's (M10).
+- **Tests.** Convert's `SoundTest`: every effect's frames against the Java
+  game's own `BeeperSynth`, each frame's pitch from its samples (within 12%:
+  the PSG's periods and the vibrato read once a frame) and its length (to a
+  frame); every tune's notes and length. `test/sound.sh`: every sound played
+  alone in openMSX, the PSG's registers after each interrupt equal to the
+  tables, 50 and 60 Hz. `test/panel.sh`: five states of the panel (a score,
+  lives past five, Easy, a hint, the arch's hint, the flower's bar, game over)
+  in video RAM, pixel for pixel the panel drawn from the converter's font and
+  images.
+- **Found on the way, with the sound in the interrupt:** `data.c`'s map test
+  (M6) mapped its segments without recording them in `g_Bank1Segment`, so an
+  interrupt that maps its own segment and puts back the recorded one left
+  the test reading code as map: beasts went astray by a pixel. Every mapping
+  is recorded now; and the hook saves the registers the C may use, which the
+  BIOS's interrupt does not. A room's panel is copied from the page on show by
+  the VDP (drawn whole it was 140 ms a room).
+- **TV mode**: openMSX draws nothing headless, so the panel was looked at as
+  a picture from video RAM, blurred as a television would (it reads); not in
+  openMSX's TV mode itself.
+- **Timing, slipped as M6's:** the player costs about 2 900 cycles a frame in
+  the interrupt, 11 000 at worst (C, through SDCC: for M13). Sound on is not
+  yet free in the busiest room.
+
 ### M10 — Title, menus, map screen and hi-scores
 
 **For:** a game you can sit down to.
@@ -898,8 +948,10 @@ against the data); the plane intro plays and any key returns to the title.
   ticks a second at 50 and 60 Hz (M6's record has the budget), with the rest
   of the game in, and the plain movement plan never late again (M8); then
   `MOVES_TIMING_SLIPPED` goes from `test/moves.sh`. A respawn must not stop the
-  game (M7: up to 2.2 s in `Spawn_NearestFree`), and a new game must not take
-  seconds (M8: 3.3 s of random draws; the generator is 11 000 cycles a draw).
+  game (M7: up to 2.2 s in `Spawn_NearestFree`), a new game must not take
+  seconds (M8: 3.3 s of random draws; the generator is 11 000 cycles a draw),
+  and the sound's interrupt must cost the busiest room no tick (M9: 2 900
+  cycles a frame, 11 000 at worst).
 - Check every timing on a 60 Hz machine: the tick-skip keeps game speed equal
   to 50 Hz; music and effects keep their pitch and tempo.
 - Run on real MSX2 hardware (at least one European and one Japanese machine,

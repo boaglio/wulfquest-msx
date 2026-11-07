@@ -85,6 +85,8 @@ the Java game's `Content.load` and writes `build/gen/`:
 | `player_inked_N.bin` | Vale in each untouchable flower's colours (M8), a segment a flower, laid out as `player_frames.bin` |
 | `ways_N.bin` | the looking glass's way out of each room, for every amulet set and state of the quarters taken (M8, `Wayfinder`) |
 | `frames.bin` | the sprite bank's frames' numbers: where each starts, its chunk, blocks and origin (read on demand: RAM is short) |
+| `panel_data.h`, `font.bin`, `panel.bin` | the panel (M9, `Panel`): the big and small fonts, the half-size quarters and a life's head, the strings (the hints as `GameSession.hint` words them), the colours |
+| `sound_data.h`, `sound50.bin`, `sound60.bin` | the sound (M9, `Sound`): every effect and tune as the PSG's entries a frame, for each interrupt rate; each sound's number, priority, loop |
 | `quest_data.h` | the quest and the Wulf (M7, `Quest`): the amulet's sets, the lairs, the guardians, the Keeper, the way out, the original's Wulf; their tables are in `tables.h` |
 | `sprites.txt`, `sprites.png` | every pixel a sprite shows in another colour than the art's, and pictures of those frames, the art beside the MSX2's; `sprites.json` accepts so many a sprite, and the converter fails past that |
 | `jungle.h`, `jungle_data.h` | the swarm's roster and the big beasts' kinds, placings and sleepers (M6), from `entities/jungle.json` and `creatures.json` |
@@ -101,7 +103,7 @@ whose header names the segment (`JUNGLE_SEG`) and a macro to call into it
 (`JUNGLE(Jungle_TickBeasts)`, through `data.c`'s `Bank_Call`). A banked
 function takes no arguments and returns nothing: they go in globals. While
 it runs, segment 1 is not mapped: it may call code below 8000h (`data.c`,
-`rng.c`, `move.c`, which `project_config.js` links first), other banked code
+`rng.c`, `move.c`, `sound.c`, which `project_config.js` links first), other banked code
 through its macro, and nothing else; so no SDCC library routine either (a
 16-bit multiplication or division, a 32-bit shift: write it with shifts and
 adds), and no `const` tables (they land in segment 0 or 1: use `tables.h`).
@@ -235,6 +237,14 @@ ignores it, so the submodule stays clean.
   numbered before it, is, and ORs its colour where they overlap). openMSX
   can't render headless, so this model is the oracle; it follows the V9938's
   data book.
+- **`test/sound.sh`** (M9) plays every sound alone in an empty room through
+  the test hook `g_TestSound` and reads the PSG's registers after each
+  interrupt (a breakpoint on `Test_Sound`); `check_sound.py` holds them to the
+  converter's tables, which convert's `SoundTest` holds to the Java game's
+  synth.
+- **`test/panel.sh`** (M9) sets the panel's state in an empty room, case by
+  case, and `check_panel.py` compares the panel in video RAM, pixel for
+  pixel, with the panel drawn from `font.bin` and `panel.bin`.
 - **`test/gate.sh`** checks the binaries gate in a scratch repository: it
   passes on text and fails on a ROM, an image, and a binary file with a text
   name.
@@ -256,7 +266,8 @@ build.sh         build and test
 run.sh           build, then play it in openMSX
 src/             the game: wulfquest.c (main), data.c (the ROM's data; stays in
                  segment 0), room.c (drawing), vale.c (Ranger Vale),
-                 overlay.c (the debug line on the panel), sprites.c (the
+                 panel.c (the panel), sound.c (the PSG, in the
+                 interrupt), sprites.c (the
                  hardware sprites and their turns), jungle.c (the swarm,
                  the beasts, combat, deaths), move.c (box movement against
                  the scenery or the map), spawn.c (where Vale gets up),
@@ -268,8 +279,8 @@ src/             the game: wulfquest.c (main), data.c (the ROM's data; stays in
 pom.xml          builds wulfquest/core and convert/ together
 convert/         the converter (Java)
 tools/           check-no-binaries.sh
-test/            boot.*, rooms.*, moves.*, sprites.*, flips.json, jungle.json,
-                 quest.json, game.json,
+test/            boot.*, rooms.*, moves.*, sprites.*, sound.*, panel.*,
+                 flips.json, jungle.json, quest.json, game.json,
                  check_*.py,
                  vdp_sprites.py, gate.sh
 wulfquest/       submodule: the Java game, for its data/

@@ -15,6 +15,7 @@ u8  g_WulfHere = 0;
 i32 g_WulfX = 0;
 i32 g_WulfY = 0;
 u16 g_WulfMoveTicks = 0;
+static u8 s_Heard = 0;   // the growl is on (Simulation.wulfHeard)
 
 #if (GRID_W * PLAYFIELD_W) != 4096 || PLAYFIELD_W != 256
 #error "the Wulf wraps round the map's width as 8.8 with a mask, its column x's third byte"
@@ -36,6 +37,7 @@ static void Wulf_Place()
 	g_WulfLatch = LATCH_FREE;
 	g_WulfHere = 0;
 	g_WulfMoveTicks = 0;
+	s_Heard = 0;
 	g_WulfX = (i32)((WULF_ROOM % GRID_W) * PLAYFIELD_W + WULF_X) << 8;
 	g_WulfY = (i32)((WULF_ROOM / GRID_W) * PLAYFIELD_H + WULF_Y) << 8;
 	Wulf_Head(WULF_HEADING);
@@ -80,9 +82,17 @@ static void StepProwler()
 	g_WulfAt = (g_WulfAt & ~(GRID_W - 1)) | (((u8*)&g_WulfX)[2] & (GRID_W - 1));   // its column: x >> 16
 }
 
+// noticeProwler: whether it is in his room, and the growl that says so while he is alive.
+
 void Wulf_Notice()
 {
 	g_WulfHere = g_WulfAt == g_ValeRoom;
+	u8 heard = g_WulfHere && g_ValeMode == MODE_ALIVE;
+	if (heard != s_Heard)
+	{
+		Sound_Loop(SFX_WULF_GROWL, heard);
+		s_Heard = heard;
+	}
 }
 
 void Wulf_Prowl()
@@ -105,6 +115,7 @@ void Wulf_Prowl()
 			g_WulfState = WULF_SITTING;
 			g_WulfStateTick = 0;
 			g_WulfMoveTicks = 0;
+			Sound_Play(SFX_WULF_HOWL);
 		}
 	}
 	switch (g_WulfState)
@@ -144,5 +155,6 @@ void Wulf_GetUp()
 	{
 		g_WulfState = WULF_ABSENT;
 		g_WulfStateTick = 0;
+		Sound_Loop(SFX_WULF_GROWL, 0);   // gone
 	}
 }

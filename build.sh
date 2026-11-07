@@ -68,7 +68,7 @@ for f in src/wulfquest_s*_b1.c; do
         || die "$f holds $mod.c, but src/$mod.h does not name segment $seg"
 done
 for lst in $(for f in src/wulfquest_s*_b1.c; do echo "build/msxgl/$(basename "$f" .c).lst"; done) \
-           build/msxgl/rng.lst build/msxgl/move.lst; do
+           build/msxgl/rng.lst build/msxgl/move.lst build/msxgl/sound.lst; do
     [[ -f "$lst" ]] || die "$lst is missing: the bank check cannot run"
     bad=$(awk '$NF ~ /^_/ && ($(NF-1) == "call" || $(NF-1) == "jp") { print $NF }' "$lst" | sort -u | while read -r f; do
         a=$(awk -v s="$f" '$2 == s { print $1 }' build/msxgl/wulfquest.map)

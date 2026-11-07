@@ -25,6 +25,7 @@
 #include "quest_data.h"
 #include "game.h"
 #include "game_data.h"
+#include "sound.h"
 
 #define ONE			(1 << FIXED_SHIFT)
 #define FIXED(px)	((i32)(px) << FIXED_SHIFT)
@@ -91,6 +92,8 @@ bool Vale_Kill()
 	g_ValeFreeze = 0;
 	g_SabreW = 0;
 	g_SabreH = 0;
+	Sound_Play(SFX_PLAYER_DIE);
+	Sound_Loop(SFX_WULF_GROWL, 0);
 	if (g_GameOn)
 	{
 		// Whatever was in his blood dies with him; the flame goes when he falls.
@@ -394,6 +397,7 @@ static void Burst(u8 i)
 		Score_Add(g_CreatureScore[g_CSpecies[i]] + (g_CFace[i] > 0 ? SWARM_FACING_RIGHT_BONUS : 0));
 	g_CMode[i] = CREATURE_DYING;
 	g_CModeTick[i] = 0;
+	Sound_Play(SFX_CREATURE_DIE);
 }
 
 #if (SWARM_EVERY_TICKS & (SWARM_EVERY_TICKS - 1)) != 0
@@ -713,6 +717,7 @@ void Jungle_GetUp()
 #define P_CHARGE	g_BeastP4
 #define P_WAKE		g_BeastP5
 #define P_HINT		g_BeastP6
+#define P_CALL		g_BeastP7
 
 enum { TOUCH_NONE, TOUCH_STRUCK, TOUCH_HIT };
 
@@ -722,8 +727,8 @@ static void Easy(i16* hard, const i16* easy)
 		hard[k] = easy[k];
 }
 
-#if BEAST_PARAMS_N != 7
-#error "Jungle_NewGame copies Easy's seven beast parameters"
+#if BEAST_PARAMS_N != 8
+#error "Jungle_NewGame copies Easy's eight beast parameters"
 #endif
 
 void Jungle_NewGame()
@@ -739,6 +744,7 @@ void Jungle_NewGame()
 		Easy((i16*)g_BeastP4, g_EasyBeastP4);
 		Easy((i16*)g_BeastP5, g_EasyBeastP5);
 		Easy((i16*)g_BeastP6, g_EasyBeastP6);
+		Easy((i16*)g_BeastP7, g_EasyBeastP7);
 	}
 	for (u8 b = 0; b < BEASTS; b++)
 	{
@@ -817,6 +823,7 @@ static void Shove(u8 b, i16 speed)
 	i8 dir = dx != 0 ? dx : BeastCentreX(b) < ValeCentreX() ? -1 : 1;
 	g_Beast[b].VX = dir < 0 ? -speed : speed;
 	g_BFace[b] = dir;
+	Sound_Play(SFX_BEAST_SHOVE);
 }
 
 static bool OverlapsVale(u8 b)
@@ -947,7 +954,10 @@ void Jungle_TribesmanAfter()
 			Vale_Kill();
 	}
 	// Level with a quarter still lying, he lights up and calls (the call is M9's).
-	g_BHint[b] = g_QuestOn && g_Beast[b].At == g_ValeRoom && LevelWithAQuarter(b);
+	bool hinting = g_QuestOn && g_Beast[b].At == g_ValeRoom && LevelWithAQuarter(b);
+	if (hinting && (!g_BHint[b] || ((u16)g_SimTick & (P_CALL[k] - 1)) == 0))
+		Sound_Play(SFX_TRIBESMAN_CALL);
+	g_BHint[b] = hinting;
 }
 
 // A tribesman's whole tick: following him, the step, the rest.
@@ -976,6 +986,7 @@ void Jungle_Sleeper()
 			g_BAsleep[b] = 0;
 			TurnAbout(b);
 			g_BPause[b] = (u8)P_WAKE[g_BKind[b]];
+			Sound_Play(SFX_BEAST_SHOVE);
 			if (t == TOUCH_HIT)
 				Vale_Kill();
 		}

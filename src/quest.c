@@ -18,6 +18,7 @@
 #include "tables.h"
 #include "game.h"
 #include "game_data.h"
+#include "sound.h"
 
 #if KEEPER_NUDGE_ZONE_PX > 0
 #error "the Keeper's nudge (resolveCombat, a brush from the front) is not in the ROM: its zone is 0"
@@ -370,7 +371,10 @@ static void StepAside()
 	}
 	bool moving = g_KeeperLX != was;
 	g_KeeperMoveTicks = moving ? g_KeeperMoveTicks + 1 : 0;
-	g_KeeperState = moving ? KEEPER_STEPPING_ASIDE : KEEPER_ASIDE;
+	u8 next = moving ? KEEPER_STEPPING_ASIDE : KEEPER_ASIDE;
+	if (next != g_KeeperState && next == KEEPER_ASIDE)
+		Sound_Play(SFX_KEEPER_MOVES);
+	g_KeeperState = next;
 	SeatKeeper();
 }
 
@@ -393,6 +397,7 @@ static u8 s_Dir[9] = { 7, 0, 1, 6, 4, 2, 5, 4, 3 };
 static void ItemTaken()
 {
 	g_QuestFlash = AMULET_PICKUP_FLASH_TICKS;   // the same white flash as a quarter
+	Sound_Play(SFX_ORCHID_PICK);
 }
 
 static void TakeItems()
@@ -451,7 +456,12 @@ static void TakeTreasures()
 		Data_VramWrite(VRAM_TREASURES + ((u16)g_ValeRoom << 1) + p, &g_RoomTreasure[p], 1);
 		g_TreasuresTaken++;
 		if (g_TreasureLife[t - 1] && g_ValeLives < PLAYER_LIVES_MAX)
+		{
 			g_ValeLives++;
+			Sound_Play(SFX_EXTRA_LIFE);
+		}
+		else
+			Sound_Play(SFX_ORCHID_PICK);
 		Score_Add(TREASURE_SCORE);
 	}
 }
@@ -520,6 +530,7 @@ static void TakePiece(i16 cx, i16 cy)
 	g_QuestPieces++;
 	g_QuestSlots |= g_LairMask[l];
 	g_QuestFlash = AMULET_PICKUP_FLASH_TICKS;
+	Sound_Play(SFX_AMULET_PIECE);
 	g_QuestFly = AMULET_FLY_TICKS;
 	g_QuestFlyMask = g_LairMask[l];
 	g_QuestFlyX = cx;

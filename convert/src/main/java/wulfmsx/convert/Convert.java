@@ -58,6 +58,8 @@ public final class Convert {
         Jungle jungle = new Jungle(c, palette, bank, tables);
         Quest quest = new Quest(c, bank, tables);
         Game game = new Game(c, palette, bank, tables);
+        Panel panel = new Panel(c, palette);
+        Sound sound = new Sound(c);
         bank.tables(tables);
         blade.tables(tables);
         vale.tables(tables);
@@ -87,6 +89,8 @@ public final class Convert {
         Gen.write(out.resolve("jungle_data.h"), jungle.header());
         Gen.write(out.resolve("quest_data.h"), quest.header());
         Gen.write(out.resolve("game_data.h"), game.header());
+        Gen.write(out.resolve("panel_data.h"), panel.header());
+        Gen.write(out.resolve("sound_data.h"), sound.header());
         Gen.write(out.resolve("tables.h"), tables.header());
         Gen.write(out.resolve("sprites.txt"), sprites.listing());
         Gen.write(out.resolve("sprites.png"), sprites.picture());
@@ -118,6 +122,15 @@ public final class Convert {
             Gen.write(out.resolve("ways_" + i + ".bin"), ways.get(i));
             blobs.add(new Budget.Blob("ways_" + i + ".bin", ways.get(i).length));
         }
+        for (int i = 0; i < Sound.RATES.length; i++) {
+            String name = "sound" + Sound.RATES[i] + ".bin";
+            Gen.write(out.resolve(name), sound.blobs().get(i));
+            blobs.add(new Budget.Blob(name, sound.blobs().get(i).length));
+        }
+        Gen.write(out.resolve("font.bin"), panel.font());
+        blobs.add(new Budget.Blob("font.bin", panel.font().length));
+        Gen.write(out.resolve("panel.bin"), panel.panel());
+        blobs.add(new Budget.Blob("panel.bin", panel.panel().length));
         Gen.write(out.resolve("frames.bin"), bank.frameInfo());
         blobs.add(new Budget.Blob("frames.bin", bank.frameInfo().length));
         Gen.write(out.resolve("rooms_more.bin"), game.rooms());

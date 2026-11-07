@@ -20,6 +20,7 @@
 #include "quest_data.h"
 #include "game.h"
 #include "game_data.h"
+#include "sound.h"
 
 #define ONE			(1 << FIXED_SHIFT)
 #define LEVELS		(PLAYER_MOMENTUM_MAX / PLAYER_MOMENTUM_STEP)
@@ -63,7 +64,8 @@ u8  g_ValeVisible = 1;
 u16 g_SwingSerial = 0;
 u32 g_SimTick = 0;
 u8  g_ValeEndless = 0;   // test/moves.sh: the Java game's infiniteLives
-static bool s_FireWas = FALSE;   // fire held the tick before: a press is fire now and not then
+static bool s_FireWas = FALSE;
+static u8 s_Footstep = 0;   // Simulation.footstepTicks   // fire held the tick before: a press is fire now and not then
 i16 g_RoomX = 0;
 i16 g_RoomY = 0;
 i16 g_CellsX = 0;
@@ -349,6 +351,7 @@ static void UpdateSwing(bool fire)
 	if (g_ValeSwing < 0 && g_ValeCooldown == 0 && fire)
 	{
 		g_ValeSwing = 0;
+		Sound_Play(SFX_SABRE_SWING);
 		g_SwingSerial++;   // each swing may hit each creature once
 	}
 }
@@ -486,9 +489,19 @@ static void Move(u8 keys)
 	g_ValeX = Resolve(g_ValeX, s_LevelX < 0 ? -speedX : speedX, py, TRUE);
 	g_ValeY = Resolve(g_ValeY, s_LevelY < 0 ? -speedY : speedY, FP_PX(g_ValeX), FALSE);
 	if (g_ValeX != oldX || g_ValeY != oldY)
+	{
 		Stride();
+		// A step every few ticks walked; in haste the count goes up twice as fast.
+		s_Footstep += g_EffectKind == EFFECT_HASTE ? FOOTSTEP_HASTE_STEP : 1;
+		if (s_Footstep >= FOOTSTEP_EVERY_TICKS)
+		{
+			s_Footstep = 0;
+			Sound_Play(SFX_FOOTSTEP);
+		}
+	}
 	else
 	{
+		s_Footstep = 0;
 		g_ValeWalk = 0;
 		g_ValeGaitTick = 0;
 		g_ValeGait = 0;
@@ -517,6 +530,7 @@ static bool UpdateRoom()
 	// §7.5: the position is untouched; the new room is current at once, and
 	// the next ticks are frozen.
 	g_ValeFreeze = g_ValeOpen ? 0 : TRANSITION_FREEZE_TICKS;
+	Sound_Play(SFX_ROOM_FLIP);
 	g_GameByFlip = 1;   // a first visit by a flip scores
 	EnterRoom(room);
 	if (g_QuestOn)

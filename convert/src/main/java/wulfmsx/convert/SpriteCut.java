@@ -123,13 +123,14 @@ public final class SpriteCut {
         return List.copyOf(out);
     }
 
+    /** How much more a line of Vale's counts in the palette's order than another sprite's (M8). */
+    static final int PLAYER_WEIGHT = 4;
+
     /**
      * Every block line of every frame of every sprite the game shows as
      * hardware sprites, as how many pixels of each distinct colour it has
      * (by {@link VdpPalette#group}), with how often each such line occurs.
      */
-    /** How much more a line of Vale's counts in the palette's order than another sprite's (M8). */
-    static final int PLAYER_WEIGHT = 4;
 
     static Map<List<Integer>, Integer> lines(Content c, VdpPalette plain) {
         Map<List<Integer>, Integer> lines = new HashMap<>();
