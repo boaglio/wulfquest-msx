@@ -29,7 +29,7 @@ public final class Jungle {
     static final List<String> HOME_IN = List.of("accelFp", "maxFp");
     /** The beasts' parameters the ROM reads, each kind's that it has, 0 for the others. */
     static final List<String> BEAST_PARAMS = List.of("paceFp", "shovedFp", "walkSlowFp", "walkFastFp", "chargeFp",
-            "wakeTicks");
+            "wakeTicks", "hintPx");
 
     private final StringBuilder h = new StringBuilder();
     private final RamTables tables;

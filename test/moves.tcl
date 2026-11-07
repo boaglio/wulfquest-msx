@@ -9,7 +9,8 @@
 # MOVES_SYMS holds the RAM addresses from the symbol map, as name=address.
 #
 # Output: per scenario "scenario NAME", a line after each tick
-# ("X_FP Y_FP FACING SWING WALK SX SY SW SH ROOM FREEZE FRAME BLADE"), and
+# ("X_FP Y_FP FACING SWING WALK SX SY SW SH ROOM FREEZE FRAME BLADE"; with
+# the jungle a "J" line after it, with the quest a "Q" line), and
 # "end NAME LATE TICKS FRAMES FLIPS FLIP_FRAMES UNBLANKED": frames the loop
 # came late to, ticks run and frames seen from the first tick to the last,
 # flips and the frames they took, and changes put on screen (the page or the
@@ -25,6 +26,7 @@
 
 set throttle off
 set ::jungle 0
+set ::quest 0
 set ::beasts [expr {[info exists env(MOVES_BEASTS)] ? $env(MOVES_BEASTS) : 0}]
 
 foreach pair $env(MOVES_SYMS) {
@@ -90,6 +92,23 @@ proc jungle {} {
     }
     return $s
 }
+# The quest and the Wulf (M7), as JungleChecks.questLine writes them.
+proc quest {} {
+    set here [peek g_KeeperHere]
+    set s "Q [peek g_QuestSet] [peek g_QuestSlots] [peek g_QuestTaken] [peek g_QuestLair 1 1] [peek g_QuestFlash]"
+    append s " [peek g_QuestFly] $here [peek g_KeeperState] [expr {$here ? [peek g_KeeperX 4 1] : "-"}]"
+    append s " [peek g_KeeperMoveTicks 2]"
+    if {[peek g_QuestLair 1 1] >= 0} {
+        append s " G [peek g_GuardX 4 1] [peek g_GuardY 4 1] [peek g_GuardPhase 2 1] [peek g_GuardTimer 2 1]"
+        append s " [peek g_GuardAux 2 1] [peek g_GuardFace 1 1] [peek g_GuardHurt] [peek g_GuardMoveTicks 2]"
+    } else {
+        append s " G -"
+    }
+    append s " W [peek g_WulfState] [peek g_WulfStateTick] [peek g_WulfAt] [peek g_WulfHeading 1 1]"
+    append s " [peek g_WulfSpeed 2 1] [peek g_WulfLatch] [peek g_WulfHere] [peek g_WulfX 4 1] [peek g_WulfY 4 1]"
+    append s " [peek g_WulfMoveTicks 2]"
+    return $s
+}
 proc rd {addr n signed} {
     set v 0
     for {set i [expr {$n - 1}]} {$i >= 0} {incr i -1} {
@@ -115,11 +134,14 @@ proc next_scenario {} {
     incr ::scenario
     if {$::scenario >= [llength $::plan]} { finish ok }
     lassign [lindex $::plan $::scenario] head ::keys
-    lassign $head ::name room open x y check seed
+    lassign $head ::name room open x y check seed quest endless
     puts $::out "scenario $::name"
     poke g_TestOpen $open
     set ::jungle [expr {$seed >= 0}]
     poke g_TestJungle $::jungle
+    set ::quest [expr {$quest eq "1"}]
+    poke g_TestQuest $::quest
+    poke g_TestEndless [expr {$endless eq "1"}]
     if {$::jungle} {
         # The seed as the Java game's long, little-endian (Tcl's integers are unbounded).
         for {set i 0} {$i < 8} {incr i} { debug write memory [expr {$::a(g_TestSeed) + $i}] [expr {($seed >> (8 * $i)) & 0xFF}] }
@@ -129,8 +151,9 @@ proc next_scenario {} {
     poke g_TestStart 1
     set ::tick 0
     set ::running 1
-    # Twice its ticks' time, and a flip's drawing in every room it might see.
-    set ::deadline [expr {[machine_info time] + 30 + [llength $::keys] / 25.0}]
+    # Five times its ticks' time (the jungle's busy rooms are slow until M13
+    # tunes them), and a flip's drawing in every room it might see.
+    set ::deadline [expr {[machine_info time] + 30 + [llength $::keys] / 10.0}]
 }
 
 # Before every tick.
@@ -149,6 +172,7 @@ proc on_tick {} {
         } else {
             puts $::out [state]
             if {$::jungle} { puts $::out [jungle] }
+            if {$::quest} { puts $::out [quest] }
         }
         if {$::tick == [llength $::keys]} {
             set ticks [expr {([peek g_Ticks 2] - $::ticks0) & 0xFFFF}]

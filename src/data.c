@@ -17,6 +17,41 @@
 __sfr __at(0x98) s_VdpData;
 __sfr __at(0x99) s_VdpCtrl;
 
+//-----------------------------------------------------------------------------
+// Banked code (AGENTS.md §3): a ROM segment of code mapped into bank 1 while
+// it runs, in place of the program's second segment. It may call only code
+// below 8000h (build.sh checks the listings). A blob read puts back whatever
+// segment of code bank 1 held.
+
+u8 g_CodeSeg = ROM_CODE_SEGMENT_1;
+void (*g_BankFn)();
+
+// Calls g_BankFn in segment seg, then puts back the segment bank 1 held. In
+// assembly: SDCC calls through a pointer with a library helper, which may lie
+// above 8000h. The function may itself bank-call (saved on the stack).
+void Bank_Call(u8 seg) __naked
+{
+	seg;   // in a
+	__asm
+		ld	hl, #_g_CodeSeg
+		ld	c, (hl)
+		push	bc                      ; the segment to go back to
+		ld	(hl), a
+		ld	(_g_Bank1Segment), a
+		ld	(ADDR_BANK_1), a
+		ld	hl, (_g_BankFn)
+		call	00001$
+		pop	bc
+		ld	a, c
+		ld	(_g_CodeSeg), a
+		ld	(_g_Bank1Segment), a
+		ld	(ADDR_BANK_1), a
+		ret
+	00001$:
+		jp	(hl)
+	__endasm;
+}
+
 // Point the VDP at a 17-bit video RAM address, for writing.
 static void VramWriteAt(u8 high, u16 low)
 {
@@ -41,7 +76,7 @@ void Data_LoadScenery()
 			s_VdpData = *src++;
 		vram += g_SceneryChunkSize[c];
 	}
-	SET_BANK_SEGMENT(ROM_DATA_BANK, ROM_CODE_SEGMENT_1);
+	SET_BANK_SEGMENT(ROM_DATA_BANK, g_CodeSeg);
 }
 
 void Data_LoadRoom(u8 room, RoomData* out)
@@ -59,7 +94,7 @@ void Data_LoadRoom(u8 room, RoomData* out)
 		out->X[i] = *p++;
 		out->Y[i] = *p++;
 	}
-	SET_BANK_SEGMENT(ROM_DATA_BANK, ROM_CODE_SEGMENT_1);
+	SET_BANK_SEGMENT(ROM_DATA_BANK, g_CodeSeg);
 }
 
 // The masks are a row at a time, CELL_COLS / 8 bytes a row, the leftmost cell
@@ -107,7 +142,7 @@ void Data_LoadCells(u8 room, u8* cells)
 		}
 	}
 
-	SET_BANK_SEGMENT(ROM_DATA_BANK, ROM_CODE_SEGMENT_1);
+	SET_BANK_SEGMENT(ROM_DATA_BANK, g_CodeSeg);
 }
 
 u8 g_Tables[TABLES_BYTES];
@@ -190,7 +225,7 @@ void Data_LoadTables()
 	SET_BANK_SEGMENT(ROM_DATA_BANK, TABLES_BIN_SEG);
 	for (u16 i = 0; i < TABLES_BYTES; i++)
 		g_Tables[i] = src[i];
-	SET_BANK_SEGMENT(ROM_DATA_BANK, ROM_CODE_SEGMENT_1);
+	SET_BANK_SEGMENT(ROM_DATA_BANK, g_CodeSeg);
 }
 
 // The whole map's cells, from the ROM's masks (Data_BoxBlocked).
@@ -389,7 +424,7 @@ static u8 BoxTest() __naked
 u8 Data_BoxTest()
 {
 	u8 solid = BoxTest();
-	SET_BANK_SEGMENT(ROM_DATA_BANK, ROM_CODE_SEGMENT_1);   // BoxTest left a map segment in bank 1
+	SET_BANK_SEGMENT(ROM_DATA_BANK, g_CodeSeg);   // BoxTest left a map segment in bank 1
 	return solid;
 }
 
@@ -448,7 +483,7 @@ static void LoadSprite(u8 segment, const u8* src, u8 patternBytes, u8 vramHigh, 
 	s_RamDst = colours;
 	s_RamN = colourBytes;
 	CopyOut();
-	SET_BANK_SEGMENT(ROM_DATA_BANK, ROM_CODE_SEGMENT_1);
+	SET_BANK_SEGMENT(ROM_DATA_BANK, g_CodeSeg);
 }
 
 void Data_LoadValeFrame(u8 frame, u8 vramHigh, u16 vramLow, u8* colours)
@@ -462,7 +497,8 @@ u8 Data_LoadSpriteFrame(u8 frame, u8 vramHigh, u16 vramLow, u8* colours)
 {
 	u8 b = g_SpriteBlocks[frame];
 	u8 blocks = (b >> 4) * (b & 15);
-	LoadSprite(SPRITES_BIN_SEG, (const u8*)(ROM_DATA_ADDR + SPRITES_BIN_REL) + g_SpriteOffset[frame],
+	u8 c = g_SpriteChunk[frame];
+	LoadSprite(g_SpriteChunkSeg[c], (const u8*)(ROM_DATA_ADDR + g_SpriteChunkRel[c]) + g_SpriteOffset[frame],
 		blocks * (SPRITE_BLOCK_BYTES / 3 * 2), vramHigh, vramLow, colours, blocks * (SPRITE_BLOCK_BYTES / 3));
 	return b;
 }

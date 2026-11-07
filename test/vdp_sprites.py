@@ -14,6 +14,7 @@ Gen reads the converter's sprite data from build/gen/ and draws what a frame of
 Vale (with his blade), or a frame of the sprite bank, should look like:
 expected() returns the same {(x, y): colour} for comparing.
 """
+import os
 import re
 
 W = 256
@@ -125,11 +126,14 @@ class Gen:
         self.bank = defines(gen + "/sprite_bank.h")
         self.c = defines(gen + "/constants.h")
         self.frames = open(gen + "/player_frames.bin", "rb").read()
-        self.sprites = open(gen + "/sprites.bin", "rb").read()
+        self.sprites = []   # the bank's chunks, sprites_N.bin
+        while os.path.exists(f"{gen}/sprites_{len(self.sprites)}.bin"):
+            self.sprites.append(open(f"{gen}/sprites_{len(self.sprites)}.bin", "rb").read())
         self.shapes = open(gen + "/blade.bin", "rb").read()
         self.hand = table(gen, "g_PlayerHand")
         self.blade_at = table(gen, "g_BladeAt")
         self.offset = table(gen, "g_SpriteOffset")
+        self.chunk = table(gen, "g_SpriteChunk")
         self.blocks = table(gen, "g_SpriteBlocks")
 
     def vale(self, frame, blade, left, top):
@@ -152,7 +156,7 @@ class Gen:
     def bank_frame(self, frame, left, top):
         cols, rows = self.blocks[frame] >> 4, self.blocks[frame] & 15
         return {(left + x, top + y): v
-                for (x, y), v in layered(self.sprites, self.offset[frame], cols * rows, cols).items()}
+                for (x, y), v in layered(self.sprites[self.chunk[frame]], self.offset[frame], cols * rows, cols).items()}
 
     def clip(self, pixels):
         """To the playfield: the screen's width, and above the panel."""

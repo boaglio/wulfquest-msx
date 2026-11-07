@@ -10,15 +10,20 @@ import java.util.List;
  * from the start.
  *
  * <p>The ROM is an ASCII16 MegaROM of {@link #ROM_SEGMENTS} segments
- * (src/project_config.js: ROMSize 256). The first {@link #CODE_SEGMENTS} are
+ * (src/project_config.js: ROMSize 512). The first {@link #CODE_SEGMENTS} are
  * the program's: MSXgl's start-up maps them at 4000h-BFFFh. Blobs go into the
  * rest, biggest first, each wholly inside one segment so the program reads it
  * by switching one bank.
  */
 public final class Budget {
 
-    public static final int ROM_SEGMENTS = 16;
+    public static final int ROM_SEGMENTS = 32;
     public static final int CODE_SEGMENTS = 2;
+    /**
+     * Segments from this one up hold banked code (src/wulfquest_sN_b1.c, data.c's
+     * Bank_Call), not blobs: build.sh checks the files' numbers against it.
+     */
+    public static final int BANKED_CODE_FIRST = 24;
 
     /** A file for the ROM and how big it is. */
     public record Blob(String file, int bytes) {
@@ -36,12 +41,12 @@ public final class Budget {
         order.sort(Comparator.comparingInt((Blob b) -> -b.bytes()).thenComparing(Blob::file));
         for (Blob b : order) {
             int seg = CODE_SEGMENTS;
-            while (seg < ROM_SEGMENTS && used[seg] + b.bytes() > SceneryAtlas.CHUNK_BYTES) {
+            while (seg < BANKED_CODE_FIRST && used[seg] + b.bytes() > SceneryAtlas.CHUNK_BYTES) {
                 seg++;
             }
-            if (seg == ROM_SEGMENTS) {
+            if (seg == BANKED_CODE_FIRST) {
                 throw new ConvertException("the ROM is full: " + b.file() + " (" + b.bytes()
-                        + " bytes) fits in none of segments " + CODE_SEGMENTS + "-" + (ROM_SEGMENTS - 1));
+                        + " bytes) fits in none of segments " + CODE_SEGMENTS + "-" + (BANKED_CODE_FIRST - 1));
             }
             places.add(new Place(b, seg, used[seg]));
             used[seg] += b.bytes();
@@ -63,7 +68,7 @@ public final class Budget {
 
     public int freeSegments() {
         int n = 0;
-        for (int s = CODE_SEGMENTS; s < ROM_SEGMENTS; s++) {
+        for (int s = CODE_SEGMENTS; s < BANKED_CODE_FIRST; s++) {
             if (used[s] == 0) {
                 n++;
             }
@@ -94,8 +99,11 @@ public final class Budget {
         sb.append("#define ROM_DATA_BANK\t1\n");
         sb.append("#define ROM_DATA_ADDR\t0x8000\n");
         sb.append("// The segment bank 1 holds when no blob is mapped: the program's second one.\n");
-        sb.append("#define ROM_CODE_SEGMENT_1\t").append(CODE_SEGMENTS - 1).append("\n\n");
+        sb.append("#define ROM_CODE_SEGMENT_1\t").append(CODE_SEGMENTS - 1).append("\n");
+        sb.append("// Segments from this one up hold banked code (data.c's Bank_Call).\n");
+        sb.append("#define ROM_BANKED_CODE_FIRST\t").append(BANKED_CODE_FIRST).append("\n\n");
         List<Place> scenery = new ArrayList<>();
+        List<Place> sprites = new ArrayList<>();
         for (Place p : places) {
             String n = Gen.cName(p.blob().file());
             sb.append("#define ").append(n).append("_SEG\t").append(p.segment()).append('\n');
@@ -103,6 +111,9 @@ public final class Budget {
             sb.append("#define ").append(n).append("_SIZE\t").append(p.blob().bytes()).append('\n');
             if (p.blob().file().startsWith("scenery_")) {
                 scenery.add(p);
+            }
+            if (p.blob().file().startsWith("sprites_")) {
+                sprites.add(p);
             }
         }
         scenery.sort(Comparator.comparing(p -> p.blob().file()));
@@ -120,6 +131,17 @@ public final class Budget {
             sb.append(' ').append(p.blob().bytes()).append(',');
         }
         sb.append(" };\n");
+        sprites.sort(Comparator.comparing(p -> p.blob().file()));
+        sb.append("\n// The sprite bank, chunk by chunk (sprite_bank.h).\n");
+        sb.append("static const unsigned char g_SpriteChunkSeg[] = {");
+        for (Place p : sprites) {
+            sb.append(' ').append(p.segment()).append(',');
+        }
+        sb.append(" };\nstatic const unsigned short g_SpriteChunkRel[] = {");
+        for (Place p : sprites) {
+            sb.append(' ').append(p.offset()).append(',');
+        }
+        sb.append(" };\n");
         return sb.toString();
     }
 
@@ -128,6 +150,7 @@ public final class Budget {
         StringBuilder sb = new StringBuilder();
         sb.append(String.format("ROM: %d KB, %d segments of %d KB; segments 0-%d are the program's%n",
                 ROM_SEGMENTS * segBytes / 1024, ROM_SEGMENTS, segBytes / 1024, CODE_SEGMENTS - 1));
+        sb.append(String.format("  segments %d-%d hold banked code%n", BANKED_CODE_FIRST, ROM_SEGMENTS - 1));
         for (Place p : places) {
             sb.append(String.format("  segment %2d  +%05d  %6d bytes  %s%n",
                     p.segment(), p.offset(), p.blob().bytes(), p.blob().file()));
@@ -138,7 +161,7 @@ public final class Budget {
                         s, used[s], segBytes, used[s] * 100 / segBytes));
             }
         }
-        int dataSegs = ROM_SEGMENTS - CODE_SEGMENTS;
+        int dataSegs = BANKED_CODE_FIRST - CODE_SEGMENTS;
         sb.append(String.format("data: %d bytes in %d of %d data segments; %d segments (%d KB) free%n",
                 dataBytes(), dataSegs - freeSegments(), dataSegs, freeSegments(), freeSegments() * segBytes / 1024));
         return sb.toString();

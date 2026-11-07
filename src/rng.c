@@ -286,3 +286,30 @@ u16 Rng_Next(u16 bound)
 	s_Bound = bound;
 	return Mod();
 }
+
+//-----------------------------------------------------------------------------
+// Rng.hash(seed, stream): splitmix(splitmix(GOLDEN ^ seed) ^ stream).
+
+static void Xor(u8* a, const u8* b)
+{
+	for (u8 i = 0; i < 8; i++)
+		a[i] ^= b[i];
+}
+
+u16 Rng_Stream(const u8* seed, const u8* stream, u16 bound)
+{
+	u8 keep[16];
+	u8 h[8];
+	for (u8 i = 0; i < 16; i++)
+		keep[i] = g_RngState[i];
+	Copy(h, c_Golden);
+	Xor(h, seed);
+	Splitmix(h);
+	Xor(h, stream);
+	Splitmix(h);
+	Rng_Seed(h);
+	u16 v = Rng_Next(bound);
+	for (u8 i = 0; i < 16; i++)
+		g_RngState[i] = keep[i];
+	return v;
+}

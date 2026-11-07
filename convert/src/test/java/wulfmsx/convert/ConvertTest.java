@@ -24,16 +24,16 @@ class ConvertTest {
                 "player.h", "player_frames.bin", "rom.h", "rawfiles.json", "scenery_0.bin", "report.txt")) {
             assertThat(out.resolve(f)).as(f).isNotEmptyFile();
         }
-        assertThat(report).contains("ROM: 256 KB").contains("free");
+        assertThat(report).contains("ROM: 512 KB").contains("free");
     }
 
     @Test
     void theDataFitsInTheRomWithRoomToSpare(@TempDir Path out) {
         Convert.run(DATA, out);
-        // M1: "fits in a 256 KB ROM with room to spare": at least half the data segments free.
+        // M1: "fits in the ROM with room to spare": at least half the data segments free (512 KB since M7).
         String report = read(out.resolve("report.txt"));
         int free = Integer.parseInt(report.replaceAll("(?s).*; (\\d+) segments \\(.*", "$1"));
-        assertThat(free).isGreaterThanOrEqualTo((Budget.ROM_SEGMENTS - Budget.CODE_SEGMENTS) / 2);
+        assertThat(free).isGreaterThanOrEqualTo((Budget.BANKED_CODE_FIRST - Budget.CODE_SEGMENTS) / 2);
     }
 
     @Test

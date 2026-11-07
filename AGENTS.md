@@ -72,6 +72,18 @@ wulfquest-msx/
   build/             build output: never committed
 ```
 
+**The ROM's layout** (since M7): a 512 KB ASCII16 MegaROM of 32 segments of
+16 KB. Segments 0 and 1 are the program, always mapped (4000h-BFFFh);
+segments 2-23 hold the converter's blobs, mapped into bank 1 (8000h) only
+while `data.c` reads them; segments 24-31 hold **banked code**, one
+`src/wulfquest_sN_b1.c` each, mapped into bank 1 while it runs (`data.c`'s
+`Bank_Call`, wrapped as `JUNGLE(fn)`, `SPAWN(fn)`, `QUEST(fn)`). Banked code
+replaces segment 1 while it runs, so it may call only code below 8000h
+(`data.c`, `rng.c`, `move.c`, linked first), keeps its tables in RAM
+(`tables.h`), and uses no SDCC library routine (they are linked into segment
+1): `build.sh` checks every call in the listings, and that each file's
+segment is the one its header names.
+
 ---
 
 ## 4. The converter
@@ -613,7 +625,9 @@ first and tune after (see M13). Specifics:
   sleeper: hippo or warthog by the seed) walking the whole map, wrapping round
   its ends, tribesmen following Vale across rooms. Death, respawn
   (`src/spawn.c`, the Java `SpawnFinder` as a flood of box classes rather
-  than of pixels), lives, and game over as a plain message. Left for their
+  than of pixels), lives, and game over. (Corrected in M7: the record said
+  game over showed "as a plain message"; the ROM only stopped. M7's debug
+  line now shows `GAME OVER`, and the lives.) Left for their
   milestones: the score (M8), the amulet a tribesman calls at (M7), the
   flowers (M8).
 - **Random numbers** (`src/rng.c`): the Java `Rng` bit for bit, xorshift128+
@@ -663,6 +677,61 @@ chases across rooms and sits on a held sabre; each of the 8 sets puts the
 quarters where the Java game puts them (the converter writes the table,
 a test checks it).
 
+**Landed (2026-11-07), timing slipped as M6's; the reveal moved to M10.**
+Specifics:
+
+- **The quest** (`src/quest.c`): Simulation's `questEntersRoom`, `tickQuest`
+  and `takePiece`, the original's eight sets (`Simulation.hideAmulet`: the set
+  from its own stream of the game's seed, `Rng.hash(seed, 0xA29D)`, in
+  `rng.c`'s `Rng_Stream`), each lair's guardian (`GuardOrbit`: its circle on
+  the Java game's sine table, its lunge, a swing's push and stun; never
+  hurt), a quarter taken by touch, the Keeper of the Arch lethal until the
+  amulet is whole and then sliding away from Vale's half of the room, and the
+  escape: control taken, the walk up into the arch, won. A tribesman level
+  with a quarter still lying is lit (`g_BHint`; its drawing comes with the
+  tinted sprites of M8, its call with M9's sound).
+- **The original's Wulf** (`src/wulf.c`): Simulation's `prowl`, one Wulf on
+  room 6,15's row, round the map's ends, steered once as Vale comes onto its
+  row, sitting while a sabre is held towards it, then rising faster. **A
+  finding in the Java game:** `getUp` sends any Wulf that is not ABSENT away
+  (`gone()`), the original's prowler too, so after Vale's first death it
+  walks its row unseen and harmless for the rest of the game. The ROM does
+  the same, as §1 asks; the fix belongs in wulfquest, and this repository
+  will take it with the pin.
+- **The converter** (`Quest.java`) writes `quest_data.h` and the RAM tables:
+  every set's lairs (room, pedestal, the guardian's circle), the guardians,
+  the Keeper, the way out, the Wulf, and a quarter of the sine table (the
+  rest folded, checked). The Wulf, the four guardians and the Keeper are in
+  the sprite bank, which no longer fits a segment: `sprites_0.bin`,
+  `sprites_1.bin`.
+- **The ROM grew to 512 KB, with banked code** (§3): the program had 2 KB
+  left before M7, so the simulation (`jungle.c`, `spawn.c`, `quest.c` with
+  `wulf.c`) moved into segments 24-26. Main code went from 30.5 to 23 KB.
+- **Tests.** `test/moves.sh`'s fourth plan, `test/quest.json`: **21 579
+  ticks equal to the Java game's at 50 and 60 Hz**, Vale, the jungle, the
+  quest and the Wulf, field by field (a `Q` line a tick beside M6's `J`). The
+  eight sets, each from the first seed that picks it; the Wulf sitting on a
+  held sabre and rising; a guardian lunging and parried; and **a whole game
+  won**: convert's `QuestRoute` plays the Java game with infiniteLives (the
+  ROM's `g_TestEndless`), nearest lair first and then the arch, finding its
+  way on the map's cell blocks again after each death. It takes the four
+  quarters of set 0 and leaves through the arch in 20 562 ticks, with 76
+  deaths and 83 flips. `QuestTest` holds the converter's set tables to the
+  Java game's lairs and guardian circles for all eight sets.
+- **Found and fixed on the way:** the sprite manager's colour buffer is one
+  for both sets of tables, so a set rewritten when a sprite's look changed
+  (the early clock at a screen edge) could take the other set's frame's
+  colours: one wrong line, after a flip at an edge (M5's bug). Vale blinked
+  out after a death no longer shows his blade. `g_SwingSerial` is 16 bits:
+  a guardian struck 256 swings before was taken for struck by this one.
+- **Slipped:** the reveal of the amulet and its verse (a shell screen in the
+  big font) to M10, with the font and the strings; the pickup's border flash
+  and the quarter's flight to the panel to M9, with the panel; the guardian's
+  hurt flash to M8, with tinted sprites. **Timing** as M6's: the quest plan's
+  lateness is a SLIP (`MOVES_TIMING_SLIPPED`), and a respawn in some rooms
+  stops the game for up to 2.2 s (`Spawn_NearestFree`'s flood, 8 million
+  cycles in room 14,14): both are for M13's tuning.
+
 ### M8 — Orchids, flames, treasures and the score
 
 **For:** everything that makes a run a run.
@@ -674,6 +743,8 @@ a test checks it).
 - The score and the hi-score, Easy and Hard (Easy's numbers from the data).
 - The map scroll and the two eyes; the two looking glasses and their arrow,
   and the four more once the amulet is whole; the shrines and their hints.
+- Tinted sprites (from M7): Vale in a flower's colours, a hurt guardian's
+  flash, a tribesman lit up level with a quarter.
 - Continues: three a game, back where he fell, score from zero.
 
 **Accept when:** each orchid's effect lasts and behaves as the Java game's in
@@ -694,6 +765,8 @@ score the same route gives in the Java game, to the point.
 - The 5 tunes (title, win, reveal, ending, game over) on the PSG; no music
   while playing in the jungle, as in the Java game.
 - An interrupt-driven sound player that never costs the game a tick.
+- From M7: the border's flashes (a pickup's white, a death's alarm) and a
+  taken quarter's flight to its place on the panel.
 
 **Accept when:** the panel shows every item the Java panel shows, readable on
 a real television's worth of blur (checked in openMSX's TV mode); every
@@ -705,6 +778,9 @@ game's); sound on costs no ticks in the busiest room.
 **For:** a game you can sit down to.
 
 - The font (8×8) and every string from the data, in the converter.
+- From M7: the reveal of the amulet so far when a quarter is taken, with its
+  verse (`shell.json`'s `amuletReveal`), and the real game over and win
+  messages in place of the debug line's.
 - The title: WULF QUEST, `START` / `CONTINUE` / `OPTIONS`, Hard or Easy and the
   job under `START`; the little wolf marking the line.
 - Options: Easy or Hard, controls (cursors or `Q A O P`), sound on or off,
@@ -761,7 +837,8 @@ against the data); the plane intro plays and any key returns to the title.
 
 - **The tuning, slipped from M6:** the jungle's busiest room must hold 50
   ticks a second at 50 and 60 Hz (M6's record has the budget), with the rest
-  of the game in; then `MOVES_TIMING_SLIPPED` goes from `test/moves.sh`.
+  of the game in; then `MOVES_TIMING_SLIPPED` goes from `test/moves.sh`. And
+  a respawn must not stop the game (M7: up to 2.2 s in `Spawn_NearestFree`).
 - Check every timing on a 60 Hz machine: the tick-skip keeps game speed equal
   to 50 Hz; music and effects keep their pitch and tempo.
 - Run on real MSX2 hardware (at least one European and one Japanese machine,

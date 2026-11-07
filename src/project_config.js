@@ -15,8 +15,10 @@ Linker    = `${SDCCPath}bin/sdcc`;
 MakeLib   = `${SDCCPath}bin/sdar`;
 
 ProjName    = "wulfquest";
-// data first: it must sit in ROM segment 0 (see data.c; build.sh checks it)
-ProjModules = [ "data", ProjName, "room", "vale", "overlay", "sprites", "rng", "jungle", "spawn", "move" ];
+// data first: it must sit in ROM segment 0 (see data.c; build.sh checks it);
+// then what banked code calls (wulfquest_sN_b1.c), which must too: rng, move
+ProjModules = [ "data", "rng", "move", ProjName, "room", "vale", "overlay", "sprites" ];
+// The simulation is banked code: src/wulfquest_sN_b1.c, one per segment (data.c's Bank_Call).
 LibModules  = [ "system", "bios", "vdp", "print", "input", "memory" ];
 
 //-- Headers the converter generates (build/gen/, AGENTS.md §4)
@@ -30,7 +32,7 @@ RawFiles = require(`${GenDir}rawfiles.json`).map(r => ({ segment: r.segment, fil
 //-- §1: MSX2 only, on a MegaROM cartridge
 Machine  = "2";
 Target   = "ROM_ASCII16";
-ROMSize  = 256;
+ROMSize  = 512;   // §1: 256-512 KB; the program grew past 256 in M7
 CheckVersion    = true;   // an MSX1 gets MSXgl's "A MSX2 is required" instead of a crash
 AddROMSignature = true;
 

@@ -13,7 +13,7 @@ import wulf.data.SpriteData;
  * sprites it lists as silhouettes, each frame again as one colour, with
  * {@code _ink} after its id, for the ROM to draw tinted.
  *
- * <p>{@code sprites.bin}: the frames one after another, each its blocks' base
+ * <p>{@code sprites_N.bin}: the frames one after another, in chunks of a ROM segment, each its blocks' base
  * and overlay patterns, then their colour tables ({@link SpriteCut#BLOCK_BYTES}
  * a block). {@code sprite_bank.h}: each frame's number,
  * {@code SPRITE_<NAME>_<FRAME>}, each sprite's origin and size in blocks, and
@@ -34,6 +34,9 @@ public final class RomSprites {
     private final List<Entry> entries = new ArrayList<>();
     private final byte[] blob;
     private final List<SpriteCut.Change> changes = new ArrayList<>();
+    /** Each frame's chunk, and where each chunk starts in the bank. */
+    private final List<Integer> chunk = new ArrayList<>();
+    private final List<Integer> chunkStart = new ArrayList<>();
     private final Map<String, List<SpriteCut.Change>> later = new java.util.LinkedHashMap<>();
 
     public RomSprites(Content c, VdpPalette vdp) {
@@ -73,6 +76,17 @@ public final class RomSprites {
         for (int i = 0; i < frames.size(); i++) {
             System.arraycopy(frames.get(i), 0, blob, entries.get(i).offset(), frames.get(i).length);
         }
+        // Chunks of a ROM segment at most, a frame wholly in one.
+        int start = 0;
+        for (int i = 0; i < frames.size(); i++) {
+            int end = entries.get(i).offset() + frames.get(i).length;
+            if (end - start > SceneryAtlas.CHUNK_BYTES) {
+                chunkStart.add(start);
+                start = entries.get(i).offset();
+            }
+            chunk.add(chunkStart.size());
+        }
+        chunkStart.add(start);
         // The big ones are cut too, for the report: they go into the ROM later.
         for (String name : list.later()) {
             SpriteData s = c.sprites().get(name);
@@ -103,6 +117,16 @@ public final class RomSprites {
         return blob.clone();
     }
 
+    /** The bank in chunks of a ROM segment at most: sprites_N.bin. */
+    public List<byte[]> chunks() {
+        List<byte[]> out = new ArrayList<>();
+        for (int c = 0; c < chunkStart.size(); c++) {
+            int end = c + 1 < chunkStart.size() ? chunkStart.get(c + 1) : blob.length;
+            out.add(java.util.Arrays.copyOfRange(blob, chunkStart.get(c), end));
+        }
+        return out;
+    }
+
     /** The pixels the bank's frames show in another colour than the art's. */
     public List<SpriteCut.Change> changes() {
         return List.copyOf(changes);
@@ -113,7 +137,7 @@ public final class RomSprites {
         return later;
     }
 
-    /** Where each frame starts in sprites.bin, its blocks (columns << 4 | rows), and its origin. */
+    /** Where each frame starts in its chunk, the chunk, its blocks (columns << 4 | rows), and its origin. */
     void tables(RamTables t) {
         int n = entries.size();
         int[] off = new int[n];
@@ -122,13 +146,15 @@ public final class RomSprites {
         int[] oy = new int[n];
         for (int i = 0; i < n; i++) {
             Entry e = entries.get(i);
-            off[i] = e.offset();
+            off[i] = e.offset() - chunkStart.get(chunk.get(i));
             blocks[i] = e.cols() << 4 | e.rows();
             ox[i] = e.originX();
             oy[i] = e.originY();
         }
-        t.u16("g_SpriteOffset", off, "The sprite bank's frames: where each starts in sprites.bin, its blocks"
-                + " (columns << 4 | rows), its origin (its feet, from its top-left).");
+        int[] ch = chunk.stream().mapToInt(Integer::intValue).toArray();
+        t.u16("g_SpriteOffset", off, "The sprite bank's frames: where each starts in its chunk, sprites_N.bin,"
+                + " the chunk, its blocks (columns << 4 | rows), its origin (its feet, from its top-left).");
+        t.u8("g_SpriteChunk", ch, null);
         t.u8("g_SpriteBlocks", blocks, null);
         t.u8("g_SpriteOriginX", ox, null);
         t.u8("g_SpriteOriginY", oy, null);
@@ -138,7 +164,7 @@ public final class RomSprites {
         StringBuilder sb = new StringBuilder();
         sb.append(Gen.banner("data/art/sprites/"));
         sb.append("#pragma once\n\n");
-        sb.append("// sprites.bin: each frame's blocks, row by row: their base and overlay 16x16\n");
+        sb.append("// sprites_N.bin: each frame's blocks, row by row: their base and overlay 16x16\n");
         sb.append("// patterns, then their colour tables, the overlays' with CC (convert/.../SpriteCut.java).\n");
         sb.append("// A silhouette (_INK) has all its pixels in the base, its lines in colour ")
                 .append(SILHOUETTE_COLOUR).append(".\n");

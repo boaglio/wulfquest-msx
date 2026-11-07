@@ -1,0 +1,27 @@
+{
+  "comment": [
+    "test/moves.sh's fourth plan (AGENTS.md §10, M7): the quest and the original's Wulf, with M6's jungle,",
+    "every tick equal to the Java game's (convert's MoveTraces, its quest ecosystem: no items, treasures,",
+    "shrines, orchids or flame yet). 'jungle' is the seed, or set:K for the first seed that hides the amulet",
+    "in set K; 'room' a room, or lair:N for lair N's room in that game; 'endless' plays with the Java game's",
+    "infiniteLives. 'check' is what the scene is there to show, shown in the Java game first",
+    "(convert's JungleChecks): wulf-sits, guardian-parry, pieces:N, win, set:K. 'questRoute' makes the keys:",
+    "convert's QuestRoute plays the Java game to a win, every quarter and out through the arch."
+  ],
+  "scenarios": [
+    { "name": "set-0", "room": "8,10", "at": "start", "jungle": "set:0", "quest": true, "check": "set:0", "keys": [["", 2]] },
+    { "name": "set-1", "room": "8,10", "at": "start", "jungle": "set:1", "quest": true, "check": "set:1", "keys": [["", 2]] },
+    { "name": "set-2", "room": "8,10", "at": "start", "jungle": "set:2", "quest": true, "check": "set:2", "keys": [["", 2]] },
+    { "name": "set-3", "room": "8,10", "at": "start", "jungle": "set:3", "quest": true, "check": "set:3", "keys": [["", 2]] },
+    { "name": "set-4", "room": "8,10", "at": "start", "jungle": "set:4", "quest": true, "check": "set:4", "keys": [["", 2]] },
+    { "name": "set-5", "room": "8,10", "at": "start", "jungle": "set:5", "quest": true, "check": "set:5", "keys": [["", 2]] },
+    { "name": "set-6", "room": "8,10", "at": "start", "jungle": "set:6", "quest": true, "check": "set:6", "keys": [["", 2]] },
+    { "name": "set-7", "room": "8,10", "at": "start", "jungle": "set:7", "quest": true, "check": "set:7", "keys": [["", 2]] },
+    { "name": "wulf-sits", "room": "6,15", "at": "start", "jungle": 1, "quest": true, "endless": true,
+      "check": "wulf-sits", "keys": [["L", 1], ["F", 400]] },
+    { "name": "guardian-parry", "room": "lair:0", "at": "start", "jungle": 1, "quest": true, "endless": true,
+      "check": "guardian-parry", "keys": [["F", 600]] },
+    { "name": "win", "room": "8,10", "at": "start", "jungle": 7, "quest": true, "endless": true,
+      "check": "win", "questRoute": true }
+  ]
+}

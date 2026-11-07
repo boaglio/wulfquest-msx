@@ -1,7 +1,9 @@
 // Wulf Quest for MSX2: the debug overlay on the panel (AGENTS.md §10, M4).
 //
-// One line below the playfield: "ROOM cc,rr  X xxxx  Y yyyy", Vale's room
-// (col,row) and his feet in world pixels. The glyphs are MSXgl's 6x8 sample
+// One line below the playfield: "ROOM cc,rr  X xxxx  Y yyyy  L n", Vale's
+// room (col,row), his feet in world pixels and his lives in reserve; once
+// the game is over or won, "GAME OVER" or "WON" instead (M6, M7: the real
+// messages are M10's). The glyphs are MSXgl's 6x8 sample
 // font: the 17 characters the line uses are expanded once to SCREEN 5 bytes
 // in RAM, and a glyph is written to video RAM through the VDP's ports, three
 // bytes a line. A frame redoes only the numbers that changed, queueing the
@@ -27,12 +29,13 @@
 #define INK			COLOUR_BRIGHTWHITE
 #define TEXT_X		8
 #define TEXT_Y		(PLAYFIELD_H + 4)
-#define TEXT_LEN	26
+#define TEXT_LEN	30
 // Where the numbers go in the line.
 #define AT_COL		5
 #define AT_ROW		8
 #define AT_X		14
 #define AT_Y		22
+#define AT_LIVES	29
 #define OVERLAY_GLYPHS	2   // written a frame at most
 
 #if PLAYFIELD_H + 4 + GLYPH_H > 212
@@ -51,7 +54,7 @@
 
 // The characters the line uses; a character is its place here. The digits
 // must be in order, from SPACE + 2.
-static const c8 c_Alphabet[] = " ,0123456789MORXY";
+static const c8 c_Alphabet[] = " ,0123456789MORXYLGAEVWN";
 #define CHARS		(sizeof(c_Alphabet) - 1)
 #define SPACE		0
 #define DIGIT0		2
@@ -70,6 +73,12 @@ static u16 s_Top = 0;                 // the address of the page's first byte (p
 static u8 s_Room = 0xFF;              // what the numbers were made from
 static i16 s_X = -1;
 static i16 s_Y = -1;
+static u8 s_Lives = 0xFF;
+static u8 s_Mode = 0xFF;             // the line's: 0 playing, 1 game over, 2 won
+
+#if PLAYER_LIVES_MAX > 9
+#error "the overlay shows the lives as one digit"
+#endif
 
 // Blit's arguments.
 static const u8* s_Src = 0;
@@ -208,9 +217,39 @@ static void Four(u8 i, u16 n)
 	Put(i + 3, DIGIT0 + m);
 }
 
-// The numbers that changed, into s_Want.
+// A line of text, into s_Want.
+static void Line(const c8* f)
+{
+	for (u8 i = 0; i < TEXT_LEN; i++)
+	{
+		u8 c = 0;
+		while (c_Alphabet[c] != f[i])
+			c++;
+		Put(i, c);
+	}
+}
+
+// What changed, into s_Want.
 static void Want()
 {
+	u8 mode = g_ValeMode == MODE_GAME_OVER ? 1 : g_ValeMode == MODE_WON ? 2 : 0;
+	if (mode != s_Mode)
+	{
+		s_Mode = mode;
+		Line(mode == 1 ? "GAME OVER                     " : mode == 2 ? "WON                           "
+			: "ROOM   ,    X       Y       L ");
+		s_Room = 0xFF;
+		s_X = -1;
+		s_Y = -1;
+		s_Lives = 0xFF;
+	}
+	if (mode != 0)
+		return;
+	if (g_ValeLives != s_Lives)
+	{
+		s_Lives = g_ValeLives;
+		Put(AT_LIVES, DIGIT0 + s_Lives);
+	}
 	if (g_ValeRoom != s_Room)
 	{
 		s_Room = g_ValeRoom;
@@ -253,17 +292,7 @@ void Overlay_Draw(u8 page)
 	VDP_CommandHMMV(0, (u16)page * 256 + PLAYFIELD_H, 256, 212 - PLAYFIELD_H, 0);
 	VDP_CommandWait();
 	s_Top = page ? 0x8000 : 0;
-	const c8* f = "ROOM   ,    X       Y     ";
-	for (u8 i = 0; i < TEXT_LEN; i++)
-	{
-		u8 c = 0;
-		while (c_Alphabet[c] != f[i])
-			c++;
-		s_Want[i] = c;
-	}
-	s_Room = 0xFF;
-	s_X = -1;
-	s_Y = -1;
+	s_Mode = 0xFF;
 	Want();
 	// All of it: the page is not on screen yet.
 	for (u8 i = 0; i < TEXT_LEN; i++)

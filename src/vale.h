@@ -43,14 +43,15 @@ extern u8  g_ValeFreeze;
 extern u8  g_ValeOpen;
 
 // What he is doing (Player.Mode): on his feet, falling, down, or out of lives.
-enum { MODE_ALIVE, MODE_DYING, MODE_DOWN, MODE_GAME_OVER };
+enum { MODE_ALIVE, MODE_DYING, MODE_DOWN, MODE_GAME_OVER, MODE_ESCAPING, MODE_WON };   // Player.Mode
 extern u8  g_ValeMode;
 extern u8  g_ValeModeTick;
 extern u8  g_ValeLives;       // in reserve
 extern u8  g_ValeInvuln;      // ticks of spawn invulnerability left
 extern u8  g_ValeVisible;     // not blinked out (PlayerPainter.visible)
-extern u8  g_SwingSerial;     // goes up with each swing: a swing hits a creature once
-extern u32 g_SimTick;         // Simulation.tick(): ticks since the game began
+extern u16 g_SwingSerial;     // goes up with each swing: a swing hits a creature once (0xFFFF: none yet)
+extern u32 g_SimTick;
+extern u8  g_ValeEndless;     // test/moves.sh: deaths do not use up lives         // Simulation.tick(): ticks since the game began
 
 // His room's top-left, and the cells' around it (s_Cells), world pixels.
 extern i16 g_RoomX;
@@ -69,7 +70,9 @@ u8 Cells_Blocked();
 
 // Lethal contact (Simulation.kill): he falls, unless invulnerable or already
 // down. TRUE when it landed.
-bool Vale_Kill();
+bool Vale_Kill();             // banked: jungle.c's, for the creatures
+extern u8 g_ValeGaitTick;    // g_ValeWalk % PLAYER_WALK_TICKS_PER_FRAME
+extern u8 g_ValeGait;        // and the gait's frame
 
 // Once, at start: the speed tables.
 void Vale_Init();

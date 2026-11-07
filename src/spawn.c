@@ -118,16 +118,18 @@ static bool Walkable(i16 sx, i16 sy)
 		for (u8 rx = 0; rx < s_NX; rx++)
 			if (ClassFree(rx, ry))
 				Set((u16)ry * s_NX + rx, 1);
-	u16 start = (u16)RunOf(s_RunY, s_NY, sy + SLACK) * s_NX + RunOf(s_RunX, s_NX, sx + SLACK);
+	// The queue holds a class as its row and column, a byte each (no division).
+	u8 sry = RunOf(s_RunY, s_NY, sy + SLACK);
+	u8 srx = RunOf(s_RunX, s_NX, sx + SLACK);
 	u16 head = 0;
 	u16 tail = 0;
-	Set(start, 2);
-	s_Queue[tail++] = start;
+	Set((u16)sry * s_NX + srx, 2);
+	s_Queue[tail++] = ((u16)sry << 8) | srx;
 	while (head < tail)
 	{
 		u16 c = s_Queue[head++];
-		u8 rx = c % s_NX;
-		u8 ry = c / s_NX;
+		u8 rx = (u8)c;
+		u8 ry = (u8)(c >> 8);
 		for (u8 k = 0; k < 4; k++)
 		{
 			i8 nx = (i8)rx + (k == 0 ? 1 : k == 1 ? -1 : 0);
@@ -138,7 +140,7 @@ static bool Walkable(i16 sx, i16 sy)
 			if (Get(n) == 1)
 			{
 				Set(n, 2);
-				s_Queue[tail++] = n;
+				s_Queue[tail++] = ((u16)(u8)ny << 8) | (u8)nx;
 			}
 		}
 	}
@@ -185,14 +187,13 @@ static bool Nearest(i16 x, i16 y, bool margins, bool walk, i16* ox, i16* oy)
 		s_Seen[i] = 0;
 	u16 head = 0;
 	u16 tail = 0;
-	u16 start = (u16)startCy * COLS + startCx;
-	s_Seen[start] = 1;
-	s_Queue[tail++] = start;
+	s_Seen[(u16)startCy * COLS + startCx] = 1;
+	s_Queue[tail++] = ((u16)startCy << 8) | startCx;
 	while (head < tail)
 	{
 		u16 i = s_Queue[head++];
-		u8 cx = i % COLS;
-		u8 cy = i / COLS;
+		u8 cx = (u8)i;
+		u8 cy = (u8)(i >> 8);
 		i16 lx = (i16)cx * CELL + CELL / 2;
 		i16 ly = (i16)cy * CELL + CELL;
 		if (Fits(s_RoomX + lx, s_RoomY + ly, margins) && (!walk || Reached(lx, ly)))
@@ -211,19 +212,19 @@ static bool Nearest(i16 x, i16 y, bool margins, bool walk, i16* ox, i16* oy)
 			if (!s_Seen[n])
 			{
 				s_Seen[n] = 1;
-				s_Queue[tail++] = n;
+				s_Queue[tail++] = ((u16)(u8)ny << 8) | (u8)nx;
 			}
 		}
 	}
 	return FALSE;
 }
 
-void Spawn_NearestFree(i32* xFp, i32* yFp)
+void Spawn_NearestFree()
 {
 	s_RoomX = g_RoomX;
 	s_RoomY = g_RoomY;
-	i16 x = FP_PX(*xFp);
-	i16 y = FP_PX(*yFp);
+	i16 x = FP_PX(g_ValeX);
+	i16 y = FP_PX(g_ValeY);
 	if (Fits(x, y, TRUE))
 		return;   // where he fell, fraction and all
 	i16 nx;
@@ -239,6 +240,6 @@ void Spawn_NearestFree(i32* xFp, i32* yFp)
 	}
 	if (!found)
 		return;   // where he stood is at least not a cell
-	*xFp = (i32)nx << FIXED_SHIFT;
-	*yFp = (i32)ny << FIXED_SHIFT;
+	g_ValeX = (i32)nx << FIXED_SHIFT;
+	g_ValeY = (i32)ny << FIXED_SHIFT;
 }

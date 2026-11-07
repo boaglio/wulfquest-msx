@@ -38,7 +38,7 @@ the next release.
 ## Build and test
 
 ```bash
-./build.sh          # build/wulfquest.rom, a 256 KB ASCII16 MegaROM
+./build.sh          # build/wulfquest.rom, a 512 KB ASCII16 MegaROM
 ./build.sh test     # the build, then every test/*.sh
 ./build.sh clean    # remove build/
 ```
@@ -80,15 +80,30 @@ the Java game's `Content.load` and writes `build/gen/`:
 | `rooms.h`, `rooms.bin` | the 256 rooms: template of each, placements, collision masks |
 | `player.h`, `player_hand.h`, `player_frames.bin` | Ranger Vale: every frame he can be shown in, as four layered 16x16 sprites (two blocks of a base and an overlay with the CC bit) with their colour tables, the frame table's layout, the hand each frame holds the blade in, and where a new game starts him |
 | `blade.h`, `blade.bin` | his blade: a shape for each facing and fence pose, as two one-colour sprites, where they go from the hand, and how the ROM picks the pose as the Java game does |
-| `sprite_bank.h`, `sprites.bin` | the other sprites the ROM shows (the list is `convert/src/main/resources/wulfmsx/convert/sprites.json`): every frame, cut as Vale's, and its number |
+| `sprite_bank.h`, `sprites_N.bin` | the other sprites the ROM shows (the list is `convert/src/main/resources/wulfmsx/convert/sprites.json`): every frame, cut as Vale's, and its number; the bank in chunks of a ROM segment, each frame's chunk in `g_SpriteChunk` |
+| `quest_data.h` | the quest and the Wulf (M7, `Quest`): the amulet's sets, the lairs, the guardians, the Keeper, the way out, the original's Wulf; their tables are in `tables.h` |
 | `sprites.txt`, `sprites.png` | every pixel a sprite shows in another colour than the art's, and pictures of those frames, the art beside the MSX2's; `sprites.json` accepts so many a sprite, and the converter fails past that |
 | `jungle.h`, `jungle_data.h` | the swarm's roster and the big beasts' kinds, placings and sleepers (M6), from `entities/jungle.json` and `creatures.json` |
-| `tables.h`, `tables.bin` | tables the jungle reads often, copied into RAM at start (`RamTables`) |
+| `tables.h`, `tables.bin` | tables the jungle and the quest read, copied into RAM at start (`RamTables`): banked code must not read tables from the program's segments |
 | `map_0.bin`, `map_1.bin` | the whole map's solid cells as one bitmap, a bit a cell (`MapBits`), for the beasts and for where Vale gets up |
 | `rom.h`, `rawfiles.json` | which ROM segment each blob goes in: `rawfiles.json` for MSXgl (`src/project_config.js` reads it), `rom.h` for the C |
 | `report.txt` | how far each colour moved, the atlas size, and the ROM budget |
 
 To run it alone: `mvn -q -pl convert -am package -DskipTests exec:java`.
+
+**Banked code** (AGENTS.md §3). `src/wulfquest_sN_b1.c` is compiled into ROM
+segment N, for bank 1 (8000h): each holds one module (`#include "jungle.c"`),
+whose header names the segment (`JUNGLE_SEG`) and a macro to call into it
+(`JUNGLE(Jungle_TickBeasts)`, through `data.c`'s `Bank_Call`). A banked
+function takes no arguments and returns nothing: they go in globals. While
+it runs, segment 1 is not mapped: it may call code below 8000h (`data.c`,
+`rng.c`, `move.c`, which `project_config.js` links first), other banked code
+through its macro, and nothing else; so no SDCC library routine either (a
+16-bit multiplication or division, a 32-bit shift: write it with shifts and
+adds), and no `const` tables (they land in segment 0 or 1: use `tables.h`).
+`build.sh` checks the calls in the listings and each file's segment; a new
+banked file goes in segment 24 or up, and `build/gen/report.txt` shows what
+the data uses below.
 
 **MSXgl's start-up does not clear RAM.** A C global with no initial value
 starts as whatever the RAM held, which on openMSX is not zero. Give every
@@ -171,9 +186,15 @@ ignores it, so the submodule stays clean.
   scene shows what it is there for (a facing swing bursts a creature, a touch
   kills, a rhino turns, a tribesman follows through a flip, the game ends),
   and each tick's `J` line, every creature and beast field by field, must be
-  equal. Its timing slipped (AGENTS.md M6): plans named in
-  `MOVES_TIMING_SLIPPED` (default `jungle`) print late frames as `SLIP` lines
-  instead of failing; set it empty to see them fail.
+  equal. A fourth, `test/quest.json` (M7), adds the quest and the Wulf
+  (`exec:java@quest-traces`, a `Q` line a tick): `"quest": true`; `"jungle":
+  "set:K"` for the first seed that hides the amulet in set K, `"room":
+  "lair:N"` for lair N's room in that game; `"endless": true` for the Java
+  game's infiniteLives (the ROM's `g_TestEndless`); and `"questRoute": true`,
+  whose keys `QuestRoute` finds by playing the Java game to a win. Their
+  timing slipped (AGENTS.md M6): plans named in `MOVES_TIMING_SLIPPED`
+  (default `jungle quest`) print late frames as `SLIP` lines instead of
+  failing; set it empty to see them fail.
 - **`test/boot.sh`** also checks Vale is on screen where a new game starts
   him, in his first frame, in his colours; its pictures draw the sprites from
   the sprite tables. It takes them as the ROM shows each room (`Test_Shown`,
@@ -223,12 +244,15 @@ src/             the game: wulfquest.c (main), data.c (the ROM's data; stays in
                  hardware sprites and their turns), jungle.c (the swarm,
                  the beasts, combat, deaths), move.c (box movement against
                  the scenery or the map), spawn.c (where Vale gets up),
-                 rng.c (the Java game's random numbers); MSXgl's
+                 rng.c (the Java game's random numbers), quest.c and
+                 wulf.c (the amulet, the guardians, the Keeper, the
+                 Wulf); wulfquest_sN_b1.c, the banked segments; MSXgl's
                  project_config.js and msxgl_config.h
 pom.xml          builds wulfquest/core and convert/ together
 convert/         the converter (Java)
 tools/           check-no-binaries.sh
 test/            boot.*, rooms.*, moves.*, sprites.*, flips.json, jungle.json,
+                 quest.json,
                  check_*.py,
                  vdp_sprites.py, gate.sh
 wulfquest/       submodule: the Java game, for its data/

@@ -53,7 +53,7 @@ import wulf.world.WorldGrid;
  *
  * <ul>
  *   <li>{@code OUT_PREFIX_plan.txt}, for test/moves.tcl: per scenario
- *       {@code scenario NAME ROOM OPEN X_FP Y_FP CHECK SEED}, then {@code keys} and
+ *       {@code scenario NAME ROOM OPEN X_FP Y_FP CHECK SEED QUEST ENDLESS}, then {@code keys} and
  *       a key byte a tick (up 1, down 2, left 4, right 8, fire 16);
  *   <li>{@code OUT_PREFIX_expected.txt}: per scenario {@code scenario NAME},
  *       then after each tick {@code X_FP Y_FP FACING SWING WALK SX SY SW SH ROOM FREEZE FRAME BLADE}:
@@ -62,7 +62,9 @@ import wulf.world.WorldGrid;
  *       room (row * 16 + col), the frozen ticks left, the frame he is drawn in
  *       (player.h) and the blade's shape (blade.h; -1 none), as the Java
  *       game's PlayerPainter picks them; with the jungle ({@code "jungle": SEED}),
- *       a second line after it, {@link JungleChecks#line}.
+ *       a second line after it, {@link JungleChecks#line}; with the quest
+ *       ({@code "quest": true}, M7), a third, {@link JungleChecks#questLine}.
+ *       {@code "endless": true} plays with the Java game's infiniteLives.
  * </ul>
  */
 public final class MoveTraces {
@@ -72,7 +74,12 @@ public final class MoveTraces {
 
     /** A start, a key byte a tick, and what test/check_moves.py checks on top of equality ("-" nothing). */
     record Scenario(String name, RoomAddress room, boolean open, int xFp, int yFp, List<Integer> keys, String check,
-                    long seed) {
+                    long seed, boolean quest, boolean endless) {
+        Scenario(String name, RoomAddress room, boolean open, int xFp, int yFp, List<Integer> keys, String check,
+                 long seed) {
+            this(name, room, open, xFp, yFp, keys, check, seed, false, false);
+        }
+
         /** With the jungle: the swarm and the big beasts, seeded (else, -1, the empty jungle). */
         boolean jungle() {
             return seed >= 0;
@@ -111,6 +118,16 @@ public final class MoveTraces {
         return simulation(c, grid, open, xFp, yFp, -1);
     }
 
+    static Simulation simulation(Content c, WorldGrid grid, Scenario s) {
+        Simulation sim = s.quest()
+                ? Simulation.at(c.player(), grid, c.game().transition().freezeTicks(), s.xFp(), s.yFp(), quest(c), s.seed())
+                : simulation(c, grid, s.open(), s.xFp(), s.yFp(), s.seed());
+        if (s.endless()) {
+            sim.infiniteLives(true);   // the Java game's practice option; the ROM's g_TestEndless
+        }
+        return sim;
+    }
+
     static Simulation simulation(Content c, WorldGrid grid, boolean open, int xFp, int yFp, long seed) {
         if (seed >= 0) {
             return Simulation.at(c.player(), grid, c.game().transition().freezeTicks(), xFp, yFp, jungle(c), seed);
@@ -128,12 +145,61 @@ public final class MoveTraces {
                 OrchidData.NONE, FlameData.NONE, c.swarmRules(), c.beastRules());
     }
 
+    /**
+     * M7's jungle (AGENTS.md §10): M6's, with the original's Wulf and the quest — its
+     * amulet, guardians, Keeper and way out — and none of M8's: no items, treasures,
+     * shrine hints, orchids, flame or score for a first visit.
+     */
+    static Ecosystem quest(Content c) {
+        QuestRules q = c.questRules();
+        wulf.data.LandmarksData m = q.landmarks();
+        wulf.data.LandmarksData bare = new wulf.data.LandmarksData(m.schemaVersion(), m.fidelity(), m.startFacing(),
+                m.exit(), m.lairs(), m.amuletSets(), m.amulet(), m.shrines(), wulf.data.LandmarksData.Items.NONE,
+                m.hint(), m.temple());
+        QuestRules bareQuest = new QuestRules(true, bare, q.guardianSpecies(), q.keeperSpecies(), q.orbit(),
+                q.stepAsideFp(), q.asideMinPx(), q.asideMaxPx(), q.nudgeZonePx(), q.nudgePx(), q.pieceScore(),
+                q.escapeBonus(), q.timeBonusMax(), q.timeBonusTicksDivisor(), q.lifeRemainingBonus(), false,
+                wulf.sim.Treasures.NONE);
+        return new Ecosystem(c.originalCreatures(), RoomPopulator.NONE, 0, c.wulfRules(), bareQuest,
+                OrchidData.NONE, FlameData.NONE, c.swarmRules(), c.beastRules());
+    }
+
+    /** "set:K": the first seed from 1 whose game hides the amulet in set K (Simulation.hideAmulet). */
+    static long seedForSet(Content c, String scenario, String spec) {
+        if (!spec.startsWith("set:")) {
+            throw new ConvertException("scenario " + scenario + ": a jungle seed is a number or set:K, not " + spec);
+        }
+        int set = Integer.parseInt(spec.substring("set:".length()));
+        WorldGrid grid = new WorldGrid(c.rooms());
+        for (long seed = 1; seed < 10_000; seed++) {
+            Simulation sim = Simulation.at(c.player(), grid, 0, Fixed.fp(8), Fixed.fp(8), quest(c), seed);
+            if (sim.landmarks().amuletSet() == set) {
+                return seed;
+            }
+        }
+        throw new ConvertException("scenario " + scenario + ": no seed below 10 000 hides the amulet in set " + set);
+    }
+
     static Scenario scenario(Content c, WorldGrid grid, JsonNode s) {
         String name = s.get("name").asString();
         PlayerData rules = c.player();
         boolean open = s.has("open") && s.get("open").asBoolean();
-        String[] cr = s.get("room").asString().split(",");
-        RoomAddress room = new RoomAddress(Integer.parseInt(cr[0]), Integer.parseInt(cr[1]));
+        boolean quest = s.has("quest") && s.get("quest").asBoolean();
+        boolean endless = s.has("endless") && s.get("endless").asBoolean();
+        long seed = !s.has("jungle") ? -1
+                : s.get("jungle").isString() ? seedForSet(c, name, s.get("jungle").asString())
+                : s.get("jungle").asLong();
+        String where = s.get("room").asString();
+        RoomAddress room;
+        if (where.startsWith("lair:")) {
+            // Lair N of the set this game hides the amulet in.
+            Simulation probe = Simulation.at(c.player(), grid, 0, Fixed.fp(8), Fixed.fp(8), quest(c), seed);
+            room = wulf.data.LandmarksData.room(probe.landmarks().lairs()
+                    .get(Integer.parseInt(where.substring("lair:".length()))).room());
+        } else {
+            String[] cr = where.split(",");
+            room = new RoomAddress(Integer.parseInt(cr[0]), Integer.parseInt(cr[1]));
+        }
 
         int xFp;
         int yFp;
@@ -151,13 +217,22 @@ public final class MoveTraces {
                     + " is not in room " + room.col() + "," + room.row());
         }
         String check = s.has("check") ? s.get("check").asString() : "-";
-        long seed = s.has("jungle") ? s.get("jungle").asLong() : -1;
 
         if (s.has("route")) {
             int rooms = s.get("route").asInt();
             Route route = Route.plan(c, grid, xFp, yFp, rooms);
             return new Scenario(name, room, false, xFp, yFp, route.keys(),
                     "route:" + rooms + ":" + route.target().index(), -1);
+        }
+        if (s.has("questRoute")) {
+            if (!quest || !endless) {
+                throw new ConvertException("scenario " + name + ": a quest route needs the quest and endless lives");
+            }
+            Scenario bare = new Scenario(name, room, false, xFp, yFp, List.of(), check, seed, true, true);
+            Scenario sc = new Scenario(name, room, false, xFp, yFp, QuestRoute.keys(c, grid, bare), check, seed, true,
+                    true);
+            JungleChecks.hold(c, grid, sc);
+            return sc;
         }
         List<Integer> keys = new ArrayList<>();
         for (JsonNode k : s.get("keys")) {
@@ -166,7 +241,10 @@ public final class MoveTraces {
                 keys.add(bits);
             }
         }
-        Scenario sc = new Scenario(name, room, open, xFp, yFp, keys, check, seed);
+        if (quest && seed < 0) {
+            throw new ConvertException("scenario " + name + ": the quest needs the jungle (a 'jungle' seed)");
+        }
+        Scenario sc = new Scenario(name, room, open, xFp, yFp, keys, check, seed, quest, endless);
         if (sc.jungle()) {
             JungleChecks.hold(c, grid, sc);
         }
@@ -241,7 +319,8 @@ public final class MoveTraces {
     static void plan(Scenario s, StringBuilder plan) {
         plan.append("scenario ").append(s.name()).append(' ').append(s.room().index()).append(' ')
                 .append(s.open() ? 1 : 0).append(' ').append(s.xFp()).append(' ').append(s.yFp()).append(' ')
-                .append(s.check()).append(' ').append(s.seed()).append("\nkeys");
+                .append(s.check()).append(' ').append(s.seed()).append(' ').append(s.quest() ? 1 : 0).append(' ')
+                .append(s.endless() ? 1 : 0).append("\nkeys");
         for (int k : s.keys()) {
             plan.append(' ').append(k);
         }
@@ -250,7 +329,7 @@ public final class MoveTraces {
 
     static void trace(Content c, WorldGrid grid, Scenario s, StringBuilder expected) {
         expected.append("scenario ").append(s.name()).append('\n');
-        Simulation sim = simulation(c, grid, s.open(), s.xFp(), s.yFp(), s.seed());
+        Simulation sim = simulation(c, grid, s);
         List<String> frames = PlayerSprite.frameIds(c.player());
         boolean fireWas = false;
         for (int k : s.keys()) {
@@ -267,6 +346,9 @@ public final class MoveTraces {
                     .append(' ').append(Painter.bladeShape(p, c.player(), !b.isEmpty(), sim.tick())).append('\n');
             if (s.jungle()) {
                 expected.append(JungleChecks.line(sim)).append('\n');
+            }
+            if (s.quest()) {
+                expected.append(JungleChecks.questLine(sim)).append('\n');
             }
         }
     }

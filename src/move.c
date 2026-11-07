@@ -36,6 +36,120 @@ static u16 s_Lim = 0;     //            the most that edge may be
 #error "Move_Axis divides by CELL with shifts"
 #endif
 
+//-----------------------------------------------------------------------------
+// The cells around Vale's room (vale.c's s_Cells), for him and for the
+// creatures in it. Here, below 8000h, as banked code calls it.
+
+// Cells_Blocked's arguments: a box in the window's pixels, wholly inside it.
+u16 g_CbLeft = 0;
+u8  g_CbTop = 0;
+u8  g_CbW = 0;
+u8  g_CbH = 0;
+
+#if CELLS_W != 36
+#error "Cells_Blocked multiplies by CELLS_W as 32 + 4"
+#endif
+
+// Whether any of the window's cells under the box is solid. Assembly: the
+// C was about 2 000 cycles a call, and a tick against a wall makes 8 (M6).
+u8 Cells_Blocked() __naked
+{
+	__asm
+		; the first row: s_Cells + (top >> 3) * 36
+		ld	a, (_g_CbTop)
+		ld	c, a                    ; c = top
+		rrca
+		rrca
+		rrca
+		and	a, #0x1F
+		ld	l, a
+		ld	h, #0
+		add	hl, hl
+		add	hl, hl
+		ld	e, l
+		ld	d, h                    ; de = row * 4
+		add	hl, hl
+		add	hl, hl
+		add	hl, hl                  ; hl = row * 32
+		add	hl, de
+		ld	de, #_s_Cells
+		add	hl, de
+		push	hl
+		; columns: cx0 = left >> 3, n = ((left + w - 1) >> 3) - cx0 + 1
+		ld	hl, (_g_CbLeft)
+		ld	a, (_g_CbW)
+		dec	a
+		ld	e, a
+		ld	d, #0
+		push	hl
+		add	hl, de
+		srl	h
+		rr	l
+		srl	h
+		rr	l
+		srl	h
+		rr	l
+		ld	b, l                    ; b = cx1
+		pop	hl
+		srl	h
+		rr	l
+		srl	h
+		rr	l
+		srl	h
+		rr	l                       ; l = cx0
+		ld	a, b
+		sub	a, l
+		inc	a
+		ld	b, a                    ; b = columns
+		ld	e, l                    ; de = cx0
+		; rows: n = ((top + h - 1) >> 3) - (top >> 3) + 1
+		ld	a, (_g_CbH)
+		dec	a
+		add	a, c
+		rrca
+		rrca
+		rrca
+		and	a, #0x1F
+		ld	d, a
+		ld	a, c
+		rrca
+		rrca
+		rrca
+		and	a, #0x1F
+		ld	c, a
+		ld	a, d
+		sub	a, c
+		inc	a
+		ld	c, a                    ; c = rows
+		ld	d, #0
+		pop	hl
+		add	hl, de                  ; hl = the first cell under the box
+	00010$:
+		push	hl
+		push	bc
+	00020$:
+		ld	a, (hl)
+		or	a
+		jr	nz, 00090$
+		inc	hl
+		djnz	00020$
+		pop	bc
+		pop	hl
+		ld	de, #CELLS_W
+		add	hl, de
+		dec	c
+		jr	nz, 00010$
+		xor	a
+		ret
+	00090$:
+		pop	bc
+		pop	hl
+		ld	a, #1
+		ret
+	__endasm;
+}
+
+
 void Move_Axis() __naked
 {
 	__asm

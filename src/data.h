@@ -73,3 +73,10 @@ u8 Data_BoxTest();
 
 // A shape of the blade (blade.h): its two patterns to video RAM.
 void Data_LoadBlade(u8 shape, u8 vramHigh, u16 vramLow);
+
+// Banked code (data.c): call fn, which lives in ROM segment seg, mapped into
+// bank 1 for the call. BANKED(seg, fn) does both.
+extern u8 g_CodeSeg;
+extern void (*g_BankFn)();
+void Bank_Call(u8 seg);
+#define BANKED(seg, fn)	do { g_BankFn = (fn); Bank_Call(seg); } while (0)

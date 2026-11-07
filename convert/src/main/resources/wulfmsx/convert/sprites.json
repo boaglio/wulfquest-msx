@@ -15,14 +15,13 @@
     "vermin_snake", "vermin_rat", "vermin_bird", "vermin_frog", "vermin_mosquito", "vermin_skunk",
     "vermin_flea", "vermin_earwig",
     "puff", "flame", "amulet_piece", "way_arrow",
-    "creature_rhino", "creature_tribesman", "creature_hippo", "creature_boar"
-  ],
-  "silhouettes": [ "puff" ],
-  "later": [
+    "creature_rhino", "creature_tribesman", "creature_hippo", "creature_boar",
     "creature_wulf",
     "creature_guardian_rhino", "creature_guardian_hippo", "creature_guardian_boar",
     "creature_guardian_wildebeest", "creature_keeper"
   ],
+  "silhouettes": [ "puff" ],
+  "later": [],
   "accepted": {
     "player": 120,
     "vermin_spider": 8,

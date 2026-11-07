@@ -54,6 +54,28 @@ bad=$(awk '$NF ~ /^_/ && $(NF-1) == "call" { print $NF }' build/msxgl/data.lst |
     if [[ -n "$a" ]] && (( 16#$a >= 16#8000 )); then echo "$f"; fi
 done)
 [[ -z "$bad" ]] || die "src/data.c calls code above 8000h, which its bank switching hides: $bad"
+# Banked code (src/wulfquest_sN_b1.c, data.c's Bank_Call) runs with its
+# segment in bank 1, so it, and the segment-0 code it calls (rng.c, move.c),
+# may call only code below 8000h, or its own segment's.
+for f in src/wulfquest_s*_b1.c; do
+    seg=${f#src/wulfquest_s}
+    seg=${seg%_b1.c}
+    rom_first=$(awk '$2 == "ROM_BANKED_CODE_FIRST" { print $3 }' build/gen/rom.h)
+    (( seg >= rom_first )) || die "$f: segment $seg holds data; banked code goes in $rom_first and up"
+    # The header that calls into it names the same segment (JUNGLE_SEG and the like).
+    mod=$(sed -n 's/^#include "\(.*\)\.c"$/\1/p' "$f" | head -1)
+    grep -Eq "^#define [A-Z]+_SEG[[:space:]]+$seg\b" "src/$mod.h" \
+        || die "$f holds $mod.c, but src/$mod.h does not name segment $seg"
+done
+for lst in $(for f in src/wulfquest_s*_b1.c; do echo "build/msxgl/$(basename "$f" .c).lst"; done) \
+           build/msxgl/rng.lst build/msxgl/move.lst; do
+    [[ -f "$lst" ]] || die "$lst is missing: the bank check cannot run"
+    bad=$(awk '$NF ~ /^_/ && ($(NF-1) == "call" || $(NF-1) == "jp") { print $NF }' "$lst" | sort -u | while read -r f; do
+        a=$(awk -v s="$f" '$2 == s { print $1 }' build/msxgl/wulfquest.map)
+        if [[ -n "$a" ]] && (( 16#$a >= 16#8000 && 16#$a < 16#10000 )); then echo "$f"; fi
+    done)
+    [[ -z "$bad" ]] || die "$(basename "$lst" .lst) calls code in segment 1, which banked code hides: $bad"
+done
 echo "build.sh: build/wulfquest.rom ($(stat -c %s build/wulfquest.rom) bytes)"
 
 if [[ "${1:-}" == test ]]; then

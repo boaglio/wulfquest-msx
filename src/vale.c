@@ -16,6 +16,8 @@
 #include "blade.h"
 #include "jungle.h"
 #include "spawn.h"
+#include "quest.h"
+#include "quest_data.h"
 
 #define ONE			(1 << FIXED_SHIFT)
 #define LEVELS		(PLAYER_MOMENTUM_MAX / PLAYER_MOMENTUM_STEP)
@@ -56,8 +58,9 @@ u8  g_ValeModeTick = 0;
 u8  g_ValeLives = 0;
 u8  g_ValeInvuln = 0;
 u8  g_ValeVisible = 1;
-u8  g_SwingSerial = 0;
+u16 g_SwingSerial = 0;
 u32 g_SimTick = 0;
+u8  g_ValeEndless = 0;   // test/moves.sh: the Java game's infiniteLives
 i16 g_RoomX = 0;
 i16 g_RoomY = 0;
 i16 g_CellsX = 0;
@@ -66,8 +69,8 @@ i16 g_CellsY = 0;
 static i8 s_LevelX;
 static i8 s_LevelY;
 static u8 s_FramePhase;   // tick % PLAYER_MOMENTUM_TICKS_PER_FRAME
-static u8 s_GaitTick;     // g_ValeWalk % PLAYER_WALK_TICKS_PER_FRAME
-static u8 s_Gait;         // g_ValeWalk / PLAYER_WALK_TICKS_PER_FRAME % PLAYER_GAIT
+u8 g_ValeGaitTick = 0;     // g_ValeWalk % PLAYER_WALK_TICKS_PER_FRAME
+u8 g_ValeGait = 0;         // g_ValeWalk / PLAYER_WALK_TICKS_PER_FRAME % PLAYER_GAIT
 // The room's top-left, and the cells' around it, world pixels (vale.h).
 #define s_RoomX		g_RoomX
 #define s_RoomY		g_RoomY
@@ -102,7 +105,9 @@ static void EnterRoom(u8 room)
 	s_CellsY = s_RoomY - CELLS_MARGIN * CELL;
 	Data_LoadCells(room, s_Cells);
 	if (g_JungleOn)
-		Jungle_EnterRoom();
+		JUNGLE(Jungle_EnterRoom);
+	if (g_QuestOn)
+		QUEST(Quest_EnterRoom);
 }
 
 void Vale_Init()
@@ -141,8 +146,8 @@ void Vale_Place(i32 x, i32 y)
 	s_LevelX = 0;
 	s_LevelY = 0;
 	s_FramePhase = 0;
-	s_GaitTick = 0;
-	s_Gait = 0;
+	g_ValeGaitTick = 0;
+	g_ValeGait = 0;
 	g_ValeFreeze = 0;
 	g_ValeMode = MODE_ALIVE;
 	g_ValeModeTick = 0;
@@ -151,6 +156,7 @@ void Vale_Place(i32 x, i32 y)
 	g_ValeVisible = 1;
 	g_SwingSerial = 0;
 	g_SimTick = 0;
+	Quest_ClockReset();
 	ResetTicks();
 	g_ValeFrame = Vale_Frame();
 	g_ValeBlade = -1;
@@ -171,114 +177,7 @@ void Vale_Place(i32 x, i32 y)
 #if CELL != 8
 #error "Blocked divides by CELL with a shift"
 #endif
-// Cells_Blocked's arguments: a box in the window's pixels, wholly inside it.
-u16 g_CbLeft = 0;
-u8  g_CbTop = 0;
-u8  g_CbW = 0;
-u8  g_CbH = 0;
-
-#if CELLS_W != 36
-#error "Cells_Blocked multiplies by CELLS_W as 32 + 4"
-#endif
-
-// Whether any of the window's cells under the box is solid. Assembly: the
-// C was about 2 000 cycles a call, and a tick against a wall makes 8 (M6).
-u8 Cells_Blocked() __naked
-{
-	__asm
-		; the first row: s_Cells + (top >> 3) * 36
-		ld	a, (_g_CbTop)
-		ld	c, a                    ; c = top
-		rrca
-		rrca
-		rrca
-		and	a, #0x1F
-		ld	l, a
-		ld	h, #0
-		add	hl, hl
-		add	hl, hl
-		ld	e, l
-		ld	d, h                    ; de = row * 4
-		add	hl, hl
-		add	hl, hl
-		add	hl, hl                  ; hl = row * 32
-		add	hl, de
-		ld	de, #_s_Cells
-		add	hl, de
-		push	hl
-		; columns: cx0 = left >> 3, n = ((left + w - 1) >> 3) - cx0 + 1
-		ld	hl, (_g_CbLeft)
-		ld	a, (_g_CbW)
-		dec	a
-		ld	e, a
-		ld	d, #0
-		push	hl
-		add	hl, de
-		srl	h
-		rr	l
-		srl	h
-		rr	l
-		srl	h
-		rr	l
-		ld	b, l                    ; b = cx1
-		pop	hl
-		srl	h
-		rr	l
-		srl	h
-		rr	l
-		srl	h
-		rr	l                       ; l = cx0
-		ld	a, b
-		sub	a, l
-		inc	a
-		ld	b, a                    ; b = columns
-		ld	e, l                    ; de = cx0
-		; rows: n = ((top + h - 1) >> 3) - (top >> 3) + 1
-		ld	a, (_g_CbH)
-		dec	a
-		add	a, c
-		rrca
-		rrca
-		rrca
-		and	a, #0x1F
-		ld	d, a
-		ld	a, c
-		rrca
-		rrca
-		rrca
-		and	a, #0x1F
-		ld	c, a
-		ld	a, d
-		sub	a, c
-		inc	a
-		ld	c, a                    ; c = rows
-		ld	d, #0
-		pop	hl
-		add	hl, de                  ; hl = the first cell under the box
-	00010$:
-		push	hl
-		push	bc
-	00020$:
-		ld	a, (hl)
-		or	a
-		jr	nz, 00090$
-		inc	hl
-		djnz	00020$
-		pop	bc
-		pop	hl
-		ld	de, #CELLS_W
-		add	hl, de
-		dec	c
-		jr	nz, 00010$
-		xor	a
-		ret
-	00090$:
-		pop	bc
-		pop	hl
-		ld	a, #1
-		ret
-	__endasm;
-}
+// Cells_Blocked (move.c, below 8000h: banked code calls it) tests the cells.
 
 static bool Blocked(i16 x, i16 y)
 {
@@ -501,6 +400,18 @@ static i16 Decay(i16 v)
 	return 0;
 }
 
+// A tick walked: the walk's count, and the gait it shows.
+static void Stride()
+{
+	g_ValeWalk++;
+	if (++g_ValeGaitTick >= PLAYER_WALK_TICKS_PER_FRAME)
+	{
+		g_ValeGaitTick = 0;
+		if (++g_ValeGait >= PLAYER_GAIT)
+			g_ValeGait = 0;
+	}
+}
+
 static void Move(u8 keys)
 {
 	i8 dx = ((keys & VALE_RIGHT) ? 1 : 0) - ((keys & VALE_LEFT) ? 1 : 0);
@@ -545,20 +456,12 @@ static void Move(u8 keys)
 	g_ValeX = Resolve(g_ValeX, s_LevelX < 0 ? -speedX : speedX, py, TRUE);
 	g_ValeY = Resolve(g_ValeY, s_LevelY < 0 ? -speedY : speedY, FP_PX(g_ValeX), FALSE);
 	if (g_ValeX != oldX || g_ValeY != oldY)
-	{
-		g_ValeWalk++;
-		if (++s_GaitTick >= PLAYER_WALK_TICKS_PER_FRAME)
-		{
-			s_GaitTick = 0;
-			if (++s_Gait >= PLAYER_GAIT)
-				s_Gait = 0;
-		}
-	}
+		Stride();
 	else
 	{
 		g_ValeWalk = 0;
-		s_GaitTick = 0;
-		s_Gait = 0;
+		g_ValeGaitTick = 0;
+		g_ValeGait = 0;
 	}
 }
 
@@ -585,6 +488,8 @@ static bool UpdateRoom()
 	// the next ticks are frozen.
 	g_ValeFreeze = g_ValeOpen ? 0 : TRANSITION_FREEZE_TICKS;
 	EnterRoom(room);
+	if (g_QuestOn)
+		QUEST(Wulf_Notice);   // wulfEntersRoom: the original's only notices
 	return TRUE;
 }
 
@@ -643,36 +548,24 @@ static void Looks()
 	g_ValeBlade = (i8)(g_ValeFacing * BLADE_POSES + (thrust ? BLADE_GUARDS : 0) + s_FencePose);
 }
 
-bool Vale_Kill()
-{
-	if (g_ValeMode != MODE_ALIVE || g_ValeInvuln > 0)
-		return FALSE;
-	g_ValeMode = MODE_DYING;
-	g_ValeModeTick = 0;
-	g_ValeSwing = -1;
-	g_ValeCooldown = 0;
-	g_ValeWalk = 0;
-	s_GaitTick = 0;
-	s_Gait = 0;
-	g_ValeFreeze = 0;
-	g_SabreW = 0;
-	g_SabreH = 0;
-	return TRUE;
-}
+// Vale_Kill is banked code (jungle.c): only the creatures kill him.
 
 // Simulation.respawn and getUp: a life from the reserve, none left and the
 // game is over; up where he fell, nudged to the nearest spot he can walk to
 // that keeps him wholly on screen (spawn.c).
 static void Respawn()
 {
-	if (g_ValeLives == 0)
+	if (!g_ValeEndless)
 	{
-		g_ValeMode = MODE_GAME_OVER;
-		g_ValeModeTick = 0;
-		return;
+		if (g_ValeLives == 0)
+		{
+			g_ValeMode = MODE_GAME_OVER;
+			g_ValeModeTick = 0;
+			return;
+		}
+		g_ValeLives--;
 	}
-	g_ValeLives--;
-	Spawn_NearestFree(&g_ValeX, &g_ValeY);
+	SPAWN(Spawn_NearestFree);
 	g_ValeMode = MODE_ALIVE;
 	g_ValeModeTick = 0;
 	g_ValeInvuln = PLAYER_SPAWN_INVULN_TICKS;
@@ -681,12 +574,71 @@ static void Respawn()
 	s_LevelX = 0;
 	s_LevelY = 0;
 	if (g_JungleOn)
-		Jungle_GetUp();
+		JUNGLE(Jungle_GetUp);
+	if (g_QuestOn)
+	{
+		QUEST(Wulf_GetUp);
+		QUEST(Quest_EnterRoom);   // the guardian back on its ring
+	}
+}
+
+// Simulation.stepEscape: control locked, he walks up into the arch's mouth,
+// then the game is won.
+static void Escape()
+{
+	g_ValeModeTick++;
+	g_ValeFacing = FACE_N;
+	Stride();
+	i32 d = ((i32)(g_RoomX + EXIT_ZONE_X + EXIT_ZONE_W / 2) << FIXED_SHIFT) - g_ValeX;
+	i32 step = d < 0 ? -d : d;
+	if (step > PLAYER_SPEED_X_FP)
+		step = PLAYER_SPEED_X_FP;
+	g_ValeX += d < 0 ? -step : step;
+	g_ValeY -= PLAYER_SPEED_Y_FP;   // no collision: the arch is the way out
+	if (g_ValeModeTick >= ESCAPE_WALK_TICKS)
+	{
+		g_ValeMode = MODE_WON;
+		g_ValeModeTick = 0;
+	}
+}
+
+// The guardians' clock (quest.h), a tick on: GuardOrbit.ringPoint's index
+// into the sine table, tick * 256 / ORBIT_TICKS_PER_REV mod 256, counted.
+#if ORBIT_TICKS_PER_REV > 256
+#error "the orbit's clock takes a turn of 256 ticks at most"
+#endif
+u8 g_OrbitTick = 0;
+u8 g_OrbitIndex = 0;
+u8 g_OrbitRem = 0;
+
+void Quest_ClockReset()
+{
+	g_OrbitTick = 0;
+	g_OrbitIndex = 0;
+	g_OrbitRem = 0;
+}
+
+void Quest_Clock()
+{
+	if (++g_OrbitTick == ORBIT_TICKS_PER_REV)
+	{
+		Quest_ClockReset();
+		return;
+	}
+	u16 rem = g_OrbitRem + 256 % ORBIT_TICKS_PER_REV;
+	g_OrbitIndex += 256 / ORBIT_TICKS_PER_REV;
+	if (rem >= ORBIT_TICKS_PER_REV)
+	{
+		rem -= ORBIT_TICKS_PER_REV;
+		g_OrbitIndex++;
+	}
+	g_OrbitRem = (u8)rem;
 }
 
 bool Vale_Tick(u8 keys)
 {
 	g_SimTick++;
+	Quest_Clock();
 	NextTick();
 	switch (g_ValeMode)
 	{
@@ -698,9 +650,11 @@ bool Vale_Tick(u8 keys)
 		// §11.7: the jungle carries on around him.
 		if (g_JungleOn)
 		{
-			Jungle_TickCreatures();
-			Jungle_TickBeasts();
+			JUNGLE(Jungle_TickCreatures);
+			JUNGLE(Jungle_TickBeasts);
 		}
+		if (g_QuestOn)
+			QUEST(Wulf_Prowl);   // prowlWhileDown
 		if (++g_ValeModeTick >= PLAYER_DEATH_ANIM_TICKS)
 		{
 			g_ValeMode = MODE_DOWN;
@@ -711,11 +665,20 @@ bool Vale_Tick(u8 keys)
 	case MODE_DOWN:
 		if (g_JungleOn)
 		{
-			Jungle_TickCreatures();
-			Jungle_TickBeasts();
+			JUNGLE(Jungle_TickCreatures);
+			JUNGLE(Jungle_TickBeasts);
 		}
+		if (g_QuestOn)
+			QUEST(Wulf_Prowl);
 		if (++g_ValeModeTick >= PLAYER_DEATH_FREEZE_TICKS)
 			Respawn();
+		Looks();
+		return FALSE;
+	case MODE_ESCAPING:
+		Escape();
+		Looks();
+		return FALSE;
+	case MODE_WON:
 		Looks();
 		return FALSE;
 	}
@@ -739,11 +702,17 @@ bool Vale_Tick(u8 keys)
 	ComputeSabre();
 	if (g_JungleOn)
 	{
-		Jungle_TickCreatures();
-		Jungle_TickSwarm();
-		Jungle_TickBeasts();
-		Jungle_Combat();
+		JUNGLE(Jungle_TickCreatures);
+		JUNGLE(Jungle_TickSwarm);
+		JUNGLE(Jungle_TickBeasts);
 	}
+	if (g_QuestOn)
+	{
+		QUEST(Wulf_Prowl);
+		QUEST(Quest_Tick);
+	}
+	if (g_JungleOn)
+		JUNGLE(Jungle_Combat);
 	Looks();
 	return FALSE;
 }
@@ -759,16 +728,16 @@ u8 Vale_Frame()
 		u8 f = g_ValeModeTick / PLAYER_DIE_TICKS_PER_FRAME;
 		return PLAYER_FRAME_DIE + (f < PLAYER_DIE_FRAMES ? f : PLAYER_DIE_FRAMES - 1);
 	}
-	if (g_ValeMode != MODE_ALIVE)
+	if (g_ValeMode == MODE_DOWN || g_ValeMode == MODE_GAME_OVER)
 		return PLAYER_FRAME_DIE + PLAYER_DIE_FRAMES - 1;
 	i8 dx = c_FaceDX[g_ValeFacing];
 	u8 f = dx > 0 ? PLAYER_VIEW_SIDE * PLAYER_FRAMES_PER_VIEW
 		: dx < 0 ? PLAYER_VIEW_SIDE_L * PLAYER_FRAMES_PER_VIEW
 		: c_FaceDY[g_ValeFacing] < 0 ? PLAYER_VIEW_UP * PLAYER_FRAMES_PER_VIEW : PLAYER_VIEW_DOWN * PLAYER_FRAMES_PER_VIEW;
 	if (g_ValeSwing < 0)
-		return f + s_Gait;
+		return f + g_ValeGait;
 	u8 pose = s_Pose[(u8)g_ValeSwing];
 	if (g_ValeWalk > 0)
-		return f + PLAYER_FRAME_POSE_GAIT + pose * PLAYER_GAIT + s_Gait;   // the pose on walking legs
+		return f + PLAYER_FRAME_POSE_GAIT + pose * PLAYER_GAIT + g_ValeGait;   // the pose on walking legs
 	return f + PLAYER_FRAME_POSE + pose;
 }

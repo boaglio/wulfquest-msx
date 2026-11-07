@@ -35,19 +35,18 @@ proc record {} {
     puts -nonewline $::bin [debug read_block VRAM [expr {$page * 32768}] 27136]
 }
 
-# Wait for drawing number $::want, record it, and ask for the next room.
+# Wait for drawing number $::want, record it, and ask for the next room. F5
+# is held until the ROM has drawn the room it asked for, then let go long
+# enough for the ROM to see it up: with the live jungle (M6, M7) a frame can
+# take longer than a fixed press, and a respawn stops the game for a while.
 proc poll {} {
     if {[count] >= $::want} {
+        keymatrixup 7 0x02
         record
         if {$::want == 257} { finish ok }
         incr ::want
-        set ::deadline [expr {[machine_info time] + 5}]
-        # The key went up while the ROM was drawing; it reads keys once a
-        # frame, so let it see the key up before the next press.
-        after time 0.06 { step {
-            keymatrixdown 7 0x02
-            after time 0.06 { step { keymatrixup 7 0x02; after time 0.02 { step poll } } }
-        } }
+        set ::deadline [expr {[machine_info time] + 8}]
+        after time 0.3 { step { keymatrixdown 7 0x02; poll } }
     } elseif {[machine_info time] > $::deadline} {
         finish "timeout waiting for drawing $::want"
     } else {

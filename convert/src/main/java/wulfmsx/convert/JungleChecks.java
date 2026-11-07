@@ -7,7 +7,9 @@ import wulf.engine.Fixed;
 import wulf.sim.Beast;
 import wulf.sim.Creature;
 import wulf.sim.Player;
+import wulf.sim.Quest;
 import wulf.sim.Simulation;
+import wulf.sim.Wulf;
 import wulf.world.WorldGrid;
 
 /**
@@ -34,6 +36,8 @@ final class JungleChecks {
     private static final Field VX = field(Beast.class, "vxFp");
     private static final Field VY = field(Beast.class, "vyFp");
     private static final Field PAUSE = field(Beast.class, "pauseTicks");
+    private static final Field WULF_SPEED = field(Wulf.class, "speedFp");
+    private static final Field WULF_HERE = field(Wulf.class, "here");
 
     private JungleChecks() {
     }
@@ -77,12 +81,52 @@ final class JungleChecks {
         return sb.toString();
     }
 
+    /**
+     * The quest and the Wulf (M7): {@code Q SET SLOTS TAKEN LAIR FLASH FLY KEEPER_HERE KEEPER_STATE
+     * KEEPER_X KEEPER_MOVE}, then the guardian ({@code G X_FP Y_FP PHASE TIMER AUX FACE HURT MOVE},
+     * or {@code G -} out of a lair), then the Wulf ({@code W STATE STATE_TICK AT HEADING SPEED LATCH
+     * HERE X_FP Y_FP MOVE}).
+     */
+    static String questLine(Simulation sim) {
+        Quest q = sim.quest();
+        int taken = 0;
+        for (int i = 0; i < sim.landmarks().lairs().size(); i++) {
+            taken |= q.taken(i) ? 1 << i : 0;
+        }
+        StringBuilder sb = new StringBuilder("Q ");
+        sb.append(sim.landmarks().amuletSet()).append(' ').append(q.slotMask()).append(' ').append(taken).append(' ')
+                .append(q.lair()).append(' ').append(q.pickupFlash()).append(' ').append(q.flyTicks()).append(' ')
+                .append(q.keeperHere() ? 1 : 0).append(' ').append(q.keeperState().ordinal()).append(' ')
+                .append(q.keeperHere() ? String.valueOf(q.keeper().xFp()) : "-").append(' ')
+                .append(q.keeper().moveTicks());
+        if (q.inLair()) {
+            Creature g = q.guardian();
+            sb.append(" G ").append(g.xFp()).append(' ').append(g.yFp()).append(' ').append(g.phase()).append(' ')
+                    .append(g.timer()).append(' ').append(g.aux()).append(' ').append(g.faceX()).append(' ')
+                    .append(g.hurtTicks()).append(' ').append(g.moveTicks());
+        } else {
+            sb.append(" G -");
+        }
+        Wulf w = sim.wulf();
+        boolean here;
+        try {
+            here = WULF_HERE.getBoolean(w);
+        } catch (IllegalAccessException e) {
+            throw new IllegalStateException(e);
+        }
+        sb.append(" W ").append(w.state().ordinal()).append(' ').append(w.stateTick()).append(' ')
+                .append(w.at().index()).append(' ').append(w.heading()).append(' ').append(get(WULF_SPEED, w))
+                .append(' ').append(w.latch().ordinal()).append(' ').append(here ? 1 : 0).append(' ')
+                .append(w.body().xFp()).append(' ').append(w.body().yFp()).append(' ').append(w.body().moveTicks());
+        return sb.toString();
+    }
+
     /** Plays the scenario in the Java game and fails unless its check shows. */
     static void hold(Content c, WorldGrid grid, MoveTraces.Scenario s) {
         if (s.check().equals("-")) {
             return;
         }
-        Simulation sim = MoveTraces.simulation(c, grid, false, s.xFp(), s.yFp(), s.seed());
+        Simulation sim = MoveTraces.simulation(c, grid, s);
         boolean fireWas = false;
         int deaths = 0;
         boolean shown = false;
@@ -146,8 +190,16 @@ final class JungleChecks {
                     }
                 }
                 case "game-over" -> shown |= p.mode() == Player.Mode.GAME_OVER;
+                case "wulf-sits" -> shown |= sim.wulf().state() == Wulf.State.SITTING;
+                case "guardian-parry" -> shown |= sim.quest().inLair()
+                        && sim.quest().guardian().aux() == c.questRules().orbit().stunTicks();
+                case "win" -> shown |= p.mode() == Player.Mode.WON;
                 default -> {
-                    if (s.check().startsWith("deaths:")) {
+                    if (s.check().startsWith("set:")) {
+                        shown = sim.landmarks().amuletSet() == Integer.parseInt(s.check().substring("set:".length()));
+                    } else if (s.check().startsWith("pieces:")) {
+                        shown = sim.quest().piecesHeld() >= Integer.parseInt(s.check().substring("pieces:".length()));
+                    } else if (s.check().startsWith("deaths:")) {
                         shown = deaths >= Integer.parseInt(s.check().substring("deaths:".length()));
                     } else {
                         throw new ConvertException(s.name() + ": no check '" + s.check() + "'");

@@ -50,13 +50,15 @@ def read(path):
         if f[0] == "scenario":
             name = f[1]
             order.append(name)
-            scenarios[name] = [[], None, [], []]
+            scenarios[name] = [[], None, [], [], []]
         elif f[0] == "busiest":
             busiest[f[1]] = (int(f[2]), int(f[3]))
         elif f[0] == "flip":
             scenarios[name][2].append(tuple(map(int, f[1:])))
         elif f[0] == "J":
             scenarios[name][3].append(" ".join(f))
+        elif f[0] == "Q":
+            scenarios[name][4].append(" ".join(f))
         elif f[0] == "end":
             if len(f) == 8 and f[1] == name:
                 scenarios[name][1] = tuple(map(int, f[2:]))
@@ -75,7 +77,7 @@ def read_plan(path):
     plan = {}
     lines = open(path, encoding="utf-8").read().split("\n")
     for head, keys in zip(lines[0::2], lines[1::2]):
-        _, name, room, open_, x, y, check, seed = head.split()
+        _, name, room, open_, x, y, check, seed, quest, endless = head.split()
         plan[name] = {"open": open_ == "1", "check": check, "keys": list(map(int, keys.split()[1:]))}
     return plan
 
@@ -109,9 +111,22 @@ def main(dump, expected_path, plan_path, constants_h, hz, rooms_expected, gen):
         if name not in got:
             problems.append(f"{name}: not played")
             continue
-        g, end, flips, gj = got[name]
+        g, end, flips, gj, gq = got[name]
         w = want[name][0]
         wj = want[name][3]
+        wq = want[name][4]
+        if wq:
+            # The quest and the Wulf: every tick's line equal to the Java game's.
+            if len(gq) != len(wq):
+                problems.append(f"{name}: {len(gq)} quest lines recorded, the Java game has {len(wq)}")
+            for t, (a, b) in enumerate(zip(gq, wq)):
+                if a != b:
+                    problems.append(f"{name}: the quest differs from the Java game's after tick {t + 1}:\n"
+                                    f"    MSX2 {a[:300]}\n    Java {b[:300]}")
+                    break
+            last = wq[-1].split()
+            notes.append(f"{name}: amulet set {last[1]}, quarters {bin(int(last[2])).count('1')}"
+                         + (", won" if wj and wj[-1].split()[1] == "5" else ""))
         if wj:
             # The jungle: every tick's line equal to the Java game's.
             if len(gj) != len(wj):
@@ -204,9 +219,16 @@ def main(dump, expected_path, plan_path, constants_h, hz, rooms_expected, gen):
             sx = (x[t] >> 8) - (r % grid_w) * c["PLAYFIELD_W"] - c["PLAYER_ORIGIN_X"]
             sy = (y[t] >> 8) - (r // grid_w) * c["PLAYFIELD_H"] - c["PLAYER_ORIGIN_Y"]
             want_px = gen_sprites.clip(gen_sprites.vale(g_frame[t], g_blade[t], sx, sy))
+            if wj:
+                # PlayerPainter.visible: after a death he blinks, half a period shown.
+                jf = wj[t].split()
+                mode, invuln, period = int(jf[1]), int(jf[4]), c["PLAYER_SPAWN_BLINK_TICKS"]
+                if mode == 0 and invuln > 0 and invuln % period >= (period + 1) // 2:
+                    want_px = {}
             got_px = vdp_sprites.render(spr[:128], spr[128:640], spr[640:], lines=c["PLAYFIELD_H"])
             if wj:
-                # With the jungle, other sprites too: Vale's must all be there, in front.
+                # With the jungle, other sprites too: Vale's must all be there, in front
+                # (blinked out, none to look for).
                 got_px = {k: v for k, v in got_px.items() if k in want_px}
             if got_px != want_px:
                 right = len(set(got_px.items()) & set(want_px.items()))

@@ -21,6 +21,8 @@
 #include "jungle_data.h"
 #include "tables.h"
 #include "move.h"
+#include "quest.h"
+#include "quest_data.h"
 
 #define ONE			(1 << FIXED_SHIFT)
 #define FIXED(px)	((i32)(px) << FIXED_SHIFT)
@@ -67,8 +69,28 @@ u8 g_SwarmQuiet = 0;
 static void SetKind(u8 b, u8 k);
 static u8 s_Role[BEASTS];   // each beast's behaviour: BEAST_RHINO, BEAST_TRIBESMAN, BEAST_SLEEPER
 
-// The amulet's quarters held (M7); the swarm's kinds open with them.
-static u8 s_Quarters = 0;
+u8  g_BHint[BEASTS];        // a tribesman level with a quarter, lit up (M7)
+
+//-----------------------------------------------------------------------------
+// Simulation.kill (vale.c's state; here, as only banked code kills him): ignored
+// while he is invulnerable or already down.
+
+bool Vale_Kill()
+{
+	if (g_ValeMode != MODE_ALIVE || g_ValeInvuln > 0)
+		return FALSE;
+	g_ValeMode = MODE_DYING;
+	g_ValeModeTick = 0;
+	g_ValeSwing = -1;
+	g_ValeCooldown = 0;
+	g_ValeWalk = 0;
+	g_ValeGaitTick = 0;
+	g_ValeGait = 0;
+	g_ValeFreeze = 0;
+	g_SabreW = 0;
+	g_SabreH = 0;
+	return TRUE;
+}
 
 //-----------------------------------------------------------------------------
 // Small helpers
@@ -255,7 +277,9 @@ static void MoveCreature()
 static i16 DartSpeed()
 {
 	u8 s = s_S;
-	i16 v = P_SPEED_MIN[s] + P_SPEED_STEP[s] * (i16)Rng_Next((u16)P_SPEED_STEPS[s]);
+	i16 v = P_SPEED_MIN[s];
+	for (u16 n = Rng_Next((u16)P_SPEED_STEPS[s]); n; n--)
+		v += P_SPEED_STEP[s];   // no multiplication: banked code has no SDCC library
 	return Rng_Next(2) == 0 ? -v : v;
 }
 
@@ -435,7 +459,7 @@ void Jungle_TickSwarm()
 	i16 lx = SWARM_AREA_X + (i16)Rng_Next(SWARM_AREA_W);
 	i16 ly = SWARM_AREA_Y + (i16)Rng_Next(SWARM_AREA_H);
 	u8 roll = (u8)Rng_Next(SWARM_PICKS);
-	u8 index = g_SwarmPick[roll < SWARM_PICK_OPEN + SWARM_PICK_OPEN_PER_QUARTER * s_Quarters ? roll
+	u8 index = g_SwarmPick[roll < SWARM_PICK_OPEN + SWARM_PICK_OPEN_PER_QUARTER * Quest_Quarters() ? roll
 		: roll % SWARM_PICK_FOLD];
 	u8 tint = g_SwarmTint[Rng_Next(SWARM_TINTS)];
 	i16 x = g_RoomX + lx;
@@ -523,6 +547,7 @@ void Jungle_GetUp()
 #define P_WALK_FAST	g_BeastP3
 #define P_CHARGE	g_BeastP4
 #define P_WAKE		g_BeastP5
+#define P_HINT		g_BeastP6
 
 enum { TOUCH_NONE, TOUCH_STRUCK, TOUCH_HIT };
 
@@ -536,11 +561,12 @@ void Jungle_NewGame()
 		g_Beast[b].X = FIXED(g_PlaceX[b]);
 		g_Beast[b].Y = FIXED(g_PlaceY[b]);
 		i16 speed = g_BeastKind[k] == BEAST_RHINO ? P_PACE[k] : g_BeastKind[k] == BEAST_SLEEPER ? P_CHARGE[k] : 0;
-		g_Beast[b].VX = g_PlaceHeading[b] * speed;
+		g_Beast[b].VX = g_PlaceHeading[b] < 0 ? -speed : g_PlaceHeading[b] > 0 ? speed : 0;
 		g_Beast[b].VY = 0;
 		g_BFace[b] = g_PlaceHeading[b] < 0 ? -1 : 1;
 		g_BAsleep[b] = g_PlaceAsleep[b];
 		g_BPause[b] = 0;
+		g_BHint[b] = 0;
 		g_Beast[b].MoveTicks = 0;
 		g_Beast[b].Blocked[0] = 0xFF;   // no strip found blocked yet
 		s_Role[b] = g_BeastKind[k];
@@ -551,7 +577,6 @@ void Jungle_NewGame()
 	g_AwayN = 0;
 	g_SwarmQuiet = 0;
 	s_NextId = 0;
-	s_Quarters = 0;
 }
 
 static i16 BeastCentreX(u8 b)
@@ -603,7 +628,7 @@ static void Shove(u8 b, i16 speed)
 {
 	i8 dx = g_ValeFacing == FACE_N || g_ValeFacing == FACE_S ? 0 : g_ValeFacing >= FACE_SW ? -1 : 1;
 	i8 dir = dx != 0 ? dx : BeastCentreX(b) < ValeCentreX() ? -1 : 1;
-	g_Beast[b].VX = dir * speed;
+	g_Beast[b].VX = dir < 0 ? -speed : speed;
 	g_BFace[b] = dir;
 }
 
@@ -675,7 +700,7 @@ void Jungle_Rhino()
 	u8 k = g_BKind[b];
 	if (!s_BMoved)
 	{
-		g_Beast[b].VX = (g_Beast[b].VX < 0 ? -1 : 1) * P_PACE[k];
+		g_Beast[b].VX = g_Beast[b].VX < 0 ? -P_PACE[k] : P_PACE[k];
 		TurnAbout(b);
 	}
 	switch (TouchBeast(b))
@@ -688,6 +713,29 @@ void Jungle_Rhino()
 		TurnAbout(b);
 		break;
 	}
+}
+
+// levelWithAQuarter: on the map column of a quarter still lying and level
+// with it across the room, or on its map row and level with it up and down.
+static bool LevelWithAQuarter(u8 b)
+{
+	u8 at = g_Beast[b].At;
+	i16 bx = FP_PX(g_Beast[b].X) - (i16)(at % GRID_W) * PLAYFIELD_W;
+	i16 by = FP_PX(g_Beast[b].Y) - (i16)(at / GRID_W) * PLAYFIELD_H;
+	i16 hint = P_HINT[g_BKind[b]];
+	u8 k = g_QuestSet * LAIRS;
+	for (u8 i = 0; i < LAIRS; i++, k++)
+	{
+		if (g_QuestTaken & (1 << i))
+			continue;
+		u8 room = g_LairRoom[k];
+		i16 dx = g_LairPedX[k] - bx;
+		i16 dy = g_LairPedY[k] - by;
+		if ((room % GRID_W == at % GRID_W && (dx < 0 ? -dx : dx) < hint)
+			|| (room / GRID_W == at / GRID_W && (dy < 0 ? -dy : dy) < hint))
+			return TRUE;
+	}
+	return FALSE;
 }
 
 // A tribesman after his step: still, he sets off another way; and his touch.
@@ -709,7 +757,8 @@ void Jungle_TribesmanAfter()
 		if (t == TOUCH_HIT)
 			Vale_Kill();
 	}
-	// Level with a quarter, he calls: the quest's (M7).
+	// Level with a quarter still lying, he lights up and calls (the call is M9's).
+	g_BHint[b] = g_QuestOn && g_Beast[b].At == g_ValeRoom && LevelWithAQuarter(b);
 }
 
 // A tribesman's whole tick: following him, the step, the rest.
@@ -923,9 +972,20 @@ void Jungle_Combat()
 					g_CHurt[i] = CREATURE_HURT_FLASH_TICKS;
 			}
 		}
+		if (g_QuestOn)
+			QUEST(Quest_Parry);   // the original's Wulf is not pushed; the guardian is
 	}
 	if (g_ValeMode != MODE_ALIVE || g_ValeInvuln > 0)
 		return;
+	if (g_QuestOn)
+	{
+		QUEST(Quest_Touch);   // the guardian, the Keeper, the Wulf
+		if (g_QuestHit)
+		{
+			Vale_Kill();
+			return;
+		}
+	}
 	ValeBox();
 	for (u8 k = 0; k < g_HereN; k++)
 	{

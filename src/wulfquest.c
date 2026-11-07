@@ -39,6 +39,8 @@
 #include "sprite_bank.h"
 #include "blade.h"
 #include "tables.h"
+#include "quest.h"
+#include "quest_data.h"
 
 // MSXgl's start-up does not clear RAM: a global with no initial value starts
 // as whatever the RAM held. So every one here has one.
@@ -261,12 +263,23 @@ i16 g_TestSpriteY[SPR_SMALL + SPR_BIG];
 // game's long, little-endian); without it, the empty jungle.
 u8  g_TestJungle = 0;
 u8  g_TestSeed[8];
+// M7: with g_TestQuest too, the quest and the Wulf; g_TestEndless, deaths
+// without using up lives (the Java game's infiniteLives).
+u8  g_TestQuest = 0;
+u8  g_TestEndless = 0;
 
 static i8 s_BladeShape[2] = { -1, -1 };
 static bool s_Loaded = FALSE;   // DrawSprites loaded a frame or a shape this frame
 // The frame each slot from SLOT_SMALL on holds, and the tint it is in.
 static u8 s_SlotFrame[2][SPR_SMALL + SPR_BIG];
 static u8 s_SlotTint[2][SPR_SMALL + SPR_BIG];
+// The frame and tint whose colours the manager's colour buffer holds for each
+// slot (sprites.c's s_Colour, one for both sets): a set's colour table is
+// rewritten from it when a sprite's look changes (the early clock, the clip),
+// so it must hold that set's frame, not the other set's.
+static u8 s_BufFrame[SPR_SMALL + SPR_BIG];
+static u8 s_BufTint[SPR_SMALL + SPR_BIG];
+static u8 s_ValeBuf = 0xFF;
 
 // Show bank frame f, in tint (0: its own colours; a silhouette takes the
 // tint), its feet at (x, y) on the screen, in slot SLOT_SMALL + n.
@@ -274,7 +287,7 @@ static void PutFrame(u8 n, u8 f, u8 tint, i16 x, i16 y)
 {
 	u8 slot = SLOT_SMALL + n;
 	u8 set = Sprites_Back();
-	if (f != s_SlotFrame[set][n] || tint != s_SlotTint[set][n])
+	if (f != s_SlotFrame[set][n] || tint != s_SlotTint[set][n] || f != s_BufFrame[n] || tint != s_BufTint[n])
 	{
 		s_Loaded = TRUE;
 		u8* c = Sprites_Colours(slot);
@@ -290,6 +303,8 @@ static void PutFrame(u8 n, u8 f, u8 tint, i16 x, i16 y)
 		Sprites_Changed(slot);
 		s_SlotFrame[set][n] = f;
 		s_SlotTint[set][n] = tint;
+		s_BufFrame[n] = f;
+		s_BufTint[n] = tint;
 	}
 	Sprites_Put(slot, x - g_SpriteOriginX[f], y - g_SpriteOriginY[f]);
 }
@@ -358,9 +373,50 @@ static u8 WalkPhase() __naked
 // by their feet; put here front to back, after Vale.
 static u8 s_Order[CREATURE_POOL];
 
-static void DrawJungle()
+// The quest's big ones, front to back as the Java game paints them back to
+// front: the Wulf, the Keeper, the guardian. n: the big slots used.
+static u8 DrawQuest()
 {
 	u8 n = 0;
+	if (g_WulfState >= WULF_PROWLING && g_WulfHere)
+	{
+		u8 f;
+		if (g_WulfState == WULF_SITTING)
+			f = g_WulfHeading < 0 ? WULF_FRAME_HOWL_L : WULF_FRAME_HOWL;
+		else
+		{
+			s_Clock = g_WulfMoveTicks;
+			u8 v = s_Clock ? WalkPhase() : 0;
+			f = g_WulfHeading < 0 ? (v ? WULF_FRAME_WALK1_L : WULF_FRAME_WALK0_L)
+				: (v ? WULF_FRAME_WALK1 : WULF_FRAME_WALK0);
+		}
+		PutFrame(SPR_SMALL + n++, f, 0, FP_PX(g_WulfX) - s_RoomX, FP_PX(g_WulfY) - s_RoomY);
+	}
+	if (g_KeeperHere)
+	{
+		u8 f = KEEPER_FRAME_STAND;
+		if (g_KeeperState == KEEPER_ASIDE)
+			f = KEEPER_FRAME_ASIDE;
+		else if (g_KeeperState == KEEPER_STEPPING_ASIDE)
+		{
+			s_Clock = g_KeeperMoveTicks;
+			f = WalkPhase() ? KEEPER_FRAME_STEP1 : KEEPER_FRAME_STEP0;
+		}
+		PutFrame(SPR_SMALL + n++, f, 0, FP_PX(g_KeeperX) - s_RoomX, FP_PX(g_KeeperY) - s_RoomY);
+	}
+	if (g_QuestLair >= 0)
+	{
+		s_Clock = g_GuardMoveTicks;
+		u8 v = s_Clock ? WalkPhase() : 0;
+		PutFrame(SPR_SMALL + n++, g_GuardFrame[g_QuestLair * 4 + v + (g_GuardFace < 0 ? 2 : 0)], 0,
+			FP_PX(g_GuardX) - s_RoomX, FP_PX(g_GuardY) - s_RoomY);
+	}
+	return n;
+}
+
+static void DrawJungle()
+{
+	u8 n = g_QuestOn ? DrawQuest() : 0;
 	for (i8 b = BEASTS - 1; b >= 0 && n < SPR_BIG; b--)
 	{
 		if (g_Beast[b].At != g_ValeRoom)
@@ -416,6 +472,12 @@ static void DrawJungle()
 		}
 		PutFrame(k, f, tint, FP_PX(g_CX[i]) - s_RoomX, FP_PX(g_CY[i]) - s_RoomY);
 	}
+	// The quarter on its pedestal, under the creatures (loot before creatures).
+	if (g_QuestOn && g_QuestLair >= 0 && !(g_QuestTaken & (1 << g_QuestLair)) && m < SPR_SMALL)
+	{
+		u8 k = g_QuestSet * LAIRS + g_QuestLair;
+		PutFrame(m, g_PieceFrame[g_QuestLair], 0, g_LairPedX[k], g_LairPedY[k]);
+	}
 }
 
 // Vale (four layered sprites, PlayerPainter's frame), his blade out of his
@@ -436,15 +498,16 @@ static void DrawSprites()
 	}
 	s_Loaded = FALSE;
 	u8 set = Sprites_Back();
-	if (f != s_ValeFrame[set])
+	if (f != s_ValeFrame[set] || f != s_ValeBuf)
 	{
 		s_Loaded = TRUE;
 		Data_LoadValeFrame(f, g_SpritePatternHigh, Sprites_PatternAddress(SLOT_VALE), Sprites_Colours(SLOT_VALE));
 		Sprites_Changed(SLOT_VALE);
 		s_ValeFrame[set] = f;
+		s_ValeBuf = f;
 	}
 	Sprites_Begin();
-	if (blade < 0 || g_PlayerHand[f * 2] < 0)
+	if (blade < 0 || g_PlayerHand[f * 2] < 0 || (!g_TestGallery && !g_ValeVisible))   // blinked out: no blade either
 		Sprites_Put(SLOT_BLADE, -128, -128);   // off the screen: held below it
 	else
 	{
@@ -498,6 +561,8 @@ static void SpritesInit()
 			s_SlotFrame[set][i] = 0xFF;
 			s_SlotTint[set][i] = 0;
 		}
+		s_BufFrame[i] = 0xFF;
+		s_BufTint[i] = 0;
 	}
 }
 
@@ -526,8 +591,10 @@ void main()
 	g_TestSeed[0] = (u8)g_JIFFY;
 	g_TestSeed[1] = (u8)(g_JIFFY >> 8);
 	Rng_Seed(g_TestSeed);
-	Jungle_NewGame();
+	JUNGLE(Jungle_NewGame);
 	g_JungleOn = 1;
+	g_QuestOn = 1;
+	QUEST(Quest_NewGame);
 	EnterRoom(PLAYER_START_X_FP, PLAYER_START_Y_FP);
 
 	bool f5 = FALSE;
@@ -579,10 +646,14 @@ void main()
 			g_TestMode = 1;
 			g_ValeOpen = g_TestOpen;
 			g_JungleOn = g_TestJungle;
+			g_QuestOn = g_TestJungle && g_TestQuest;
+			g_ValeEndless = g_TestEndless;
 			if (g_JungleOn)
 			{
 				Rng_Seed(g_TestSeed);
-				Jungle_NewGame();
+				JUNGLE(Jungle_NewGame);
+				if (g_QuestOn)
+					QUEST(Quest_NewGame);
 			}
 			EnterRoom(g_TestX, g_TestY);
 			g_TestStart = 0;

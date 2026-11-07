@@ -59,8 +59,14 @@ extern u8  g_BKind[];       // index into the kinds (a sleeper changes kind)
 extern i8  g_BFace[];
 extern u8  g_BAsleep[];
 extern u8  g_BPause[];
+extern u8  g_BHint[];        // a tribesman level with a quarter, lit up
 
 extern u8 g_SwarmQuiet;
+
+// Banked code (jungle.c, segment JUNGLE_SEG): call with JUNGLE(fn).
+#include "data.h"
+#define JUNGLE_SEG	24
+#define JUNGLE(fn)	BANKED(JUNGLE_SEG, fn)
 
 // A new game: the beasts where the actor table sets them, no creatures.
 void Jungle_NewGame();
