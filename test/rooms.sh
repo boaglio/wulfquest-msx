@@ -17,8 +17,8 @@ mvn -q -pl convert -am package -DskipTests exec:java@render-rooms > build/test/r
     || { tail -30 build/test/render-rooms.log >&2; echo "rooms.sh: RenderRooms failed" >&2; exit 1; }
 
 sym() { awk -v s="_$1" '$2 == s { print "0x" substr($1, length($1) - 3) }' "$map"; }
-syms="$(sym g_Room) $(sym g_DrawCount) $(sym g_DrawFrames)"
-[[ $(wc -w <<<"$syms") -eq 3 ]] || { echo "rooms.sh: the ROM's counters are not in $map" >&2; exit 1; }
+syms="$(sym g_Room) $(sym g_DrawCount) $(sym g_DrawFrames) $(sym g_Shell) $(sym g_ShellTick)"
+[[ $(wc -w <<<"$syms") -eq 5 ]] || { echo "rooms.sh: the ROM's counters are not in $map" >&2; exit 1; }
 
 out=build/test/rooms-C-BIOS_MSX2_EU
 ROOMS_OUT="$PWD/$out" ROOMS_SYMS="$syms" timeout 300 \

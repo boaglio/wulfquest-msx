@@ -60,6 +60,7 @@ public final class Convert {
         Game game = new Game(c, palette, bank, tables);
         Panel panel = new Panel(c, palette);
         Sound sound = new Sound(c);
+        Shell shell = new Shell(c, palette, SceneryAtlas.VRAM_FIRST_LINE + atlas.lines(), dataDir);
         bank.tables(tables);
         blade.tables(tables);
         vale.tables(tables);
@@ -91,6 +92,9 @@ public final class Convert {
         Gen.write(out.resolve("game_data.h"), game.header());
         Gen.write(out.resolve("panel_data.h"), panel.header());
         Gen.write(out.resolve("sound_data.h"), sound.header());
+        Gen.write(out.resolve("shell_data.h"), shell.header());
+        Gen.write(out.resolve("demo_check.txt"), shell.demoCheck());
+        Gen.write(out.resolve("demo_map.bin"), shell.demoMap());
         Gen.write(out.resolve("tables.h"), tables.header());
         Gen.write(out.resolve("sprites.txt"), sprites.listing());
         Gen.write(out.resolve("sprites.png"), sprites.picture());
@@ -127,6 +131,10 @@ public final class Convert {
             Gen.write(out.resolve(name), sound.blobs().get(i));
             blobs.add(new Budget.Blob(name, sound.blobs().get(i).length));
         }
+        Gen.write(out.resolve("shell.bin"), shell.blob());
+        blobs.add(new Budget.Blob("shell.bin", shell.blob().length));
+        Gen.write(out.resolve("shell_img.bin"), shell.images());
+        blobs.add(new Budget.Blob("shell_img.bin", shell.images().length));
         Gen.write(out.resolve("font.bin"), panel.font());
         blobs.add(new Budget.Blob("font.bin", panel.font().length));
         Gen.write(out.resolve("panel.bin"), panel.panel());
@@ -153,6 +161,8 @@ public final class Convert {
         }
         r.append(String.format("Scenery: %d objects in %d lines of video RAM pages 2-3 (of %d)%n",
                 atlas.slots().size(), atlas.lines(), SceneryAtlas.MAX_LINES));
+        r.append(String.format("Shell: %d images in %d lines of video RAM from line %d; shell.bin %d bytes%n",
+                shell.imageCount(), shell.lines(), shell.vramLine(), shell.blob().length));
         r.append(String.format("Vale: %d frames, %d bytes, 4 sprites each; starts at %d,%d%n",
                 vale.ids().size(), vale.blob().length, vale.startXFp() >> 8, vale.startYFp() >> 8));
         r.append(String.format("Sprite bank: %d frames, %d bytes; blade: %d shapes, %d bytes%n",

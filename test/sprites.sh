@@ -15,7 +15,7 @@ map=build/msxgl/wulfquest.map
 command -v openmsx >/dev/null || { echo "sprites.sh: openMSX is needed" >&2; exit 1; }
 mkdir -p build/test
 
-names="g_DrawCount g_TestGallery g_TestValeFrame g_TestValeBlade g_TestValeX g_TestValeY g_TestCount
+names="g_Shell g_ShellTick g_DrawCount g_TestGallery g_TestValeFrame g_TestValeBlade g_TestValeX g_TestValeY g_TestCount
        g_TestFrame g_TestSpriteX g_TestSpriteY g_SpritesCrowded g_BenchGo g_BenchOp g_BenchW g_BenchH g_FlipDraw g_ShownDraw
        Test_Shown Test_BenchStart Test_BenchEnd"
 syms=""

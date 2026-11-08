@@ -7,7 +7,7 @@
 
 set throttle off
 
-lassign $env(ROOMS_SYMS) a_room a_count a_frames
+lassign $env(ROOMS_SYMS) a_room a_count a_frames a_shell a_tick
 set txt [open $env(ROOMS_OUT).txt w]
 set bin [open $env(ROOMS_OUT).bin w]
 fconfigure $bin -translation binary
@@ -54,5 +54,18 @@ proc poll {} {
     }
 }
 
+proc peek_shell {} { mem $::a_shell }
+proc peek_tick {} { mem $::a_tick }
+# M10: the ROM boots to the title; Space there starts a game, whose room the
+# rest of this script works in.
+proc start_game {} {
+    if {[peek_shell] == 0 && [peek_tick] >= 2} {
+        keymatrixdown 8 0x01
+        after time 0.2 { keymatrixup 8 0x01 }
+        return
+    }
+    after time 0.05 start_game
+}
+after time 4 { step start_game }
 # C-BIOS shows its logo for a few seconds before it starts the cartridge.
 after time 10 { step { set ::deadline [expr {[machine_info time] + 20}]; poll } }   ;# a new game takes seconds to lay out (M8)

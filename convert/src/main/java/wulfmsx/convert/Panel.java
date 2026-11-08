@@ -134,10 +134,8 @@ public final class Panel {
         strings.add("X");
         strings.add("PAUSED");
         strings.add(c.shell().difficulty().panelLabel());
-        strings.add(c.shell().gameOver().text());   // until M10's screens: on the panel's line
-        strings.add(c.shell().tally().heading());
         List<String> names = new ArrayList<>(List.of("STR_SCORE", "STR_HI", "STR_LIVES", "STR_TIMES", "STR_PAUSED",
-                "STR_EASY", "STR_GAME_OVER", "STR_WON"));
+                "STR_EASY"));
         for (int toExit = 0; toExit < 2; toExit++) {
             for (Direction8 d : Direction8.values()) {
                 strings.add(hint(d, toExit == 1));
@@ -155,7 +153,7 @@ public final class Panel {
             at += 1 + b.length;
         }
         h.append("// The hints by Direction8's order, to a quarter, then to the arch (GameSession.hint).\n");
-        h.append("#define STR_HINTS\t").append(String.join(", ", names.subList(8, names.size()))).append('\n');
+        h.append("#define STR_HINTS\t").append(String.join(", ", names.subList(6, names.size()))).append('\n');
         img.writeBytes(str.toByteArray());
         panel = img.toByteArray();
     }

@@ -135,4 +135,17 @@ debug breakpoint create -address $::a(Test_BenchEnd) -command {
     after time 0.1 bench
 }
 
+proc peek_shell {} { peek g_Shell }
+proc peek_tick {} { peek g_ShellTick }
+# M10: the ROM boots to the title; Space there starts a game, whose room the
+# rest of this script works in.
+proc start_game {} {
+    if {[peek_shell] == 0 && [peek_tick] >= 2} {
+        keymatrixdown 8 0x01
+        after time 0.2 { keymatrixup 8 0x01 }
+        return
+    }
+    after time 0.05 start_game
+}
+after time 4 start_game
 after time 120 { finish "timeout at step $::step" }

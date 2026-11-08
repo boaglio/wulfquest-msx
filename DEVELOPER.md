@@ -53,11 +53,13 @@ To play the build:
 ./run.sh -- -ext debugdevice   # anything after -- goes to openMSX
 ```
 
-In the ROM, for now, Ranger Vale walks the whole map in his colours,
-flipping from room to room: the cursor keys or `Q A O P`, or joystick 1, and
-Space or the fire button for the sabre, its blade fencing out of his hand. The panel shows a debug line: his room (col,row) and
-his feet in world pixels. F5 (a debug key) shows the next room by number,
-with Vale standing at the same place in it.
+The ROM boots to the title: Space or fire starts a game (`D` or the options
+switch Hard and Easy), `OPTIONS` has the keys (the cursors, or `Q A O P`),
+the sound and the hi-scores; left alone, the title plays the demo. In the
+jungle: the keys or joystick 1 to walk, Space or fire for the sabre, `M` or
+the second button for the map, `STOP` or `F1` to pause, `ESC` to leave the
+game. Debug keys: F4 puts his room and his feet on the panel's line; F5
+shows the next room by number, with Vale standing at the same place in it.
 
 The default machines are C-BIOS ones, which ship with openMSX. C-BIOS shows
 its logo for a few seconds before the cartridge starts.
@@ -86,6 +88,8 @@ the Java game's `Content.load` and writes `build/gen/`:
 | `ways_N.bin` | the looking glass's way out of each room, for every amulet set and state of the quarters taken (M8, `Wayfinder`) |
 | `frames.bin` | the sprite bank's frames' numbers: where each starts, its chunk, blocks and origin (read on demand: RAM is short) |
 | `panel_data.h`, `font.bin`, `panel.bin` | the panel (M9, `Panel`): the big and small fonts, the half-size quarters and a life's head, the strings (the hints as `GameSession.hint` words them), the colours |
+| `shell_data.h`, `shell.bin`, `shell_img.bin` | the shell (M10, `Shell`): every string its screens show, the hi-score table a new machine has, each room's 16x11 miniature for the map, the attract demo's input; the images it copies from video RAM (page 3, below the scenery: the menu's wolf, the map's marks, the quarters at the reveal's scale, the wordmark's stencils) |
+| `demo_check.txt`, `demo_map.bin` | for `test/shell.sh`: where the Java game's demo ends, and its map screen there, a byte a pixel |
 | `sound_data.h`, `sound50.bin`, `sound60.bin` | the sound (M9, `Sound`): every effect and tune as the PSG's entries a frame, for each interrupt rate; each sound's number, priority, loop |
 | `quest_data.h` | the quest and the Wulf (M7, `Quest`): the amulet's sets, the lairs, the guardians, the Keeper, the way out, the original's Wulf; their tables are in `tables.h` |
 | `sprites.txt`, `sprites.png` | every pixel a sprite shows in another colour than the art's, and pictures of those frames, the art beside the MSX2's; `sprites.json` accepts so many a sprite, and the converter fails past that |
@@ -99,7 +103,8 @@ To run it alone: `mvn -q -pl convert -am package -DskipTests exec:java`.
 
 **Banked code** (AGENTS.md §3). `src/wulfquest_sN_b1.c` is compiled into ROM
 segment N, for bank 1 (8000h): each holds one module (`#include "jungle.c"`),
-whose header names the segment (`JUNGLE_SEG`) and a macro to call into it
+whose header names the segment (`JUNGLE_SEG`; segments 24-28 are the jungle,
+the respawns, the quest, the game and the shell) and a macro to call into it
 (`JUNGLE(Jungle_TickBeasts)`, through `data.c`'s `Bank_Call`). A banked
 function takes no arguments and returns nothing: they go in globals. While
 it runs, segment 1 is not mapped: it may call code below 8000h (`data.c`,
@@ -245,6 +250,15 @@ ignores it, so the submodule stays clean.
 - **`test/panel.sh`** (M9) sets the panel's state in an empty room, case by
   case, and `check_panel.py` compares the panel in video RAM, pixel for
   pixel, with the panel drawn from `font.bin` and `panel.bin`.
+- **`test/shell.sh`** (M10) walks every screen from the title and back, at
+  50 and 60 Hz, with the keys and then with joystick 1 (a breakpoint just
+  after MSXgl's `Joystick_Read` reads the PSG puts the stick's bits in);
+  `check_shell.py` reads each screen's words off it with the ROM's own fonts
+  and wants them to be `shell.bin`'s, the demo to end where the Java game's
+  does, and the map over its game to be the Java game's `MapScreen`, pixel
+  for pixel. Pictures: `build/shots/shell-<machine>-<screen>.png`.
+- **`test/boot.sh`**, **`rooms.sh`** and **`sprites.sh`** start from the title
+  (M10): boot checks it comes first, then each presses Space for a game.
 - **`test/gate.sh`** checks the binaries gate in a scratch repository: it
   passes on text and fails on a ROM, an image, and a binary file with a text
   name.

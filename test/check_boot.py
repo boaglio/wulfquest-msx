@@ -6,7 +6,8 @@
 WANT is 50 or 60 (an MSX2 at that rate) or msx1. For an MSX2 it writes
 SHOT_PREFIX-before.png and -after.png: the screen as the VDP holds it,
 256x212, in the colours it holds, sprites included, before and after F5 (the
-debug key for the next room). And it checks Vale is on screen (M3).
+debug key for the next room), and SHOT_PREFIX-title.png. It checks the title
+comes first (M10), and Vale is on screen (M3).
 """
 import os
 import re
@@ -120,6 +121,16 @@ def main(dump, want, palette_h, shot):
         palette = palette_from_header(palette_h)
         if seen[("before", "palette")] != palette:
             problems.append("the palette is not the game's (build/gen/palette.h)")
+        # M10: the title first, in the game's palette, its wordmark drawn (test/shell.sh reads its words).
+        if ("title", "vram") not in seen:
+            problems.append("no title before the game")
+        else:
+            write_png(f"{shot}-title.png", seen[("title", "vram")], palette)
+            if seen[("title", "palette")] != palette:
+                problems.append("the title's palette is not the game's")
+            tv = seen[("title", "vram")]
+            if not any(b >> 4 not in (0, 15) or b & 15 not in (0, 15) for b in tv[18 * 128:110 * 128]):
+                problems.append("the title has no wordmark")
         before, after = seen[("before", "vram")], seen[("after", "vram")]
         gen = palette_h.rsplit("/", 1)[0]
         for tag in ("before", "after"):

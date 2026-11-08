@@ -1,8 +1,9 @@
 # openMSX script for test/boot.sh (AGENTS.md §10, M0, M2). It does not judge:
 # it writes what the machine shows to $env(BOOT_OUT), and boot.sh checks it.
 #
-#   before   video registers, palette and screen memory once the ROM has started
-#            (and on an MSX2 the first 64 KB of video RAM, for the sprites)
+#   title    the same, once the title is up (M10); then Space starts a game
+#   before   video registers, palette and screen memory as the game's first room is
+#            shown (and on an MSX2 the first 64 KB of video RAM, for the sprites)
 #   after    the screen memory again, after F5 (the debug key for the next room) has been pressed
 #
 # Each is taken as the ROM puts a room on screen: its Test_Shown
@@ -42,13 +43,27 @@ proc step {body} {
 }
 
 proc dumpto {tag} {
-    set f [open $::env(BOOT_OUT) [expr {$tag eq "before" ? "w" : "a"}]]
+    set f [open $::env(BOOT_OUT) [expr {$tag in {title before} && ![file exists $::env(BOOT_OUT).started] ? "w" : "a"}]]
+    close [open $::env(BOOT_OUT).started w]
     dump $f $tag
     close $f
 }
 proc drawn {} {
     expr {[debug read memory $::env(BOOT_COUNT)] | ([debug read memory [expr {$::env(BOOT_COUNT) + 1}]] << 8)}
 }
+# The title (an MSX2, M10): once the shell (g_Shell, $env(BOOT_SHELL)) is on
+# it and has drawn it, "title"; then Space, the title's START.
+proc title {} {
+    if {$::state != 0} { return }
+    if {[debug read memory $::env(BOOT_SHELL)] == 0 && [debug read memory $::env(BOOT_TICK)] >= 2} {
+        dumpto title
+        keymatrixdown 8 0x01
+        after time 0.2 { keymatrixup 8 0x01 }
+        return
+    }
+    after time 0.05 { step title }
+}
+after time 4 { step title }
 # The game (an MSX2): "before" as its first room is put on screen, Vale on
 # it (the jungle is live, so later he may be anywhere, or down); F5 then, and
 # "after" as the next room is put on screen.

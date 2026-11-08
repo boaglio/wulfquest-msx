@@ -85,9 +85,7 @@ class Panel:
             self.image((W - 16) // 2 + (k & 1) * 8, top + 10 + (k >> 1) * 8,
                        (d["IMAGE_QUARTER"] if held else d["IMAGE_QUARTER_DIM"]) + k)
         msg = None
-        if s.get("over"):
-            msg = self.string(d["STR_GAME_OVER"])
-        elif s.get("hint") is not None:
+        if s.get("hint") is not None:
             msg = self.string(d[self.hints[s["hint"]]])
         if msg is not None:
             x = ((W - len(msg) * 4) // 2) & 0xFE

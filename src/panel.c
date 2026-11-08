@@ -59,6 +59,7 @@ static u8 s_Tail = 0;
 static u16 s_Top = 0;          // the page's first byte
 static u8 s_MsgX = 0;
 u8 g_PanelDebug = 0;
+u32 g_HiBest = 0;
 static bool s_Drawn = FALSE;   // the page on show has the whole panel: a room's page copies it
 
 // What the cells were made from.
@@ -190,9 +191,9 @@ static bool Want()
 		Label(C_ROW_A, STR_SCORE, 6);
 		Digits(C_ROW_A + 6, s_Score);
 	}
-	if (s_Best != g_BestScore)
+	if (s_Best != g_HiBest)
 	{
-		s_Best = g_BestScore;
+		s_Best = g_HiBest;
 		Label(C_ROW_A + 21, STR_HI, 3);
 		Digits(C_ROW_A + 24, s_Best);
 	}
@@ -221,11 +222,7 @@ static bool Want()
 	}
 	// The bottom line: a shrine's hint, the debug line, or the flower's bar.
 	u8 msg = 0xFF;
-	if (g_ValeMode == MODE_GAME_OVER)
-		msg = 0xF1;   // the shell's screens are M10's: until then, here
-	else if (g_ValeMode == MODE_WON)
-		msg = 0xF2;
-	else if (g_HintTicks > 0)
+	if (g_HintTicks > 0)
 		msg = (g_HintToExit ? 8 : 0) + g_HintDirection;
 	else if (g_PanelDebug)
 		msg = 0xF0;
@@ -239,10 +236,6 @@ static bool Want()
 		u8 n = 0;
 		if (msg < 16)
 			n = Data_String(c_Hints[msg], buf);
-		else if (msg == 0xF1)
-			n = Data_String(STR_GAME_OVER, buf);
-		else if (msg == 0xF2)
-			n = Data_String(STR_WON, buf);
 		else if (msg == 0xF0)
 		{
 			// ROOM cc,rr  X xxxx Y yyyy: GameSession.message's dev line.

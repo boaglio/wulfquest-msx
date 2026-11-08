@@ -45,6 +45,8 @@
 #include "game.h"
 #include "game_data.h"
 #include "panel_data.h"
+#include "shell.h"
+#include "shell_data.h"
 
 // MSXgl's start-up does not clear RAM: a global with no initial value starts
 // as whatever the RAM held. So every one here has one.
@@ -74,7 +76,6 @@ i32 g_TestX = 0;
 i32 g_TestY = 0;
 
 static RoomData s_Room;
-static u8 s_Shown = 0;   // the page on screen: 0 or 1
 static i16 s_RoomX;  // the room's top-left, world pixels
 static i16 s_RoomY;
 // What each set of sprite tables has loaded (sprites.h): the back set's is drawn.
@@ -94,7 +95,7 @@ void Test_Shown()
 static void ShowRoom()
 {
 	u16 start = g_JIFFY;
-	u8 hidden = 1 - s_Shown;
+	u8 hidden = 1 - g_PageShown;
 	u8 room = g_ValeRoom;
 	Data_LoadRoom(room, &s_Room);
 	Room_Draw(&s_Room, hidden);
@@ -106,6 +107,11 @@ static void ShowRoom()
 	s_RoomX = (i16)(room % GRID_W) * PLAYFIELD_W;
 	s_RoomY = (i16)(room / GRID_W) * PLAYFIELD_H;
 	DrawSprites();   // Vale in it, into the back set
+	if (g_Shell == SH_ATTRACT && !g_TestMode)
+	{
+		g_DrawPage = hidden;   // the demo's room, dressed as the attract mode shows it
+		SHELL(Shell_Dress);
+	}
 	// The page and the sprites, both in the next blank (data.c's hook).
 	g_FlipR2 = (hidden << 5) | 0x1F;   // R#2 in SCREEN 5: the page's address bits 16-15
 	__asm__("di");
@@ -113,7 +119,7 @@ static void ShowRoom()
 	__asm__("ei");
 	while (g_FlipPending)
 		Halt();
-	s_Shown = hidden;
+	g_PageShown = hidden;
 	Test_Shown();
 }
 
@@ -142,17 +148,57 @@ static u8 ReadKeys()
 	u8 k = JOY_GET_DIR(joy);   // its bits are VALE_UP, _DOWN, _LEFT, _RIGHT
 	if (JOY_GET_TRIG1(joy))
 		k |= VALE_FIRE;
-	if (Keyboard_IsKeyPressed(KEY_UP) || Keyboard_IsKeyPressed(KEY_Q))
+	// The options' keys (M10): the cursors, or Q A O P.
+	if (Keyboard_IsKeyPressed(g_Profile ? KEY_Q : KEY_UP))
 		k |= VALE_UP;
-	if (Keyboard_IsKeyPressed(KEY_DOWN) || Keyboard_IsKeyPressed(KEY_A))
+	if (Keyboard_IsKeyPressed(g_Profile ? KEY_A : KEY_DOWN))
 		k |= VALE_DOWN;
-	if (Keyboard_IsKeyPressed(KEY_LEFT) || Keyboard_IsKeyPressed(KEY_O))
+	if (Keyboard_IsKeyPressed(g_Profile ? KEY_O : KEY_LEFT))
 		k |= VALE_LEFT;
-	if (Keyboard_IsKeyPressed(KEY_RIGHT) || Keyboard_IsKeyPressed(KEY_P))
+	if (Keyboard_IsKeyPressed(g_Profile ? KEY_P : KEY_RIGHT))
 		k |= VALE_RIGHT;
 	if (Keyboard_IsKeyPressed(KEY_SPACE))
 		k |= VALE_FIRE;
 	return k;
+}
+
+// The shell's input (M10): the game's keys, and its own (shell.h).
+static void ShellInput()
+{
+	g_ShellIn = ReadKeys();
+	u8 k = 0;
+	if (Keyboard_IsKeyPressed(KEY_ESC))
+		k |= SK_ESC;
+	if (Keyboard_IsKeyPressed(KEY_STOP) || Keyboard_IsKeyPressed(KEY_F1))
+		k |= SK_PAUSE;
+	if (Keyboard_IsKeyPressed(KEY_M) || JOY_GET_TRIG2(Joystick_Read(JOY_PORT_1)))
+		k |= SK_MAP;
+	if (Keyboard_IsKeyPressed(KEY_D))
+		k |= SK_DIFF;
+	if (Keyboard_IsKeyPressed(KEY_RETURN))
+		k |= SK_ENTER;
+	// Any key at all: a row of the BIOS's keyboard matrix (NEWKEY) with a key down.
+	const u8* rows = (const u8*)0xFBE5;
+	for (u8 r = 0; r < 11; r++)
+		if (rows[r] != 0xFF)
+			k |= SK_ANY;
+	g_ShellKeys = k;
+}
+
+// The keys a tick of the game plays: a test's, the demo's, the shell's (a
+// continue), the player's.
+static u8 GameKeys()
+{
+	if (g_TestMode)
+		return g_TestKeys;
+	if (g_Shell == SH_ATTRACT)
+	{
+		SHELL(Shell_DemoKeys);
+		return g_ShellPlay;
+	}
+	if (g_Shell == SH_GAME_OVER)
+		return g_ShellPlay;
+	return ReadKeys();
 }
 
 // test/moves.sh breaks here before every tick. Not static, so it is in the map.
@@ -193,7 +239,7 @@ void Test_BenchEnd()
 
 static void Bench()
 {
-	u16 top = (u16)(1 - s_Shown) * 256;
+	u16 top = (u16)(1 - g_PageShown) * 256;
 	Test_BenchStart();
 	for (u8 i = 0; i < 16; i++)
 	{
@@ -211,7 +257,7 @@ static bool Tick()
 {
 	Test_BeforeTick();
 	g_Ticks++;
-	return Vale_Tick(g_TestMode ? g_TestKeys : ReadKeys());
+	return Vale_Tick(GameKeys());
 }
 
 // Frames into ticks: one a frame, none in every sixth on a 60 Hz machine.
@@ -533,18 +579,6 @@ static void Border()
 	}
 }
 
-// The shell's tunes (Shell.tuneFor): none in the jungle, the game over's
-// and the win's when the game ends (the rest are the title's, M10).
-static u8 s_TuneMode = 0xFF;
-
-static void Tunes()
-{
-	if (g_ValeMode == s_TuneMode)
-		return;
-	s_TuneMode = g_ValeMode;
-	Sound_Tune(g_ValeMode == MODE_GAME_OVER ? TUNE_GAME_OVER : g_ValeMode == MODE_WON ? TUNE_WIN : 0xFF);
-}
-
 static void DrawJungle()
 {
 	u8 n = g_QuestOn ? DrawQuest() : 0;
@@ -749,6 +783,36 @@ static void SpritesInit()
 	}
 }
 
+// A new game of the whole jungle (Simulation's constructor): seeded with
+// seed (the Java game's long, little-endian), Vale at (x, y); its room shown.
+static void NewGame(const u8* seed, i32 x, i32 y)
+{
+	for (u8 i = 0; i < 8; i++)
+		g_TestSeed[i] = seed[i];
+	g_ValeOpen = 0;
+	g_JungleOn = 1;
+	g_QuestOn = 1;
+	g_GameOn = 1;
+	g_ValeEndless = 0;
+	g_EffectKind = EFFECT_NONE;   // nothing left over from the last game
+	g_EffectScale = 256;
+	g_EffectUntouchable = 0;
+	g_OrchidHere = 0;
+	Rng_Seed(g_TestSeed);
+	JUNGLE(Jungle_NewGame);
+	QUEST(Quest_NewGame);
+	GAME(Game_NewGame);
+	EnterRoom(x, y);
+}
+
+// The demo's game (shell.json's attract replay): Hard, its seed, its room.
+static u8 s_DemoSeed[8] = { DEMO_SEED_BYTES };
+
+// The test hooks that stop the shell where it is (the sound's, the sprites'
+// gallery, the blitter's bench): set once one is used.
+static bool s_Frozen = FALSE;
+static bool s_SpritesOn = TRUE;
+
 void main()
 {
 	Data_LoadTables();
@@ -763,26 +827,12 @@ void main()
 	SpritesInit();
 	VDP_EnableSprite(TRUE);
 	Data_LoadScenery();
+	Data_LoadShellImages();
 	Panel_Init();
 	Vale_Init();
 	s_Skip60 = VDP_GetFrequency() == VDP_FREQ_60HZ;
 	Sound_Init(s_Skip60);
-
-	// A new game: the jungle, its random numbers seeded from the clock until
-	// the title screen gives a better one (M10).
-	for (u8 i = 0; i < 8; i++)
-		g_TestSeed[i] = 0;
-	g_TestSeed[0] = (u8)g_JIFFY;
-	g_TestSeed[1] = (u8)(g_JIFFY >> 8);
-	g_JungleOn = 1;
-	g_QuestOn = 1;
-	g_GameOn = 1;
-	g_Easy = 0;   // Hard, the original's, until the title asks (M10)
-	Rng_Seed(g_TestSeed);
-	JUNGLE(Jungle_NewGame);
-	QUEST(Quest_NewGame);
-	GAME(Game_NewGame);
-	EnterRoom(PLAYER_START_X_FP, PLAYER_START_Y_FP);
+	SHELL(Shell_Init);   // the hi-scores, and the title
 
 	bool f5 = FALSE;
 	bool f4 = FALSE;
@@ -802,27 +852,90 @@ void main()
 		// What the last frame drew is on screen: the blank's hook showed it.
 		Test_Shown();
 
+		if (g_TestSound || g_TestGallery || g_BenchGo)
+		{
+			if (!s_Frozen)
+				Sound_Tune(0xFF);
+			s_Frozen = TRUE;
+		}
 		u8 ticks = g_TestGallery ? 0 : TicksIn(frames);
 		if (ticks > MAX_CATCHUP_TICKS)
 			ticks = MAX_CATCHUP_TICKS;
 		bool flipped = FALSE;
-		while (ticks--)
-			if (Tick())
+		if (g_TestMode)
+		{
+			while (ticks--)
+				if (Tick())
+				{
+					Flip();
+					flipped = TRUE;
+					last = g_JIFFY;   // the frames the drawing took are not late
+					break;
+				}
+		}
+		else if (!s_Frozen)
+		{
+			// The shell (M10): a tick of it, and of the game when it says.
+			while (ticks--)
 			{
-				Flip();
-				flipped = TRUE;
-				last = g_JIFFY;   // the frames the drawing took are not late
-				break;
+				ShellInput();
+				SHELL(Shell_Tick);
+				if (g_ShellDo & (DO_NEW_GAME | DO_DEMO))
+				{
+					if (g_ShellDo & DO_DEMO)
+					{
+						g_Easy = 0;
+						NewGame(s_DemoSeed, DEMO_START_X_FP, DEMO_START_Y_FP);
+					}
+					else
+					{
+						// Seeded from the clock: how long the title was up.
+						u8 seed[8] = { (u8)g_JIFFY, (u8)(g_JIFFY >> 8), (u8)g_Frames, (u8)(g_Frames >> 8), 0, 0, 0, 0 };
+						NewGame(seed, PLAYER_START_X_FP, PLAYER_START_Y_FP);
+					}
+					SHELL(Shell_Shown);
+					flipped = TRUE;
+					last = g_JIFFY;
+					break;
+				}
+				if (!(g_ShellDo & DO_TICK))
+					continue;
+				if (g_ShellDo & DO_CARRY_ON)
+					Vale_FireReleased();
+				bool flip = Tick();
+				SHELL(Shell_AfterTick);
+				if (flip)
+				{
+					Flip();
+					flipped = TRUE;
+					last = g_JIFFY;
+					break;
+				}
+				if (g_Shell != SH_PLAYING && g_Shell != SH_ATTRACT)
+					break;
 			}
+		}
+		// The game on screen: its sprites, its panel, its border.
+		bool game = g_TestMode || s_Frozen || g_Shell == SH_PLAYING || g_Shell == SH_ATTRACT;
+		if (game != s_SpritesOn)
+		{
+			s_SpritesOn = game;
+			VDP_EnableSprite(game);
+		}
 		// What these ticks left, into the back set, for the next frame
 		// (a flip has drawn it already).
-		if (!flipped)
+		if (game && !flipped)
 			DrawSprites();
 		// The panel, but not in a frame that loaded sprites: those are the busy ones.
-		if (!s_Loaded)
-			Panel_Update(s_Shown);
-		Border();
-		Tunes();
+		if ((g_TestMode || s_Frozen || g_Shell == SH_PLAYING) && !s_Loaded)
+			Panel_Update(g_PageShown);
+		if (game && g_Shell != SH_ATTRACT)
+			Border();
+		else if (s_Border != BORDER_IDLE)
+		{
+			s_Border = BORDER_IDLE;
+			VDP_SetColor(BORDER_IDLE);
+		}
 		Test_FrameEnd();
 
 		if (g_BenchGo)
@@ -833,7 +946,14 @@ void main()
 		}
 		if (g_TestStart)
 		{
+			if (!g_TestMode)
+			{
+				// A test takes over: the game as the shell left it, gone; the jungle's palette.
+				Data_Palette(FALSE);
+				Sound_Tune(0xFF);
+			}
 			g_TestMode = 1;
+			g_Shell = SH_PLAYING;
 			g_ValeOpen = g_TestOpen;
 			g_JungleOn = g_TestJungle;
 			g_QuestOn = g_TestJungle && g_TestQuest;
@@ -872,7 +992,7 @@ void main()
 		}
 		else if (Pressed(KEY_F4, &f4))
 			g_PanelDebug ^= 1;
-		else if (Pressed(KEY_F5, &f5))
+		else if (Pressed(KEY_F5, &f5) && (g_TestMode || g_Shell == SH_PLAYING))
 		{
 			// Debug: the next room, Vale where he stood in this one.
 			i32 x = g_ValeX - ((i32)s_RoomX << FIXED_SHIFT);

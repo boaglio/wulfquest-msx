@@ -16,3 +16,6 @@ void Panel_Update(u8 page);
 // Debug: the panel's line shows the room and Vale's feet, as the Java
 // game's dev mode does (F4 toggles it).
 extern u8 g_PanelDebug;
+
+// The hi-score table's best (the shell's, M10): the panel's HI.
+extern u32 g_HiBest;

@@ -13,6 +13,7 @@
 #include "sprite_bank.h"
 #include "tables.h"
 #include "blade.h"
+#include "palette.h"
 
 __sfr __at(0x98) s_VdpData;
 __sfr __at(0x99) s_VdpCtrl;
@@ -763,4 +764,293 @@ u8 Data_String(u16 at, u8* out)
 		out[i] = src[i];
 	SET_BANK_SEGMENT(ROM_DATA_BANK, g_CodeSeg);
 	return n;
+}
+
+//-----------------------------------------------------------------------------
+// The shell (M10; shell.c): the VDP's commands, shell.bin's strings and
+// bytes, shell_img.bin's images into video RAM, the map screen's rooms, the
+// pause menu's dimmed jungle, numbers as digits.
+
+#include "shell_data.h"
+
+__sfr __at(0x9B) s_VdpIndirect;
+
+u16 g_VSX = 0;
+u16 g_VSY = 0;
+u16 g_VDX = 0;
+u16 g_VDY = 0;
+u16 g_VNX = 0;
+u16 g_VNY = 0;
+u8  g_VClr = 0;
+u8  g_VCmd = 0;
+
+// Whether the VDP is still busy with a command (S#2's CE).
+static u8 VdpBusy()
+{
+	__asm__("di");
+	s_VdpCtrl = 2;
+	s_VdpCtrl = 0x80 | 15;
+	u8 s = s_VdpCtrl;
+	s_VdpCtrl = 0;
+	s_VdpCtrl = 0x80 | 15;
+	__asm__("ei");
+	return s & 1;
+}
+
+void Data_VdpWait()
+{
+	while (VdpBusy())
+		;
+}
+
+void Data_Vdp()
+{
+	Data_VdpWait();
+	__asm__("di");
+	s_VdpCtrl = 32;
+	s_VdpCtrl = 0x80 | 17;   // R#17: from R#32, counting up
+	s_VdpIndirect = (u8)g_VSX;
+	s_VdpIndirect = (u8)(g_VSX >> 8);
+	s_VdpIndirect = (u8)g_VSY;
+	s_VdpIndirect = (u8)(g_VSY >> 8);
+	s_VdpIndirect = (u8)g_VDX;
+	s_VdpIndirect = (u8)(g_VDX >> 8);
+	s_VdpIndirect = (u8)g_VDY;
+	s_VdpIndirect = (u8)(g_VDY >> 8);
+	s_VdpIndirect = (u8)g_VNX;
+	s_VdpIndirect = (u8)(g_VNX >> 8);
+	s_VdpIndirect = (u8)g_VNY;
+	s_VdpIndirect = (u8)(g_VNY >> 8);
+	s_VdpIndirect = g_VClr;
+	s_VdpIndirect = 0;          // R#45: down and right, video RAM
+	s_VdpIndirect = g_VCmd;
+	__asm__("ei");
+}
+
+void Data_ShowPage(u8 page)
+{
+	g_FlipR2 = (u8)((page << 5) | 0x1F);
+	__asm__("di");
+	g_FlipPending |= FLIP_PAGE;
+	__asm__("ei");
+	while (g_FlipPending)
+		__asm__("halt");
+}
+
+void Data_ShellBytes(u16 at, u8* out, u8 n)
+{
+	SET_BANK_SEGMENT(ROM_DATA_BANK, SHELL_BIN_SEG);
+	const u8* src = (const u8*)(ROM_DATA_ADDR + SHELL_BIN_REL) + at;
+	while (n--)
+		*out++ = *src++;
+	SET_BANK_SEGMENT(ROM_DATA_BANK, g_CodeSeg);
+}
+
+void Data_LoadShellImages()
+{
+	SET_BANK_SEGMENT(ROM_DATA_BANK, SHELL_IMG_BIN_SEG);
+	const u8* src = (const u8*)(ROM_DATA_ADDR + SHELL_IMG_BIN_REL);
+	for (u8 i = 0; i < SHELL_IMAGES; i++)
+	{
+		u8 x = src[0];
+		u16 y = SHELL_VRAM_LINE + (src[1] | (u16)src[2] << 8);
+		u8 w = src[3] >> 1;
+		u8 h = src[4];
+		src += 5;
+		for (u8 l = 0; l < h; l++)
+		{
+			u32 a = ((u32)(y + l) << 7) + (x >> 1);
+			VramWriteAt((u8)(a >> 16), (u16)a);
+			for (u8 b = 0; b < w; b++)
+				s_VdpData = *src++;
+		}
+	}
+	SET_BANK_SEGMENT(ROM_DATA_BANK, g_CodeSeg);
+}
+
+// The text being put together: shell.bin's strings, digits, characters.
+u8 g_Text[64];
+u8 g_TextN = 0;
+
+void Data_TextStr(u16 at)
+{
+	SET_BANK_SEGMENT(ROM_DATA_BANK, SHELL_BIN_SEG);
+	const u8* src = (const u8*)(ROM_DATA_ADDR + SHELL_BIN_REL) + at;
+	u8 n = *src++;
+	while (n-- && g_TextN < sizeof(g_Text))
+		g_Text[g_TextN++] = *src++;
+	SET_BANK_SEGMENT(ROM_DATA_BANK, g_CodeSeg);
+}
+
+static const u32 c_Tens[] = { 1000000000, 100000000, 10000000, 1000000, 100000, 10000, 1000, 100, 10, 1 };
+
+void Data_TextNum(u32 v)
+{
+	bool lead = TRUE;
+	for (u8 i = 0; i < 10; i++)
+	{
+		u8 d = 0;
+		while (v >= c_Tens[i])
+		{
+			v -= c_Tens[i];
+			d++;
+		}
+		if (d || !lead || i == 9)
+		{
+			lead = FALSE;
+			if (g_TextN < sizeof(g_Text))
+				g_Text[g_TextN++] = (u8)('0' + d);
+		}
+	}
+}
+
+// g_Text's characters, x even, in a font (big or small), ink on black, on a
+// page (0 or 1).
+void Data_TextDraw(u8 big, u8 page, u8 x, u8 y, u8 ink)
+{
+	u16 addr = ((u16)page << 15) + ((u16)y << 7) + (x >> 1);
+	u8 step = big ? BIG_ADVANCE / 2 : SMALL_ADVANCE / 2;
+	for (u8 i = 0; i < g_TextN; i++)
+	{
+		Data_Glyph(addr, big, g_Text[i], ink, INK_GROUND);
+		addr += step;
+	}
+}
+
+// The big font's glyph bits of a character (8 bytes, bit 7 the left), for
+// drawing it larger (shell.c).
+void Data_GlyphBits(u8 ch, u8* out)
+{
+	u8 g = (u8)(ch - FONT_BIG_FIRST);
+	if (g >= FONT_BIG_GLYPHS)
+		g = 0;
+	SET_BANK_SEGMENT(ROM_DATA_BANK, FONT_BIN_SEG);
+	const u8* src = (const u8*)(ROM_DATA_ADDR + FONT_BIN_REL) + ((u16)g << 3);
+	for (u8 i = 0; i < 8; i++)
+		out[i] = src[i];
+	SET_BANK_SEGMENT(ROM_DATA_BANK, g_CodeSeg);
+}
+
+// A room's miniature on the map screen (MapScreen): its open ground in ink,
+// the rest black, at its place in the playfield of a page.
+void Data_MapRoom(u8 room, u8 page, u8 ink)
+{
+	u8 bits[MINI_BYTES];
+	u16 at = MAP_MINIS + ((u16)room << 4) + ((u16)room << 2) + ((u16)room << 1);   // room * 22
+	Data_ShellBytes(at, bits, MINI_BYTES);
+	u8 row = room >> 4;
+	u16 addr = ((u16)page << 15) + ((u16)((row << 3) + (row << 1) + row) << 7) + ((room & 15) << 3);
+	u8 on = (u8)((ink << 4) | ink);
+	u8 lo = (u8)((ink << 4) | INK_GROUND);
+	u8 hi = (u8)((INK_GROUND << 4) | ink);
+	u8 off = (u8)((INK_GROUND << 4) | INK_GROUND);
+	u8 line[8];
+	for (u8 v = 0; v < MINI_H; v++)
+	{
+		u16 b = (u16)bits[2 * v] << 8 | bits[2 * v + 1];
+		for (u8 i = 0; i < 8; i++)
+		{
+			u8 two = (u8)(b >> 14);
+			line[i] = two == 3 ? on : two == 2 ? lo : two == 1 ? hi : off;
+			b <<= 2;
+		}
+		Data_VramWrite(addr, line, 8);
+		addr += 128;
+	}
+}
+
+// Framebuffer.dim: lines of a page's playfield in their plain colours, onto
+// the other page (the pause menu's jungle). In assembly: a line read, each
+// byte through the table, written (C took seconds).
+static const u8 c_Dim[16] = { DIM_COLOURS };
+static const u8 c_DimByte[256] = { DIM_BYTES };
+static u8 s_DimBuf[128];
+static u16 s_DimSrc;
+static u16 s_DimDst;
+
+static void DimLine() __naked
+{
+	__asm
+		di
+		ld	de, (_s_DimSrc)
+		ld	a, d
+		rlca
+		rlca
+		and	a, #0x03
+		out	(#0x99), a
+		ld	a, #0x8E
+		out	(#0x99), a              ; R#14: bits 16-14
+		ld	a, e
+		out	(#0x99), a
+		ld	a, d
+		and	a, #0x3F
+		out	(#0x99), a              ; bits 13-8, and "read"
+		ld	hl, #_s_DimBuf
+		ld	bc, #0x8098             ; 128 bytes from port 98h
+		inir
+		; each byte through the table
+		ld	de, #_s_DimBuf
+		ld	b, #128
+	00001$:
+		ld	a, (de)
+		ld	hl, #_c_DimByte
+		add	a, l
+		ld	l, a
+		adc	a, h
+		sub	a, l
+		ld	h, a
+		ld	a, (hl)
+		ld	(de), a
+		inc	de
+		djnz	00001$
+		ld	de, (_s_DimDst)
+		ld	a, d
+		rlca
+		rlca
+		and	a, #0x03
+		out	(#0x99), a
+		ld	a, #0x8E
+		out	(#0x99), a
+		ld	a, e
+		out	(#0x99), a
+		ld	a, d
+		and	a, #0x3F
+		or	a, #0x40
+		out	(#0x99), a              ; and "write"
+		ld	hl, #_s_DimBuf
+		ld	bc, #0x8098
+		otir
+		ei
+		ret
+	__endasm;
+}
+
+void Data_Dim(u8 from, u8 to, u8 lines)
+{
+	s_DimSrc = (u16)from << 15;
+	s_DimDst = (u16)to << 15;
+	while (lines--)
+	{
+		DimLine();
+		s_DimSrc += 128;
+		s_DimDst += 128;
+	}
+}
+
+// The palette: the game's, or dimmed (the attract demo's jungle, ShellPainter:
+// each colour its plain twin's), the headings' inks kept for its bands.
+__sfr __at(0x9A) s_VdpPalette;
+
+void Data_Palette(u8 dim)
+{
+	__asm__("di");
+	s_VdpCtrl = 0;
+	s_VdpCtrl = 0x80 | 16;   // R#16: from colour 0
+	for (u8 n = 0; n < 16; n++)
+	{
+		u8 from = dim && n != INK_HEADING && n != INK_BRIGHT ? c_Dim[n] : n;
+		s_VdpPalette = g_Palette[2 * from];
+		s_VdpPalette = g_Palette[2 * from + 1];
+	}
+	__asm__("ei");
 }

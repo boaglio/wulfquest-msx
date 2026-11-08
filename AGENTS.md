@@ -77,7 +77,8 @@ wulfquest-msx/
 segments 2-23 hold the converter's blobs, mapped into bank 1 (8000h) only
 while `data.c` reads them; segments 24-31 hold **banked code**, one
 `src/wulfquest_sN_b1.c` each, mapped into bank 1 while it runs (`data.c`'s
-`Bank_Call`, wrapped as `JUNGLE(fn)`, `SPAWN(fn)`, `QUEST(fn)`). Banked code
+`Bank_Call`, wrapped as `JUNGLE(fn)`, `SPAWN(fn)`, `QUEST(fn)`, `GAME(fn)`,
+`SHELL(fn)`). Banked code
 replaces segment 1 while it runs, so it may call only code below 8000h
 (`data.c`, `rng.c`, `move.c`, `sound.c`, linked first), keeps its tables in RAM
 (`tables.h`), and uses no SDCC library routine (they are linked into segment
@@ -903,6 +904,79 @@ game's); sound on costs no ticks in the busiest room.
 keys and with a joystick; every string on screen comes from the data; the
 map screen matches the Java map for the same walked rooms.
 
+**Landed (2026-11-07), timing slipped as M6's.** Specifics:
+
+- **The shell** (`src/shell.c`, banked in segment 28, `SHELL(fn)`) is the
+  Java game's `Shell` state machine with `GameSession`'s reveal and map: the
+  title, the attract demo, the options, the pause menu and its save and load
+  pages, the reveal, the map, game over and its continue, the hi-scores and
+  their three letters, and the win's sum. The main loop reads the input once
+  a tick, calls it, and runs a tick of the game when it says (`g_ShellDo`);
+  after the tick, it sees a quarter taken, game over or the win. The screens
+  are `ShellPainter`'s, fitted to 256x212 with the playfield at the top: a
+  screen of its own is drawn on the page not shown, then shown; a screen over
+  the game (the menus, the reveal, the map, game over) on the other page over
+  a copy of the game's, which is left as it was, and the sprites are hidden
+  under it. The tests' hooks (`g_TestStart`) skip the shell, as the Java
+  game's checks drive the simulation without a `GameSession`.
+- **The converter** (`Shell`): `shell_data.h`, `shell.bin` (every string the
+  screens show, from `shell.json`, `input.json`'s profiles and the few words
+  in the Java screens' code; the hi-score table a new machine has; each
+  room's 16x11 miniature for the map, as `MapScreen` samples its mask; the
+  demo's input) and `shell_img.bin` (the menu's wolf, the map's diamonds and
+  arch, the quarters at the reveal's scale, the wordmark's words as stencils),
+  copied to video RAM under the scenery (page 3, from line 840).
+- **The title**: the wordmark's colour cycle is `TitleScreen`'s, band by band,
+  each word coloured in spare video RAM and copied on (black is colour 15, so
+  a band filled and the stencil ORed over it does it). `START` (with Hard or
+  Easy under it; `D` switches it too) and `OPTIONS`; `CONTINUE` comes with the
+  saves (M11), `EXIT` is a PC's. Left alone for `attract.idleTicks`, the demo.
+- **The demo, for now**: the Java game's `replays/attract.json`, Hard, its
+  seed and room, its input played tick for tick. **Still to do (the user,
+  2026-11-07): the demo must be recorded on the MSX itself (§7)**; this one
+  stands in until then, and its test checks the attract mode around it. It
+  is dimmed by the palette (each colour its
+  plain twin's, the bands' inks kept), every other row black, the wordmark and
+  `PRESS ANY KEY` on their bands, no panel. Any key, or its end, goes back.
+- **Options**: from the title, difficulty, keys (the two profiles' walking
+  keys: the cursors, or `Q A O P`), sound, load, hi-scores, back; over a game,
+  sound and back (`ShellConfig.Options.TITLE_ONLY`). **The pause menu**:
+  `STOP` or `F1`, over the jungle dimmed as `Framebuffer.dim` (the bright
+  colours their plain twins, by a table, in assembly). Its save and load pages
+  list the slots empty and do nothing on fire, as the Java shell with no slots
+  does, until M11.
+- **The reveal** (`AmuletRevealScreen`), its tune, its verse, its prompt after
+  `skipAfterTicks`; **game over** (`GameOverScreen`) with the percentage, the
+  continue offer, its count and the seconds left; the continue is a tick of the
+  game with fire pressed (`GameSession.carryOn`: the ROM's Vale is told the
+  fire was let go, `Vale_FireReleased`). **The win** shows the tally's heading
+  and total until the endings (M12). **The panel's** `HI` is the table's best;
+  its game over and win lines (M9) are gone.
+- **The map** (`M` or the joystick's second button): `MapScreen`'s rooms,
+  quarters (shiny once an eye showed them, dull once taken), the arch and its
+  glow, Vale's room blinking, the panel's line saying how to go back. **Not
+  the looking glass's trail** (it needs the whole map's distances: M12).
+- **Hi-scores**: `HighScores`' ranking, the table in RAM (its saving is M11's);
+  `HiScoreEntry`'s three letters, its repeat and its blink.
+- **Tests.** Convert's `ShellTest`: the strings are the data's, the table is
+  `default_highscores.json`'s, each miniature is its room's mask as `MapScreen`
+  samples it. `test/shell.sh`, at 50 and 60 Hz: every screen from the title and
+  back with the keys, then with the joystick (a breakpoint in MSXgl's
+  `Joystick_Read` puts its bits in); each screen's words read off the screen
+  with the ROM's font and found to be `shell.bin`'s; the demo played to its
+  end, where the Java game's ends (`demo_check.txt`: 3 000 ticks, room, place,
+  score and lives); the map over it the Java game's `MapScreen` drawn by the
+  converter, pixel for pixel (`demo_map.bin`); a reveal, game over, a continue
+  and the win brought on by setting the game's state. `test/boot.sh` boots to
+  the title first; `rooms.sh` and `sprites.sh` start a game from it.
+- **The joystick** has two buttons: fire and the map. The pause menu is the
+  keyboard's (`STOP`, `F1`), as the user agreed; everything else is reachable
+  with the joystick.
+- **Timing, slipped as M6's:** the pause menu takes 1.2 s to come up (the
+  jungle dimmed, 2.5 million cycles) and as long again for each menu over the
+  game; a key pressed and let go while the game is stalled (a respawn, M7; a
+  new game, M8) is not seen; the demo starts after a new game's 3.3 s.
+
 ### M11 — Saves: SRAM and disk
 
 **For:** a game you can come back to, on any MSX2.
@@ -918,6 +992,11 @@ map screen matches the Java map for the same walked rooms.
   is greyed out and says why.
 - Autosave every minute and on leaving for the title; a finished game clears
   its slot; the title offers the last game first.
+
+**From M10:** the title's `CONTINUE` line and its slot; the save and load
+pages' slots, and fire on one choosing it (the user, 2026-11-07: fire selects
+the slot); the new game's slot (`NEW_GAME`); the hi-score
+table and the options kept.
 
 **Accept when:** in openMSX, a game saved to SRAM and one saved to disk both
 load back to the same room, score and state after a power cycle; a damaged
@@ -936,6 +1015,11 @@ only, both) all work.
 - The plane landing in the forest after the title is left alone, with
   *ONE MAN, / ONE MISSING ARTIFACT, / ONE MISSION*.
 
+**From M10:** the closing scene, the tally's lines and the roll in place of
+the win's sum the shell shows for now; the plane intro before the demo (the
+title goes straight to the demo until then); the looking glass's trail on the
+map screen; the jobs' line under `START`.
+
 **Accept when:** each of the three endings plays through in openMSX from a
 scripted win; the credits carry the §2.5 text exactly (checked by a test
 against the data); the plane intro plays and any key returns to the title.
@@ -951,7 +1035,9 @@ against the data); the plane intro plays and any key returns to the title.
   game (M7: up to 2.2 s in `Spawn_NearestFree`), a new game must not take
   seconds (M8: 3.3 s of random draws; the generator is 11 000 cycles a draw),
   and the sound's interrupt must cost the busiest room no tick (M9: 2 900
-  cycles a frame, 11 000 at worst).
+  cycles a frame, 11 000 at worst). The pause menu must come up at once (M10:
+  1.2 s to dim the jungle, again for each menu over it), and no key pressed
+  during a stall may be lost (M10).
 - Check every timing on a 60 Hz machine: the tick-skip keeps game speed equal
   to 50 Hz; music and effects keep their pitch and tempo.
 - Run on real MSX2 hardware (at least one European and one Japanese machine,

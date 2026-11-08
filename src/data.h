@@ -107,3 +107,43 @@ void Data_VramWrite(u16 addr, const u8* src, u8 n);
 void Data_Glyph(u16 addr, u8 big, u8 ch, u8 ink, u8 ground);
 void Data_Image(u16 addr, u8 index);
 u8 Data_String(u16 at, u8* out);
+
+// The shell (M10): a VDP command from these registers (R#32-R#46: source,
+// destination, size, colour, the command and its logical operation), sent
+// once the last is done; Data_VdpWait waits for it.
+extern u16 g_VSX;
+extern u16 g_VSY;
+extern u16 g_VDX;
+extern u16 g_VDY;
+extern u16 g_VNX;
+extern u16 g_VNY;
+extern u8  g_VClr;
+extern u8  g_VCmd;
+#define VCMD_HMMV	0xC0   // fill, bytes
+#define VCMD_HMMM	0xD0   // copy, bytes
+#define VCMD_LMMV	0x80   // fill, pixels (| an operation)
+#define VCMD_LMMM	0x90   // copy, pixels (| an operation)
+#define VOP_OR		0x02
+#define VOP_TIMP	0x08   // copy all but colour 0
+void Data_Vdp();
+void Data_VdpWait();
+// Show page 0 or 1 from the next blank (and wait for it).
+void Data_ShowPage(u8 page);
+// shell.bin's bytes; shell_img.bin's images into video RAM (once, at start).
+void Data_ShellBytes(u16 at, u8* out, u8 n);
+void Data_LoadShellImages();
+// A line of text put together in g_Text: a string of shell.bin, a number's
+// digits; then drawn in the big font or the small (x even), ink on black.
+extern u8 g_Text[64];
+extern u8 g_TextN;
+void Data_TextStr(u16 at);
+void Data_TextNum(u32 v);
+void Data_TextDraw(u8 big, u8 page, u8 x, u8 y, u8 ink);
+void Data_GlyphBits(u8 ch, u8* out);
+// The map screen's room (16x11, MapScreen) in ink on a page; a page's
+// playfield lines in their plain colours onto the other (the pause menu).
+void Data_MapRoom(u8 room, u8 page, u8 ink);
+void Data_Dim(u8 from, u8 to, u8 lines);
+// The game's palette, or (dim) each colour as its plain twin, the shell's
+// heading and bright inks kept (the attract demo).
+void Data_Palette(u8 dim);

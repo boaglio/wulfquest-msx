@@ -94,3 +94,6 @@ u8 Vale_Frame();
 // them; test/moves.sh reads them.
 extern u8 g_ValeFrame;
 extern i8 g_ValeBlade;
+
+// The shell's continue (M10): the next tick's fire is a press.
+void Vale_FireReleased();

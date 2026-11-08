@@ -154,6 +154,13 @@ void Vale_Init()
 
 static void ResetTicks();
 
+// The shell (M10): the game stood still over game over while fire went up and
+// down; the next tick sees a press, as GameSession.carryOn's input says.
+void Vale_FireReleased()
+{
+	s_FireWas = FALSE;
+}
+
 void Vale_Place(i32 x, i32 y)
 {
 	g_ValeX = x;
