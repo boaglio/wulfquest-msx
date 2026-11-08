@@ -64,6 +64,20 @@
               </arguments>
             </configuration>
           </execution>
+          <!-- tools/record-demo.sh: exec:java@demo-route, the keys it plays into the MSX. -->
+          <execution>
+            <id>demo-route</id>
+            <configuration>
+              <mainClass>wulfmsx.convert.DemoRoute</mainClass>
+              <arguments>
+                <argument>${project.basedir}/../wulfquest/data</argument>
+                <argument>${project.basedir}/../build/test/demo_route.txt</argument>
+                <argument>${demo.seed}</argument>
+                <argument>${demo.ticks}</argument>
+                <argument>${demo.swing}</argument>
+              </arguments>
+            </configuration>
+          </execution>
           <!-- test/moves.sh: exec:java@move-traces, Vale as the Java game moves him. -->
           <execution>
             <id>move-traces</id>

@@ -3,7 +3,6 @@ package wulfmsx.convert;
 import java.io.ByteArrayOutputStream;
 import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -13,9 +12,6 @@ import wulf.data.HighScores;
 import wulf.data.LandmarksData;
 import wulf.data.ShellConfig;
 import wulf.data.SpriteData;
-import wulf.engine.Replay;
-import wulf.input.InputState;
-import wulf.input.RecordedInput;
 import wulf.sim.Simulation;
 import wulf.world.CollisionMask;
 import wulf.world.RoomAddress;
@@ -30,9 +26,10 @@ import wulf.world.WorldGrid;
  * a new machine starts with ({@link #ROW_BYTES} a row), the map screen's miniature of every room
  * ({@link #MINI_BYTES} a room: 11 rows of 16 pixels, a bit each, bit 7 of the first byte the left,
  * set where the ground is open), the wordmark's words' widths, and the attract demo's input (a
- * tick count and its bits a run). {@code shell_img.bin}: the images the screens copy from video
- * RAM below the scenery atlas (pages 2-3, from {@link #vramLine()}): each a header (x, the line
- * from the atlas's first as a 16-bit number, width, height) and its bytes, two pixels a byte,
+ * tick count and its keys a run, as {@code demo.txt} has it: recorded on the MSX).
+ * {@code shell_img.bin}: the images the screens copy from video RAM below the scenery atlas
+ * (pages 2-3, from {@link #vramLine()}): each a header (x, the line from the atlas's first as a
+ * 16-bit number, width, height) and its bytes, two pixels a byte,
  * colour 0 where the art is transparent. {@code shell_data.h} says where each is.
  *
  * <p>The words of the wordmark are stencils for the title's colour cycle: 0 where a letter is,
@@ -60,7 +57,7 @@ public final class Shell {
     private int images;
     private final String demoCheck;
 
-    public Shell(Content c, VdpPalette vdp, int vramLine, Path dataDir) {
+    public Shell(Content c, VdpPalette vdp, int vramLine) {
         this.c = c;
         this.vdp = vdp;
         this.vramLine = vramLine;
@@ -440,59 +437,84 @@ public final class Shell {
                     + (1024 - vramLine) + " are free");
         }
 
-        // The attract demo (§17.2): the Java game's recorded run, played into a new game.
-        h.append("\n// The attract demo (shell.json's attract.replay): its runs in shell.bin at DEMO_RUNS,\n");
-        h.append("// DEMO_RUN_COUNT of them, each a tick count and RecordedInput's bits.\n");
-        Replay replay = Replay.read(dataDir.getParent().resolve(s.attract().replay()));
-        RecordedInput input = replay.recorded();
-        def("DEMO_RUNS", bin.size());
-        int runs = 0;
-        for (int[] run : input.runs()) {
-            // The press is read only to continue after game over (Simulation.tick), which the
-            // demo never reaches (checked below); the ROM makes it from the fire it holds.
-            if ((run[1] & (RecordedInput.DEV_KILL | RecordedInput.DEV_WULF)) != 0) {
-                throw new ConvertException(s.attract().replay() + ": the demo uses a developer key");
+        // The attract demo (§17.2), recorded on the MSX (AGENTS.md §7; tools/record-demo.sh): the
+        // keys the ROM read each tick of a new game, Hard, from its start and seed, as runs.
+        h.append("\n// The attract demo, recorded on the MSX (demo.txt): its runs in shell.bin at DEMO_RUNS,\n");
+        h.append("// DEMO_RUN_COUNT of them, each a tick count and the keys (DEMO_UP ...).\n");
+        long seed = -1;
+        int startX = 0;
+        int startY = 0;
+        List<int[]> recorded = new ArrayList<>();
+        try (var in = Shell.class.getResourceAsStream(DEMO)) {
+            if (in == null) {
+                throw new ConvertException(DEMO + ": no recorded demo (tools/record-demo.sh records one)");
             }
-            for (int n = run[0]; n > 0; n -= 255) {
-                bin.write(Math.min(255, n));
-                bin.write(run[1]);
-                runs++;
+            for (String line : new String(in.readAllBytes(), StandardCharsets.US_ASCII).split("\n")) {
+                String[] w = line.trim().split(" ");
+                if (line.startsWith("#") || line.isBlank()) {
+                    continue;
+                }
+                if (w[0].equals("seed")) {
+                    seed = Long.parseLong(w[1]);
+                } else if (w[0].equals("start")) {
+                    startX = Integer.parseInt(w[1]);
+                    startY = Integer.parseInt(w[2]);
+                } else {
+                    int n = Integer.parseInt(w[0]);
+                    int k = Integer.parseInt(w[1]);
+                    if (n < 1 || n > 255 || (k & ~31) != 0) {
+                        throw new ConvertException(DEMO + ": a run of " + n + " ticks of keys " + k);
+                    }
+                    recorded.add(new int[] {n, k});
+                }
             }
+        } catch (java.io.IOException e) {
+            throw new ConvertException(DEMO + ": " + e.getMessage());
         }
-        def("DEMO_RUN_COUNT", runs);
-        def("DEMO_TICKS", input.ticks());
-        def("DEMO_UP", RecordedInput.UP);
-        def("DEMO_DOWN", RecordedInput.DOWN);
-        def("DEMO_LEFT", RecordedInput.LEFT);
-        def("DEMO_RIGHT", RecordedInput.RIGHT);
-        def("DEMO_FIRE", RecordedInput.FIRE);
-        WorldGrid world = new WorldGrid(c.rooms());
-        Simulation sim = Simulation.startingIn(c.player(), world, c.game().transition().freezeTicks(),
-                replay.start(), c.ecosystem(0, false), replay.seed());
-        h.append("#define DEMO_START_X_FP\t").append(sim.player().xFp()).append("L\n");
-        h.append("#define DEMO_START_Y_FP\t").append(sim.player().yFp()).append("L\n");
+        if (seed < 0 || recorded.isEmpty()) {
+            throw new ConvertException(DEMO + ": no seed, or no runs");
+        }
+        def("DEMO_RUNS", bin.size());
+        int ticks = 0;
+        for (int[] run : recorded) {
+            bin.write(run[0]);
+            bin.write(run[1]);
+            ticks += run[0];
+        }
+        def("DEMO_RUN_COUNT", recorded.size());
+        def("DEMO_TICKS", ticks);
+        def("DEMO_UP", 1);
+        def("DEMO_DOWN", 2);
+        def("DEMO_LEFT", 4);
+        def("DEMO_RIGHT", 8);
+        def("DEMO_FIRE", 16);
+        h.append("#define DEMO_START_X_FP\t").append(startX).append("L\n");
+        h.append("#define DEMO_START_Y_FP\t").append(startY).append("L\n");
         h.append("#define DEMO_SEED_BYTES\t");
         for (int i = 0; i < 8; i++) {
-            h.append(i == 0 ? "" : ", ").append(String.format("0x%02X", (replay.seed() >> (8 * i)) & 0xFF));
+            h.append(i == 0 ? "" : ", ").append(String.format("0x%02X", (seed >> (8 * i)) & 0xFF));
         }
         h.append('\n');
-        if (Boolean.TRUE.equals(replay.easy()) || replay.newGamePlus() != null && replay.newGamePlus() != 0
-                || replay.dev()) {
-            throw new ConvertException(s.attract().replay() + ": the demo must be a Hard game of the first job");
-        }
-        RecordedInput.Cursor cur = input.cursor();
-        while (cur.hasNext()) {
-            InputState in = cur.next();
-            sim.play(in, false);
-            if (sim.player().mode() == wulf.sim.Player.Mode.GAME_OVER) {
-                throw new ConvertException(s.attract().replay() + ": the demo reaches game over, where a press of fire "
-                        + "counts; the ROM's demo holds fire only");
+        // The Java game, given the same keys: where the demo must end (test/shell.sh checks the ROM's).
+        WorldGrid world = new WorldGrid(c.rooms());
+        MoveTraces.Scenario sc = new MoveTraces.Scenario("demo", c.map().startRoom(), false, startX, startY, List.of(), "-",
+                seed, MoveTraces.Scenario.GAME, false, false);
+        Simulation sim = MoveTraces.simulation(c, world, sc);
+        boolean fireWas = false;
+        for (int[] run : recorded) {
+            for (int i = 0; i < run[0]; i++) {
+                sim.tick(MoveTraces.input(run[1], fireWas));
+                fireWas = (run[1] & 16) != 0;
+                if (sim.player().mode() == wulf.sim.Player.Mode.GAME_OVER) {
+                    throw new ConvertException(DEMO + ": the demo's game is over; record one that lasts");
+                }
             }
         }
+        int demoTicks = ticks;
         // And the map screen (MapScreen) for that game, opened as the demo ends, at its first tick.
         demoMap = mapOf(sim);
         // What test/shell.sh checks the ROM's demo against: where it ends.
-        demoCheck = String.format("demo ticks %d room %d x %d y %d score %d lives %d%n", input.ticks(),
+        demoCheck = String.format("demo ticks %d room %d x %d y %d score %d lives %d%n", demoTicks,
                 sim.room().index(), sim.player().xFp(), sim.player().yFp(), sim.score(), sim.player().lives());
 
         if (bin.size() > 16384 || img.size() > 16384) {
@@ -539,6 +561,9 @@ public final class Shell {
     public byte[] demoMap() {
         return demoMap.clone();
     }
+
+    /** The attract demo, as tools/record-demo.sh recorded it on the MSX. */
+    static final String DEMO = "demo.txt";
 
     /** The options the MSX keeps (AGENTS.md §7), in the Java page's order. */
     static final List<String> OPTIONS = List.of("difficulty", "keys", "sound", "load", "hiScores", "back");

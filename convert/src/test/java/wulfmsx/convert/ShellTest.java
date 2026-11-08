@@ -30,7 +30,7 @@ class ShellTest {
     @BeforeAll
     static void load() {
         content = Content.load(ConvertTest.DATA);
-        shell = new Shell(content, VdpPalette.forGame(content), 840, ConvertTest.DATA);
+        shell = new Shell(content, VdpPalette.forGame(content), 840);
         Matcher m = Pattern.compile("#define (\\w+)\\t(-?\\d+)\\n").matcher(shell.header());
         while (m.find()) {
             defs.put(m.group(1), Integer.parseInt(m.group(2)));
@@ -93,7 +93,7 @@ class ShellTest {
     }
 
     @Test
-    void theDemoIsTheJavaGamesRecordingToTheEnd() {
+    void theDemoIsTheMsxRecordingPlayedToItsEnd() {
         assertThat(shell.demoCheck()).startsWith("demo ticks " + defs.get("DEMO_TICKS") + " ");
         assertThat(shell.demoMap()).hasSize(content.display().playfield().w() * content.display().playfield().h());
     }

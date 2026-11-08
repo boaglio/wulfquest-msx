@@ -931,13 +931,18 @@ map screen matches the Java map for the same walked rooms.
   a band filled and the stencil ORed over it does it). `START` (with Hard or
   Easy under it; `D` switches it too) and `OPTIONS`; `CONTINUE` comes with the
   saves (M11), `EXIT` is a PC's. Left alone for `attract.idleTicks`, the demo.
-- **The demo, for now**: the Java game's `replays/attract.json`, Hard, its
-  seed and room, its input played tick for tick. **Still to do (the user,
-  2026-11-07): the demo must be recorded on the MSX itself (§7)**; this one
-  stands in until then, and its test checks the attract mode around it. It
-  is dimmed by the palette (each colour its
-  plain twin's, the bands' inks kept), every other row black, the wordmark and
-  `PRESS ANY KEY` on their bands, no panel. Any key, or its end, goes back.
+- **The demo**, recorded on the MSX (§7; the user chose a scripted player,
+  2026-11-07): `tools/record-demo.sh` has convert's `DemoRoute` play a new
+  game, Hard, from the start, with `QuestRoute`'s way to the quarters and a
+  swing every 40 ticks, for the first seed whose game lasts 3 000 ticks (10);
+  it presses those keys into the MSX's keyboard in openMSX, tick by tick,
+  while the ROM's recording mode (`g_TestRecord`, a test hook) keeps the keys
+  it read as runs in video RAM. The runs are
+  `convert/src/main/resources/wulfmsx/convert/demo.txt` (313 runs, checked to
+  be the keys pressed), and the converter puts them in the ROM. Played back on
+  the title, dimmed by the palette (each colour its plain twin's, the bands'
+  inks kept), every other row black, the wordmark and `PRESS ANY KEY` on their
+  bands, no panel. Any key, or its end, goes back.
 - **Options**: from the title, difficulty, keys (the two profiles' walking
   keys: the cursors, or `Q A O P`), sound, load, hi-scores, back; over a game,
   sound and back (`ShellConfig.Options.TITLE_ONLY`). **The pause menu**:
@@ -964,8 +969,8 @@ map screen matches the Java map for the same walked rooms.
   back with the keys, then with the joystick (a breakpoint in MSXgl's
   `Joystick_Read` puts its bits in); each screen's words read off the screen
   with the ROM's font and found to be `shell.bin`'s; the demo played to its
-  end, where the Java game's ends (`demo_check.txt`: 3 000 ticks, room, place,
-  score and lives); the map over it the Java game's `MapScreen` drawn by the
+  end, where the Java game, given the same keys, ends (`demo_check.txt`: 3 000
+  ticks, room, place, score and lives); the map over it the Java game's `MapScreen` drawn by the
   converter, pixel for pixel (`demo_map.bin`); a reveal, game over, a continue
   and the win brought on by setting the game's state. `test/boot.sh` boots to
   the title first; `rooms.sh` and `sprites.sh` start a game from it.
@@ -976,6 +981,9 @@ map screen matches the Java map for the same walked rooms.
   jungle dimmed, 2.5 million cycles) and as long again for each menu over the
   game; a key pressed and let go while the game is stalled (a respawn, M7; a
   new game, M8) is not seen; the demo starts after a new game's 3.3 s.
+- **Found on the way:** with five lives, the route to the quarters runs out
+  of them before 3 000 ticks for seeds 1 to 9 (the jungle is Hard); seed 10's
+  lasts, on its last life.
 
 ### M11 — Saves: SRAM and disk
 

@@ -252,12 +252,49 @@ static void Bench()
 	Test_BenchEnd();
 }
 
+// tools/record-demo.sh (M10, AGENTS.md §7: the demo is recorded on the MSX):
+// with g_TestRecord 1, the next new game from the title starts as a test's
+// (g_TestSeed, g_TestX, g_TestY, Hard) and the keys each tick plays are kept
+// as runs (a count, the keys) in video RAM at REC_VRAM, g_RecRuns of them,
+// for g_TestRecordTicks ticks; then g_TestRecord is 2.
+#define REC_VRAM	0xEA00   // page 1, below the screen: free up to the sprites' set 1
+#define REC_RUNS	1280
+u8  g_TestRecord = 0;
+u16 g_TestRecordTicks = 0;
+u16 g_RecTicks = 0;
+u16 g_RecRuns = 0;
+static u8 s_Rec[2] = { 0, 0 };   // the run going on: its count, its keys
+
+static void RecordRun()
+{
+	if (s_Rec[0] && g_RecRuns < REC_RUNS)
+		Data_VramWrite(REC_VRAM + (g_RecRuns << 1), s_Rec, 2);
+	g_RecRuns++;
+	s_Rec[0] = 0;
+}
+
+static void Record(u8 k)
+{
+	if (s_Rec[0] && (s_Rec[1] != k || s_Rec[0] == 255))
+		RecordRun();
+	s_Rec[0]++;
+	s_Rec[1] = k;
+	if (++g_RecTicks == g_TestRecordTicks)
+	{
+		RecordRun();
+		g_TestRecord = 2;
+	}
+}
+
 // One tick; TRUE when Vale has walked into another room.
 static bool Tick()
 {
 	Test_BeforeTick();
 	g_Ticks++;
-	return Vale_Tick(GameKeys());
+	u8 k = GameKeys();
+	if (g_TestRecord == 1)
+		Record(k);
+	return Vale_Tick(k);
 }
 
 // Frames into ticks: one a frame, none in every sixth on a 60 Hz machine.
@@ -882,7 +919,12 @@ void main()
 				SHELL(Shell_Tick);
 				if (g_ShellDo & (DO_NEW_GAME | DO_DEMO))
 				{
-					if (g_ShellDo & DO_DEMO)
+					if (g_TestRecord == 1)
+					{
+						g_Easy = 0;
+						NewGame(g_TestSeed, g_TestX, g_TestY);
+					}
+					else if (g_ShellDo & DO_DEMO)
 					{
 						g_Easy = 0;
 						NewGame(s_DemoSeed, DEMO_START_X_FP, DEMO_START_Y_FP);
@@ -903,7 +945,8 @@ void main()
 				if (g_ShellDo & DO_CARRY_ON)
 					Vale_FireReleased();
 				bool flip = Tick();
-				SHELL(Shell_AfterTick);
+				if (!g_TestRecord)   // a recording is the game alone, as the demo plays it back
+					SHELL(Shell_AfterTick);
 				if (flip)
 				{
 					Flip();

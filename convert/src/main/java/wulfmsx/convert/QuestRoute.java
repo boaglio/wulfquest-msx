@@ -37,6 +37,14 @@ final class QuestRoute {
     }
 
     static List<Integer> keys(Content c, WorldGrid grid, MoveTraces.Scenario s) {
+        return keys(c, grid, s, 0, 0);
+    }
+
+    /**
+     * The same route, as far as {@code limit} ticks (0: to the win) or game over, a press of
+     * fire every {@code swingEvery} ticks (0: none) while he walks: the attract demo's (M10).
+     */
+    static List<Integer> keys(Content c, WorldGrid grid, MoveTraces.Scenario s, int limit, int swingEvery) {
         Simulation sim = MoveTraces.simulation(c, grid, s);
         PlayerData rules = c.player();
         PlayerData.Box box = rules.collisionBox();
@@ -52,6 +60,9 @@ final class QuestRoute {
         int heldBefore = -1;
         Player.Mode modeBefore = sim.player().mode();
         while (sim.player().mode() != Player.Mode.WON) {
+            if (limit > 0 && (keys.size() >= limit || sim.player().mode() == Player.Mode.GAME_OVER)) {
+                return keys;
+            }
             if (keys.size() > MAX_TICKS) {
                 throw new ConvertException("quest route " + s.name() + ": not won in " + MAX_TICKS + " ticks; it holds "
                         + sim.quest().piecesHeld() + " quarters, in room " + sim.room());
@@ -94,7 +105,9 @@ final class QuestRoute {
             } else {
                 sinceProgress++;
             }
-            step(sim, keys, Route.axis(rules.momentum(), dx, p.vx(), 8, 4) | Route.axis(rules.momentum(), dy, p.vy(), 2, 1));
+            int fire = swingEvery > 0 && keys.size() % swingEvery == 0 ? 16 : 0;
+            step(sim, keys, fire | Route.axis(rules.momentum(), dx, p.vx(), 8, 4)
+                    | Route.axis(rules.momentum(), dy, p.vy(), 2, 1));
         }
         for (int i = 0; i < 25; i++) {
             step(sim, keys, 0);

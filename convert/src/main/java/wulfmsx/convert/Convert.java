@@ -60,7 +60,7 @@ public final class Convert {
         Game game = new Game(c, palette, bank, tables);
         Panel panel = new Panel(c, palette);
         Sound sound = new Sound(c);
-        Shell shell = new Shell(c, palette, SceneryAtlas.VRAM_FIRST_LINE + atlas.lines(), dataDir);
+        Shell shell = new Shell(c, palette, SceneryAtlas.VRAM_FIRST_LINE + atlas.lines());
         bank.tables(tables);
         blade.tables(tables);
         vale.tables(tables);
