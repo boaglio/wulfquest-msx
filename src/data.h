@@ -147,3 +147,8 @@ void Data_Dim(u8 from, u8 to, u8 lines);
 // The game's palette, or (dim) each colour as its plain twin, the shell's
 // heading and bright inks kept (the attract demo).
 void Data_Palette(u8 dim);
+// The input (M11: from wulfquest.c): the game's keys (VALE_*, shell.h's
+// profile: 0 the cursors, 1 Q A O P, or joystick 1), the shell's (SK_*).
+u8 Data_ReadKeys(u8 profile);
+u8 Data_ShellKeys();
+u8 Data_Joystick();

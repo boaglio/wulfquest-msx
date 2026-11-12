@@ -23,8 +23,9 @@ for n in g_Shell g_ShellTick g_DemoTicks g_ValeRoom g_ValeX g_ValeY g_Score g_Va
     [[ -n "$a" ]] || { echo "shell.sh: $n is not in $map" >&2; exit 1; }
     syms+="$n $a "
 done
-# Joystick_Read's "ld l, a", just after it reads the PSG's port A (MSXgl's joystick.c).
-joy=$(awk '$2 == "_Joystick_Read" { printf "0x%X", strtonum("0x" $1) + 15 }' "$map")
+# Just after data.c's Data_Joystick reads the PSG's port A.
+joy=$(awk '$2 == "_Data_JoyPortA" { print "0x" substr($1, length($1) - 3) }' "$map")
+[[ -n "$joy" ]] || { echo "shell.sh: Data_JoyPortA is not in $map" >&2; exit 1; }
 
 # The keys (row, bit of the keyboard matrix) and the joystick's bits.
 UP="key 8 0x20"; DOWN="key 8 0x40"; SPACE="key 8 0x01"; ESC="key 7 0x04"; F1="key 6 0x20"; M="key 4 0x04"

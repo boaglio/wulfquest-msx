@@ -47,6 +47,7 @@
 #include "panel_data.h"
 #include "shell.h"
 #include "shell_data.h"
+#include "save.h"
 
 // MSXgl's start-up does not clear RAM: a global with no initial value starts
 // as whatever the RAM held. So every one here has one.
@@ -144,45 +145,14 @@ static bool Pressed(u8 key, bool* was)
 // One input state (§7): the cursor keys or Q A O P, Space; or joystick 1.
 static u8 ReadKeys()
 {
-	u8 joy = Joystick_Read(JOY_PORT_1);
-	u8 k = JOY_GET_DIR(joy);   // its bits are VALE_UP, _DOWN, _LEFT, _RIGHT
-	if (JOY_GET_TRIG1(joy))
-		k |= VALE_FIRE;
-	// The options' keys (M10): the cursors, or Q A O P.
-	if (Keyboard_IsKeyPressed(g_Profile ? KEY_Q : KEY_UP))
-		k |= VALE_UP;
-	if (Keyboard_IsKeyPressed(g_Profile ? KEY_A : KEY_DOWN))
-		k |= VALE_DOWN;
-	if (Keyboard_IsKeyPressed(g_Profile ? KEY_O : KEY_LEFT))
-		k |= VALE_LEFT;
-	if (Keyboard_IsKeyPressed(g_Profile ? KEY_P : KEY_RIGHT))
-		k |= VALE_RIGHT;
-	if (Keyboard_IsKeyPressed(KEY_SPACE))
-		k |= VALE_FIRE;
-	return k;
+	return Data_ReadKeys(g_Profile);
 }
 
 // The shell's input (M10): the game's keys, and its own (shell.h).
 static void ShellInput()
 {
 	g_ShellIn = ReadKeys();
-	u8 k = 0;
-	if (Keyboard_IsKeyPressed(KEY_ESC))
-		k |= SK_ESC;
-	if (Keyboard_IsKeyPressed(KEY_STOP) || Keyboard_IsKeyPressed(KEY_F1))
-		k |= SK_PAUSE;
-	if (Keyboard_IsKeyPressed(KEY_M) || JOY_GET_TRIG2(Joystick_Read(JOY_PORT_1)))
-		k |= SK_MAP;
-	if (Keyboard_IsKeyPressed(KEY_D))
-		k |= SK_DIFF;
-	if (Keyboard_IsKeyPressed(KEY_RETURN))
-		k |= SK_ENTER;
-	// Any key at all: a row of the BIOS's keyboard matrix (NEWKEY) with a key down.
-	const u8* rows = (const u8*)0xFBE5;
-	for (u8 r = 0; r < 11; r++)
-		if (rows[r] != 0xFF)
-			k |= SK_ANY;
-	g_ShellKeys = k;
+	g_ShellKeys = Data_ShellKeys();
 }
 
 // The keys a tick of the game plays: a test's, the demo's, the shell's (a
@@ -822,10 +792,8 @@ static void SpritesInit()
 
 // A new game of the whole jungle (Simulation's constructor): seeded with
 // seed (the Java game's long, little-endian), Vale at (x, y); its room shown.
-static void NewGame(const u8* seed, i32 x, i32 y)
+static void MakeGame()
 {
-	for (u8 i = 0; i < 8; i++)
-		g_TestSeed[i] = seed[i];
 	g_ValeOpen = 0;
 	g_JungleOn = 1;
 	g_QuestOn = 1;
@@ -839,6 +807,13 @@ static void NewGame(const u8* seed, i32 x, i32 y)
 	JUNGLE(Jungle_NewGame);
 	QUEST(Quest_NewGame);
 	GAME(Game_NewGame);
+}
+
+static void NewGame(const u8* seed, i32 x, i32 y)
+{
+	for (u8 i = 0; i < 8; i++)
+		g_TestSeed[i] = seed[i];
+	MakeGame();
 	EnterRoom(x, y);
 }
 
@@ -917,9 +892,19 @@ void main()
 			{
 				ShellInput();
 				SHELL(Shell_Tick);
-				if (g_ShellDo & (DO_NEW_GAME | DO_DEMO))
+				if (g_ShellDo & (DO_NEW_GAME | DO_DEMO | DO_LOAD))
 				{
-					if (g_TestRecord == 1)
+					Panel_Init();   // drawn whole with the room: the screen on show is the shell's
+					if (g_ShellDo & DO_LOAD)
+					{
+						// A saved game (M11): its seed's new game, the save put back, Vale in his room.
+						SAVE(Save_Before);
+						MakeGame();
+						SAVE(Save_Apply);
+						EnterRoom(g_LoadX, g_LoadY);
+						SAVE(Save_After);
+					}
+					else if (g_TestRecord == 1)
 					{
 						g_Easy = 0;
 						NewGame(g_TestSeed, g_TestX, g_TestY);
@@ -969,9 +954,10 @@ void main()
 		// (a flip has drawn it already).
 		if (game && !flipped)
 			DrawSprites();
-		// The panel, but not in a frame that loaded sprites: those are the busy ones.
-		if ((g_TestMode || s_Frozen || g_Shell == SH_PLAYING) && !s_Loaded)
-			Panel_Update(g_PageShown);
+		// The panel: a cell less in a frame that loaded sprites, the busy ones
+		// (M11: none at all starved a room of animated creatures of its notes).
+		if (g_TestMode || s_Frozen || g_Shell == SH_PLAYING)
+			Panel_Update(g_PageShown, s_Loaded);
 		if (game && g_Shell != SH_ATTRACT)
 			Border();
 		else if (s_Border != BORDER_IDLE)

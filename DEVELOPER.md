@@ -103,8 +103,8 @@ To run it alone: `mvn -q -pl convert -am package -DskipTests exec:java`.
 
 **Banked code** (AGENTS.md §3). `src/wulfquest_sN_b1.c` is compiled into ROM
 segment N, for bank 1 (8000h): each holds one module (`#include "jungle.c"`),
-whose header names the segment (`JUNGLE_SEG`; segments 24-28 are the jungle,
-the respawns, the quest, the game and the shell) and a macro to call into it
+whose header names the segment (`JUNGLE_SEG`; segments 24-29 are the jungle,
+the respawns, the quest, the game, the shell and the saves) and a macro to call into it
 (`JUNGLE(Jungle_TickBeasts)`, through `data.c`'s `Bank_Call`). A banked
 function takes no arguments and returns nothing: they go in globals. While
 it runs, segment 1 is not mapped: it may call code below 8000h (`data.c`,
@@ -263,6 +263,11 @@ ignores it, so the submodule stays clean.
   presses its keys into the built ROM in openMSX tick by tick with the ROM
   recording what it reads (`tools/record_demo.tcl`), checks the two agree and
   writes `convert/src/main/resources/wulfmsx/convert/demo.txt`. Rebuild after.
+- **`test/saves.sh`** (M11) gives the ROM the tests' save medium (video RAM,
+  `g_TestMedium`) and walks a new game's slot, a save, leaving for the title,
+  continuing, and a damaged slot; `check_saves.py` reads the screens' words
+  (`shell.bin`'s templates filled as `MenuScreen` fills them) and compares the
+  game left with the game loaded.
 - **`test/boot.sh`**, **`rooms.sh`** and **`sprites.sh`** start from the title
   (M10): boot checks it comes first, then each presses Space for a game.
 - **`test/gate.sh`** checks the binaries gate in a scratch repository: it

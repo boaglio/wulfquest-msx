@@ -33,7 +33,12 @@ TABLES = 128 + 512 + 2048
 _SPRITES_H = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src", "sprites.h")).read()
 SMALL = int(re.search(r"#define SPR_SMALL\s+(\d+)", _SPRITES_H).group(1))
 BIG = int(re.search(r"#define SPR_BIG\s+(\d+)", _SPRITES_H).group(1))
-TURN_FRAMES = 10
+# The turns are sampled from the draws that reach the screen: in this crowded
+# layout a frame's work runs just past the blank, and a draw that misses it is
+# dropped (sprites.c's Sprites_Prepare, M5), in runs that drift with the
+# frame's timing. Twenty frames sample each creature's turns over several of
+# those phases (M11: ten left one creature seen once, by the phase alone).
+TURN_FRAMES = 20
 
 
 def plan(gen):

@@ -60,6 +60,10 @@ static u16 s_Top = 0;          // the page's first byte
 static u8 s_MsgX = 0;
 u8 g_PanelDebug = 0;
 u32 g_HiBest = 0;
+u8  g_PanelNote[PANEL_NOTE_MAX];
+u8  g_PanelNoteN = 0;
+u8  g_PanelNoteTicks = 0;
+u8  g_PanelNoteSerial = 0;
 static bool s_Drawn = FALSE;   // the page on show has the whole panel: a room's page copies it
 
 // What the cells were made from.
@@ -222,12 +226,15 @@ static bool Want()
 	}
 	// The bottom line: a shrine's hint, the debug line, or the flower's bar.
 	u8 msg = 0xFF;
-	if (g_HintTicks > 0)
+	if (g_PanelNoteTicks > 0)
+		msg = 0xF3;   // GameSession.message: a note first (the saves', M11)
+	else if (g_HintTicks > 0)
 		msg = (g_HintToExit ? 8 : 0) + g_HintDirection;
 	else if (g_PanelDebug)
 		msg = 0xF0;
-	u16 debugKey = g_PanelDebug ? (u16)(FP_PX(g_ValeX) ^ (FP_PX(g_ValeY) << 3)) : 0;
-	if (msg != s_Message || (msg == 0xF0 && debugKey != s_DebugKey))
+	u16 debugKey = msg == 0xF3 ? g_PanelNoteSerial
+		: g_PanelDebug ? (u16)(FP_PX(g_ValeX) ^ (FP_PX(g_ValeY) << 3)) : 0;
+	if (msg != s_Message || ((msg == 0xF0 || msg == 0xF3) && debugKey != s_DebugKey))
 	{
 		bool redo = msg != s_Message;
 		s_Message = msg;
@@ -236,6 +243,12 @@ static bool Want()
 		u8 n = 0;
 		if (msg < 16)
 			n = Data_String(c_Hints[msg], buf);
+		else if (msg == 0xF3)
+		{
+			n = g_PanelNoteN;
+			for (u8 i = 0; i < n; i++)
+				buf[i] = g_PanelNote[i];
+		}
 		else if (msg == 0xF0)
 		{
 			// ROOM cc,rr  X xxxx Y yyyy: GameSession.message's dev line.
@@ -290,12 +303,12 @@ static bool Want()
 	return line;
 }
 
-void Panel_Update(u8 page)
+void Panel_Update(u8 page, u8 busy)
 {
 	s_Top = page ? 0x8000 : 0;
 	if (Want())
 		Bar(page);   // the line cleared, and the bar if no message is on it
-	u8 left = PANEL_CELLS_A_FRAME;
+	u8 left = busy ? PANEL_CELLS_A_FRAME - 1 : PANEL_CELLS_A_FRAME;
 	while (left && s_Head != s_Tail)
 	{
 		u8 i = s_Queue[s_Head++ & 127];
@@ -318,6 +331,12 @@ void Panel_Init()
 	}
 	s_Head = s_Tail = 0;
 	s_Drawn = FALSE;
+	s_Score = 0xFFFFFFFF;
+	s_Best = 0xFFFFFFFF;
+	s_Lives = 0xFF;
+	s_Slots = 0xFF;
+	s_Easy = 0xFF;
+	s_Message = 0xFE;
 }
 
 void Panel_Draw(u8 page)
@@ -335,6 +354,7 @@ void Panel_Draw(u8 page)
 	VDP_CommandWait();
 	s_Top = page ? 0x8000 : 0;
 	Want();
+	Bar(page);   // the line first: a message on it is drawn over it, not cleared by it
 	for (u8 i = 0; i < CELLS; i++)
 	{
 		s_Queued[i] = 0;
@@ -345,5 +365,4 @@ void Panel_Draw(u8 page)
 			s_Shown[i] = BLANK;
 	}
 	s_Head = s_Tail;
-	Bar(page);
 }

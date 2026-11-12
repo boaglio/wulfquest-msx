@@ -25,6 +25,7 @@
 #include "game_data.h"
 #include "panel.h"
 #include "tables.h"
+#include "save.h"
 
 u8  g_Shell = SH_TITLE;
 u16 g_ShellTick = 0;
@@ -44,13 +45,12 @@ u8  g_TestMapOpen = 0;
 #define R_PIECES	7
 #define R_TICKS		8
 #define R_EASY		12
-static u8 s_Table[HISCORE_SIZE * HISCORE_ROW_BYTES];
+u8 g_HiTable[HISCORE_SIZE * HISCORE_ROW_BYTES];
 
 // Tables, in RAM (banked code reads none from ROM).
 static u16 s_OptionStr[] = { OPTION_STRS };
 static u16 s_PauseStr[] = { PAUSE_STRS };
 static u8  s_PauseId[] = { PAUSE_IDS };
-static u16 s_SlotEmpty[] = { SLOT_EMPTY_STRS };
 static u16 s_VerseStr[] = { VERSE_STRS };
 static u8  s_Cycle[] = { CYCLE_COLOURS };
 static u8  s_EyeShows[] = { EYE_SHOWS };
@@ -61,13 +61,14 @@ static u8  s_Alphabet[HISCORE_ALPHABET_N + 1];
 static u8  s_Drawn = 0xFF;      // the screen drawn, 0xFF none yet
 static u8  s_Cursor = 0;
 static u8  s_Back = SH_TITLE;   // where Escape goes back to
-static u16 s_Note = 0;          // a word for the player on a menu (a shell.bin string), 0 none
+static u16 s_Note = 0;          // a word for the player on a menu (a shell.bin template), 0 none
+static u8  s_NoteN = 0;         // and its slot
 static u8  s_Held = 0;          // last tick's g_ShellIn, for the presses
 static u8  s_KeysHeld = 0;
 static u8  s_Press = 0;         // this tick's presses
 static u8  s_KeyPress = 0;
 static u16 s_Idle = 0;
-static u8  s_Easy = 0;          // the next game's mode (§17.8)
+u8  g_ShellEasy = 0;       // the next game's mode (§17.8)
 static u8  s_Pieces = 0;        // GameSession.piecesSeen
 static u16 s_PlayTick = 0;      // ticks since the game came back (Shell.stateTick in PLAYING)
 static i8  s_Highlight = -1;
@@ -99,7 +100,7 @@ static u16 Times(u8 a, u8 b)
 
 static u8* Row(u8 i)
 {
-	u8* p = s_Table;
+	u8* p = g_HiTable;
 	while (i--)
 		p += HISCORE_ROW_BYTES;
 	return p;
@@ -246,9 +247,9 @@ static void Footer(u16 str, u8 ink)
 }
 
 // MenuScreen.drawLine: g_Text centred, and the marker before it if chosen.
-static void Line(u8 y, u8 chosen)
+static void Line(u8 y, u8 chosen, u8 greyed)
 {
-	u8 x = Centre(TRUE, y, chosen ? INK_BRIGHT : INK_BODY);
+	u8 x = Centre(TRUE, y, greyed ? INK_DIM : chosen ? INK_BRIGHT : INK_BODY);
 	if (chosen)
 		Image(IMG_MARKER_X, IMG_MARKER_Y, IMG_MARKER_W, IMG_MARKER_H, (i16)x - MARKER_GAP - IMG_MARKER_W,
 			(i16)y + (8 + IMG_MARKER_H) / 2 - IMG_MARKER_H);
@@ -291,6 +292,131 @@ static void Show(u8 over)
 }
 
 //-----------------------------------------------------------------------------
+// The saves' words (MenuScreen.slotLine and detailLine, the notes): a
+// template of shell.bin with its fields filled in.
+
+static u8 s_Why = SAVE_DAMAGED;   // {why}: a SAVE_* result
+
+// Template str's words onto g_Text, the fields filled for slot n (from 1).
+static void Template(u16 str, u8 n)
+{
+	u8 raw[48];
+	u8 len;
+	Data_ShellBytes(str, &len, 1);
+	if (len > sizeof(raw))
+		len = sizeof(raw);
+	Data_ShellBytes(str + 1, raw, len);
+	SlotInfo* sl = &g_Slots[n ? n - 1 : 0];
+	for (u8 i = 0; i < len; i++)
+	{
+		u8 c = raw[i];
+		switch (c)
+		{
+		case TF_N:
+			Data_TextNum(n);
+			break;
+		case TF_MODE:
+			Data_TextStr(sl->Easy ? STR_MODE_NAME_EASY : STR_MODE_NAME_HARD);
+			break;
+		case TF_JOB:
+			Data_TextStr(STR_JOB_0);   // the first job: New Game+ is M12's
+			break;
+		case TF_QUARTERS:
+			Data_TextNum(sl->Quarters);
+			break;
+		case TF_SCORE:
+			Data_TextNum(sl->Score);
+			break;
+		case TF_DATE:
+			break;   // the saves keep no date
+		case TF_ROOM:   // RoomAddress: col,row
+			Data_TextNum(sl->Room & 15);
+			Put(',');
+			Data_TextNum(sl->Room >> 4);
+			break;
+		case TF_WHY:
+			Data_TextStr(s_Why == SAVE_OTHER_VERSION ? STR_WHY_OTHER_VERSION
+				: s_Why == SAVE_FAILED ? STR_WHY_NO_MEDIUM : STR_WHY_DAMAGED);
+			break;
+		case TF_LINE:
+			Template(STR_T_SLOT, n);
+			break;
+		default:
+			Put(c);
+		}
+	}
+}
+
+// MenuScreen.slotLine's tidying: a job with no name leaves no hole; and
+// detailLine's trim.
+static void Tidy()
+{
+	u8 out = 0;
+	u8 spaces = 0;
+	for (u8 i = 0; i < g_TextN; i++)
+	{
+		u8 c = g_Text[i];
+		spaces = c == ' ' ? spaces + 1 : 0;
+		if ((c == ' ' && (out == 0 || spaces > 2)))
+			continue;
+		g_Text[out++] = c;
+	}
+	while (out && g_Text[out - 1] == ' ')
+		out--;
+	g_TextN = out;
+}
+
+static void Words(u16 str, u8 n)
+{
+	g_TextN = 0;
+	Template(str, n);
+	Tidy();
+}
+
+// GameSession.note: a line on the panel for NOTE_TICKS ticks.
+static void Note(u16 str, u8 n)
+{
+	Words(str, n);
+	for (u8 i = 0; i < g_TextN && i < sizeof(g_PanelNote); i++)
+		g_PanelNote[i] = g_Text[i];
+	g_PanelNoteN = g_TextN < sizeof(g_PanelNote) ? g_TextN : sizeof(g_PanelNote);
+	g_PanelNoteTicks = NOTE_TICKS;
+	g_PanelNoteSerial++;
+}
+
+// Shell.titleLines: CONTINUE while a game is saved (the newest), and then
+// START says NEW GAME; OPTIONS. (EXIT is a PC's.)
+enum { TL_CONTINUE, TL_START, TL_OPTIONS };
+static u8 s_Continue = 0;     // Shell.continueSlot: from 1, 0 none
+static u16 s_Notice = 0;      // a slot that would not load (Shell.notice): a template, 0 none
+static u8 s_NoticeN = 0;
+static u8 s_GameSlot = 0;     // the slot the game in play saves itself to, from 1; 0 none
+static u16 s_SinceSaved = 0;
+
+static u8 TitleLines()
+{
+	return s_Continue ? 3 : 2;
+}
+
+static u8 TitleId(u8 line)
+{
+	return s_Continue ? line : line + 1;
+}
+
+// Shell.lookForAGame: the newest saved game.
+static void LookForAGame()
+{
+	s_Continue = 0;
+	u16 newest = 0;
+	for (u8 n = 0; n < SAVE_SLOTS; n++)
+		if (g_Slots[n].Used == 1 && (!s_Continue || g_Slots[n].Serial >= newest))
+		{
+			s_Continue = n + 1;
+			newest = g_Slots[n].Serial;
+		}
+}
+
+//-----------------------------------------------------------------------------
 // The machine (Shell's go, openMenu, backOut, steer).
 
 static u8 InGame()   // Shell.menuInGame
@@ -316,6 +442,8 @@ static u8 TuneFor(u8 state)   // Shell.tuneFor
 static void Go(u8 next)
 {
 	u8 from = g_Shell;
+	if (next == SH_TITLE && from != SH_TITLE)
+		LookForAGame();   // a game saved, or quit, since: the title offers the newest
 	if (next == SH_TITLE || next == SH_PLAYING)
 	{
 		s_Back = SH_TITLE;
@@ -404,15 +532,14 @@ static void BackOut()
 	else
 	{
 		Go(SH_TITLE);
-		if (from == SH_OPTIONS)
-			s_Cursor = 1;   // the title's OPTIONS line
+		if (from == SH_OPTIONS || from == SH_NEW_GAME)
+			s_Cursor = TitleLines() - (from == SH_OPTIONS ? 1 : 2);   // its OPTIONS line, or START
 	}
 }
 
 //-----------------------------------------------------------------------------
 // The title (TitleScreen).
 
-#define TITLE_LINES	2   // START, OPTIONS: CONTINUE comes with the saves (M11), EXIT is a PC's
 static u8 s_Step = 0;
 static u8 s_StepTicks = 0;
 
@@ -470,15 +597,22 @@ static void TitleMenu()
 {
 	u8 y = TITLE_MENU_Y;
 	Fill(0, y - 2, 256, 212 - 14 - 2 - (y - 2), INK_GROUND);
-	for (u8 i = 0; i < TITLE_LINES; i++)
+	for (u8 i = 0; i < TitleLines(); i++)
 	{
-		Say(i == 0 ? STR_START : STR_OPTIONS);
-		Line(y, i == s_Cursor);
+		u8 id = TitleId(i);
+		Say(id == TL_CONTINUE ? STR_CONTINUE_LINE : id == TL_OPTIONS ? STR_OPTIONS : s_Continue ? STR_NEW_GAME : STR_START);
+		Line(y, i == s_Cursor, FALSE);
 		y += BIG_LINE + 2;
-		if (i == 0)
+		if (id == TL_CONTINUE)
 		{
-			Say(s_Easy ? STR_MODE_EASY : STR_MODE_HARD);
-			Centre(FALSE, y, s_Easy ? INK_EASY : INK_DIM);
+			Words(STR_T_CONTINUE_DETAIL, s_Continue);
+			Centre(FALSE, y, INK_DIM);
+			y += SMALL_LINE + 2;
+		}
+		else if (id == TL_START)
+		{
+			Say(g_ShellEasy ? STR_MODE_EASY : STR_MODE_HARD);
+			Centre(FALSE, y, g_ShellEasy ? INK_EASY : INK_DIM);
 			y += SMALL_LINE + 2;
 		}
 		y += 4;
@@ -495,8 +629,70 @@ static void DrawTitle()
 	Say(STR_TAGLINE);
 	Centre(FALSE, WordY(WORDMARK_WORDS) + 4 - WORDMARK_GAP, INK_DIM);
 	TitleMenu();
+	if (s_Notice)
+	{
+		Words(s_Notice, s_NoticeN);
+		Centre(FALSE, 212 - 28, INK_HEADING);
+	}
 	Footer(STR_FOOTER, INK_DIM);
 	Show(FALSE);
+}
+
+// Shell.startGame: a new game, saving itself to slot (from 1) once it is
+// made (Shell_Shown), or nowhere (0).
+static u8 s_SaveNew = 0;
+
+static void StartGame(u8 slot)
+{
+	g_Easy = g_ShellEasy;
+	s_GameSlot = slot;
+	s_SaveNew = slot;
+	s_SinceSaved = 0;
+	g_ShellDo |= DO_NEW_GAME;
+	Go(SH_PLAYING);
+}
+
+// Shell.play: the game in g_SaveBuf, from slot n, saving itself back there.
+static void Play(u8 n)
+{
+	s_GameSlot = n;
+	s_SinceSaved = 0;
+	g_ShellDo |= DO_LOAD;
+	Note(STR_T_LOADED, n);
+	Go(SH_PLAYING);
+}
+
+// Shell.goOn: the newest saved game; one that will not load says why on the
+// title, and is no longer offered.
+static void GoOn(u8 n)
+{
+	g_SaveSlot = n;
+	SAVE(Save_Load);
+	if (g_SaveResult != SAVE_OK)
+	{
+		s_Why = g_SaveResult;
+		s_Notice = STR_T_REFUSED;
+		s_NoticeN = n;
+		s_Continue = 0;
+		s_Cursor = 0;
+		s_Drawn = 0xFF;
+		return;
+	}
+	Play(n);
+}
+
+// Shell.chooseSlot: with somewhere to save, a new game picks its slot first.
+static void ChooseSlot()
+{
+	if (g_SaveMedium == MEDIUM_NONE)
+	{
+		StartGame(0);
+		return;
+	}
+	OpenMenu(SH_NEW_GAME, SH_TITLE);
+	for (u8 n = SAVE_SLOTS; n > 0; n--)   // the first empty one; the first when all are full
+		if (!g_Slots[n - 1].Used)
+			s_Cursor = n - 1;
 }
 
 static void Title()
@@ -509,7 +705,7 @@ static void Title()
 		s_Page = s_On;
 		Wordmark();
 	}
-	if (Steer(TITLE_LINES))
+	if (Steer(TitleLines()))
 	{
 		s_Idle = 0;
 		s_Page = s_On;
@@ -518,7 +714,8 @@ static void Title()
 	}
 	if (s_KeyPress & SK_DIFF)
 	{
-		s_Easy ^= 1;
+		g_ShellEasy ^= 1;
+		SAVE(Save_Table);
 		Sound_Play(SFX_MENU_MOVE);
 		s_Idle = 0;
 		s_Page = s_On;
@@ -529,13 +726,11 @@ static void Title()
 	{
 		Sound_Play(SFX_MENU_PICK);
 		s_Idle = 0;
-		if (s_Cursor == 0)
-		{
-			g_Easy = s_Easy;
-			s_Pieces = 0;
-			g_ShellDo |= DO_NEW_GAME;
-			Go(SH_PLAYING);
-		}
+		u8 id = TitleId(s_Cursor);
+		if (id == TL_CONTINUE)
+			GoOn(s_Continue);
+		else if (id == TL_START)
+			ChooseSlot();
 		else
 			OpenMenu(SH_OPTIONS, SH_TITLE);
 		return;
@@ -626,12 +821,13 @@ static u8 RowText(u8 r)
 	{
 	case SH_PAUSED:
 		Data_TextStr(s_PauseStr[r]);
-		return 1 | (r == s_Cursor ? 2 : 0);
+		return 1 | (r == s_Cursor ? 2 : 0)
+			| (g_SaveMedium == MEDIUM_NONE && (s_PauseId[r] == PAUSE_SAVE || s_PauseId[r] == PAUSE_LOAD) ? 4 : 0);
 	case SH_OPTIONS:
 	{
 		u8 id = OptionId(r);
 		Data_TextStr(s_OptionStr[id]);
-		u16 v = id == OPT_DIFFICULTY ? (s_Easy ? STR_MODE_EASY : STR_MODE_HARD)
+		u16 v = id == OPT_DIFFICULTY ? (g_ShellEasy ? STR_MODE_EASY : STR_MODE_HARD)
 			: id == OPT_KEYS ? (g_Profile ? STR_KEYS_1 : STR_KEYS_0)
 			: id == OPT_SOUND ? (g_SoundOn ? STR_ON : STR_OFF) : 0;
 		if (v)
@@ -640,13 +836,21 @@ static u8 RowText(u8 r)
 			Put(' ');
 			Data_TextStr(v);
 		}
-		return 1 | (r == s_Cursor ? 2 : 0);
+		return 1 | (r == s_Cursor ? 2 : 0) | (g_SaveMedium == MEDIUM_NONE && id == OPT_LOAD ? 4 : 0);
 	}
-	default:   // the slots: none is filled until the saves (M11)
+	default:   // the slots: each a line (slotLine, or empty) and under it its detail
+	{
+		u8 n = (r >> 1) + 1;
+		u8 used = g_Slots[n - 1].Used == 1;
 		if (r & 1)
-			return 0;   // the slot's detail line: empty
-		Data_TextStr(s_SlotEmpty[r >> 1]);
-		return 1 | ((r >> 1) == s_Cursor ? 2 : 0);
+		{
+			if (used)
+				Words(STR_T_DETAIL, n);
+			return 0;
+		}
+		Words(used ? STR_T_SLOT : STR_T_EMPTY, n);
+		return 1 | (n - 1 == s_Cursor ? 2 : 0);
+	}
 	}
 }
 
@@ -658,7 +862,7 @@ static u8 Rows()
 static u16 MenuHeading()
 {
 	return g_Shell == SH_PAUSED ? STR_PAUSE_HEADING : g_Shell == SH_OPTIONS ? STR_OPT_HEADING
-		: g_Shell == SH_SAVE ? STR_SAVE_HEADING : STR_LOAD_HEADING;
+		: g_Shell == SH_SAVE ? STR_SAVE_HEADING : g_Shell == SH_NEW_GAME ? STR_NEW_GAME_HEADING : STR_LOAD_HEADING;
 }
 
 static u16 MenuFooter()
@@ -686,7 +890,7 @@ static void MenuRows()
 		u8 f = RowText(r);
 		if (f & 1)
 		{
-			Line(y, f & 2);
+			Line(y, f & 2, f & 4);
 			y += BIG_LINE + 2;
 		}
 		else
@@ -697,7 +901,7 @@ static void MenuRows()
 	}
 	if (s_Note)
 	{
-		Say(s_Note);
+		Words(s_Note, s_NoteN);
 		Centre(FALSE, InGame() ? y + 2 : y + BIG_LINE, INK_HEADING);
 	}
 }
@@ -755,6 +959,16 @@ static void Redraw()
 
 static void EndRun();
 
+// Nothing to save on: the line is greyed out and says why (AGENTS.md M11).
+static void NoMedium()
+{
+	s_Why = SAVE_FAILED;
+	s_Note = STR_WHY_NO_MEDIUM;
+	s_NoteN = 0;
+	Sound_Play(SFX_MENU_MOVE);
+	Redraw();
+}
+
 static void Paused()
 {
 	if (Steer(PAUSE_LINES))
@@ -769,6 +983,11 @@ static void Paused()
 	}
 	if (!Fire())
 		return;
+	if (RowText(s_Cursor) & 4)
+	{
+		NoMedium();
+		return;
+	}
 	Sound_Play(SFX_MENU_PICK);
 	switch (s_PauseId[s_Cursor])
 	{
@@ -790,9 +1009,9 @@ static void Paused()
 	}
 }
 
-// The save and load pages: no slots to fill or read until the saves (M11),
-// as the Java shell with none: fire does nothing.
-static void Slots()
+// The save page (Shell.saveGame): fire saves to the slot chosen, the game
+// goes on there, and saves itself there from now on.
+static void SavePage()
 {
 	if (Steer(SAVE_SLOTS))
 	{
@@ -800,7 +1019,91 @@ static void Slots()
 		return;
 	}
 	if (s_KeyPress & SK_ESC)
+	{
 		BackOut();
+		return;
+	}
+	if (!Fire())
+		return;
+	u8 n = s_Cursor + 1;
+	g_SaveSlot = n;
+	SAVE(Save_Game);
+	if (g_SaveResult != SAVE_OK)
+	{
+		s_Why = g_SaveResult;
+		s_Note = STR_T_REFUSED;
+		s_NoteN = n;
+		Sound_Play(SFX_MENU_MOVE);
+		Redraw();
+		return;
+	}
+	s_GameSlot = n;
+	s_SinceSaved = 0;
+	Sound_Play(SFX_MENU_PICK);
+	Note(STR_T_SAVED, n);
+	Go(SH_PLAYING);
+}
+
+// The load page (Shell.loadGame): fire loads the slot chosen; one that will
+// not says why.
+static void LoadPage()
+{
+	if (Steer(SAVE_SLOTS))
+	{
+		Redraw();
+		return;
+	}
+	if (s_KeyPress & SK_ESC)
+	{
+		BackOut();
+		return;
+	}
+	if (!Fire() || (g_ShellTick < SHELL_HOLD_TICKS && s_Back != SH_PAUSED))
+		return;
+	u8 n = s_Cursor + 1;
+	g_SaveSlot = n;
+	SAVE(Save_Load);
+	if (g_SaveResult != SAVE_OK)
+	{
+		s_Why = g_SaveResult;
+		s_Note = g_SaveResult == SAVE_EMPTY ? STR_T_EMPTY_SLOT
+			: g_SaveResult == SAVE_OTHER_VERSION ? STR_WHY_OTHER_VERSION : STR_WHY_DAMAGED;
+		s_NoteN = n;
+		Sound_Play(SFX_MENU_MOVE);
+		Redraw();
+		return;
+	}
+	Sound_Play(SFX_MENU_PICK);
+	Play(n);
+}
+
+// Shell.newGame: a new game's slot. An empty one starts it; one with a game
+// in it says so, and a second fire on it replaces that game.
+static void NewGamePage()
+{
+	if (Steer(SAVE_SLOTS))
+	{
+		Redraw();
+		return;
+	}
+	if (s_KeyPress & SK_ESC)
+	{
+		BackOut();
+		return;
+	}
+	if (!Fire() || g_ShellTick < SHELL_HOLD_TICKS)
+		return;
+	u8 n = s_Cursor + 1;
+	if (g_Slots[n - 1].Used && !(s_Note == STR_T_REPLACE && s_NoteN == n))
+	{
+		s_Note = STR_T_REPLACE;
+		s_NoteN = n;
+		Sound_Play(SFX_MENU_MOVE);
+		Redraw();
+		return;
+	}
+	Sound_Play(SFX_MENU_PICK);
+	StartGame(n);
 }
 
 static void Options()
@@ -817,6 +1120,11 @@ static void Options()
 	}
 	if (!Fire() || (g_ShellTick < SHELL_HOLD_TICKS && s_Back == SH_TITLE))
 		return;
+	if (RowText(s_Cursor) & 4)
+	{
+		NoMedium();
+		return;
+	}
 	switch (OptionId(s_Cursor))
 	{
 	case OPT_BACK:
@@ -824,7 +1132,7 @@ static void Options()
 		BackOut();
 		return;
 	case OPT_DIFFICULTY:
-		s_Easy ^= 1;
+		g_ShellEasy ^= 1;
 		Sound_Play(SFX_MENU_MOVE);
 		break;
 	case OPT_KEYS:
@@ -844,6 +1152,12 @@ static void Options()
 			Sound_Play(SFX_MENU_MOVE);
 		}
 		break;
+	}
+	switch (OptionId(s_Cursor))
+	{
+	case OPT_DIFFICULTY: case OPT_KEYS: case OPT_SOUND:
+		SAVE(Save_Table);   // the options are kept with the saves
+		break;
 	case OPT_LOAD:
 		Sound_Play(SFX_MENU_PICK);
 		OpenMenu(SH_LOAD, SH_OPTIONS);
@@ -862,6 +1176,8 @@ static void Options()
 static void Playing()
 {
 	s_PlayTick++;
+	if (g_PanelNoteTicks)
+		g_PanelNoteTicks--;   // GameSession.tick: the note goes after its ticks
 	if (s_KeyPress & SK_MAP)
 	{
 		Sound_Play(SFX_MENU_PICK);
@@ -904,6 +1220,15 @@ void Shell_AfterTick()
 		Go(SH_WON);
 	else if (g_ValeMode == MODE_GAME_OVER)
 		Go(SH_GAME_OVER);
+	// Shell.autosave: the game in play to its slot every AUTOSAVE_TICKS, not
+	// while the reveal is up or the game is over or won.
+	if (s_GameSlot && ++s_SinceSaved >= AUTOSAVE_TICKS && g_Shell == SH_PLAYING)
+	{
+		g_SaveSlot = s_GameSlot;
+		SAVE(Save_Game);
+		s_SinceSaved = 0;
+		Note(STR_T_AUTOSAVED, s_GameSlot);
+	}
 }
 
 // The reveal (AmuletRevealScreen): the playfield cleared, the quarters held
@@ -1268,9 +1593,19 @@ static u8 PlaceOf(u32 score, u32 ticks)
 	return i;
 }
 
-// Shell.endRun: the run offered to the table, and back to the title.
+// Shell.endRun: the game kept in its slot to go on with (or, over or won,
+// gone from it), the run offered to the table, and back to the title.
 static void EndRun()
 {
+	if (s_GameSlot)
+	{
+		g_SaveSlot = s_GameSlot;
+		if (g_ValeMode == MODE_WON || g_ValeMode == MODE_GAME_OVER)
+			SAVE(Save_Clear);
+		else
+			SAVE(Save_Game);
+		s_GameSlot = 0;
+	}
 	s_PendScore = g_BestScore;
 	s_PendTicks = g_SimTick;
 	s_PendPieces = g_QuestPieces;
@@ -1410,6 +1745,7 @@ static void Entry()
 		Put32(row + R_TICKS, s_PendTicks);
 		row[R_EASY] = s_PendEasy;
 		Best();
+		SAVE(Save_Table);   // the table is kept with the saves
 		s_Highlight = (i8)p;
 		s_Back = SH_TITLE;
 		Go(SH_HISCORES);
@@ -1477,13 +1813,15 @@ static void HiScores()
 
 void Shell_Init()
 {
-	Data_ShellBytes(HISCORE_DEFAULTS, s_Table, sizeof(s_Table));
+	Data_ShellBytes(HISCORE_DEFAULTS, g_HiTable, sizeof(g_HiTable));
 	Best();
 	Data_ShellBytes(WORD_WIDTHS, s_WordW, WORDMARK_WORDS);
 	Data_ShellBytes(STR_ALPHABET + 1, s_Alphabet, HISCORE_ALPHABET_N);
+	SAVE(Save_Init);   // the medium; the table and the options it keeps; the slots
+	Best();
 	g_PageShown = 0;
 	s_On = 0;
-	g_Shell = SH_TITLE;
+	g_Shell = 0xFF;
 	Go(SH_TITLE);
 }
 
@@ -1504,7 +1842,7 @@ static void Enter()
 	case SH_HISCORES:
 		DrawHiScores();
 		break;
-	case SH_OPTIONS: case SH_PAUSED: case SH_SAVE: case SH_LOAD:
+	case SH_OPTIONS: case SH_PAUSED: case SH_SAVE: case SH_LOAD: case SH_NEW_GAME:
 		DrawMenu();
 		break;
 	case SH_PLAYING:
@@ -1533,6 +1871,8 @@ static void Enter()
 	}
 }
 
+static u8 s_MediumSeen = 0;
+
 void Shell_Tick()
 {
 	g_ShellTick++;
@@ -1542,6 +1882,15 @@ void Shell_Tick()
 	s_KeysHeld = g_ShellKeys;
 	g_ShellDo = 0;
 	g_ShellPlay = g_ShellIn;
+	if (g_TestMedium != s_MediumSeen)
+	{
+		// A test has given the machine somewhere to save (save.h): look again.
+		s_MediumSeen = g_TestMedium;
+		SAVE(Save_Init);
+		Best();
+		LookForAGame();
+		s_Drawn = 0xFF;
+	}
 	if (g_TestMapOpen)
 	{
 		// test/shell.sh: the map over the game as it stands (the demo's, ended), at its first tick.
@@ -1571,8 +1920,14 @@ void Shell_Tick()
 	case SH_PAUSED:
 		Paused();
 		break;
-	case SH_SAVE: case SH_LOAD:
-		Slots();
+	case SH_SAVE:
+		SavePage();
+		break;
+	case SH_LOAD:
+		LoadPage();
+		break;
+	case SH_NEW_GAME:
+		NewGamePage();
 		break;
 	case SH_REVEAL:
 		Reveal();
@@ -1598,6 +1953,13 @@ void Shell_Tick()
 void Shell_Shown()
 {
 	s_On = g_PageShown;
+	s_Pieces = g_QuestPieces;   // GameSession.piecesSeen: what the game began with
+	if (s_SaveNew)
+	{
+		g_SaveSlot = s_SaveNew;   // Shell.startGame: saved at once, so the title offers it
+		SAVE(Save_Game);
+		s_SaveNew = 0;
+	}
 	if (s_Drawn != g_Shell)
 		Enter();
 }

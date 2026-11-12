@@ -3,7 +3,7 @@
 # a joystick, and writes to $env(SHELL_OUT) what each screen showed ("TAG
 # regs|palette|vram HEX") and the states it saw ("log ..."); check_shell.py
 # judges. The joystick is joystick 1 as the ROM reads it: a breakpoint just
-# after MSXgl's Joystick_Read takes the PSG's port A puts our bits in A.
+# after data.c's Data_Joystick reads the PSG's port A puts our bits in A.
 #
 # $env(SHELL_SYMS): "name addr" pairs from the symbol map.
 
@@ -45,6 +45,8 @@ debug breakpoint create -address $env(SHELL_JOY) -command {
 #   until EXPR        until the Tcl expression is true
 #   key ROW MASK      a key held for a moment, then let go
 #   joy BITS          the joystick held so for a moment, then let go
+#   hold ROW MASK SECONDS   a key held so long
+#   vpoke ADDR BYTES  video RAM written (a list of bytes)
 #   dump TAG, log TEXT, poke NAME VALUE [BYTES], pause SECONDS
 set plan $env(SHELL_PLAN)
 set at 0
@@ -63,6 +65,16 @@ proc next {} {
             keymatrixdown $x $y
             after time 0.15 [list keymatrixup $x $y]
             after time 0.35 { step next }
+        }
+        hold {
+            keymatrixdown $x $y
+            after time $z [list keymatrixup $x $y]
+            after time [expr {$z + 0.2}] { step next }
+        }
+        vpoke {
+            set i 0
+            foreach b $y { debug write VRAM [expr {$x + $i}] $b; incr i }
+            next
         }
         joy {
             set ::joy $x

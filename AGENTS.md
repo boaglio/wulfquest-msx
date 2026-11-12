@@ -1011,6 +1011,66 @@ load back to the same room, score and state after a power cycle; a damaged
 save is refused with a message, not loaded; the three cases (SRAM only, disk
 only, both) all work.
 
+**The user's decisions (2026-11-07/08):** a save holds the fields listed
+above, not a picture of the whole machine (a loaded game is a new game of its
+seed with them put back; its creatures start afresh). **No SRAM for now:** the
+ASCII16 cartridges with SRAM (2 KB and 8 KB, openMSX's `ASCII16SRAM2`,
+`ASCII16SRAM8`) select it with bit 4 of the segment number, which a 512 KB
+ROM needs for segments 16-31; which cartridge to use is a question for M13's
+real hardware. **Disk only**, tested on a real disk ROM (the Philips NMS 8245)
+the user adds to openMSX: C-BIOS's disk ROM has no MSX-DOS.
+
+**Part 1 landed (2026-11-11), the saves without the disk.** Specifics:
+
+- **The save** (`src/save.c`, banked in segment 29, `SAVE(fn)`): 256 bytes,
+  marked `WQ`, versioned, Fletcher's sum: the seed, the mode and job, the set,
+  the quarters taken, held and their slots, Vale's place, facing and lives,
+  the continues, the score and the run's best, the clock, the items, the
+  rooms walked and the shrines used (a bit a room), the treasures' places
+  emptied (a bit each, 64 bytes), the treasures count, a serial (the newest
+  is the title's `CONTINUE`). Loading makes the seed's new game, puts the
+  fields back before Vale enters his room (`Save_Apply`), then his lives and
+  the clock (`Save_After`, with the guardians' orbit clock it drives). A
+  record of the hi-scores and the options is kept beside the slots.
+- **The shell** (Shell's saves): a new game picks its slot first (the first
+  empty; a full one says it will be replaced, and a second fire does it) and
+  is saved there at once; the pause menu's save page saves to the slot fire
+  chooses, and the game saves itself there from then on; the load page, from
+  the pause menu or the title's options, loads the slot chosen, or says why
+  not (`SaveSlots.load`'s words: empty, damaged, from another version); the
+  game saves itself every `saves.autosaveEveryTicks` and when it is left for
+  the title, and one over or won is cleared from its slot; the title offers
+  the newest saved game first (`CONTINUE`, `SLOT n ...` under it, `START`
+  becomes `NEW GAME`), and one that will not load is no longer offered and
+  says why. The slots' lines are `shell.json`'s templates (`slot`, `detail`:
+  no date, the MSX keeps none). Notes (`SAVED TO SLOT n`, `LOADED SLOT n`,
+  `GAME SAVED`) go on the panel's line, as `GameSession.note`. With nothing to
+  save on, the menus' save and load lines are greyed out and say why (the
+  MSX's own words: `NO DISK DRIVE TO SAVE ON`).
+- **The tests' medium**: video RAM under the screen (page 0, 7000h-73FFh), a
+  test hook (`g_TestMedium`); it is gone at power-off, so it is for the tests
+  only. `test/saves.sh`: a new game in its slot, a save to another, the game
+  left and continued back to the same room, place, score, lives, quarters,
+  rooms walked and treasures (the clock a few ticks on), a damaged slot
+  refused saying why; every word on screen `shell.bin`'s.
+- **Found on the way:** a second game's panel was copied from the title's
+  page (a room copies the panel from the page on show, M9), not drawn: the
+  panel is drawn whole for each new game now. In a room of animated creatures
+  the panel drew nothing for seconds (no cells in a frame that loaded sprite
+  frames, M9), so a note never finished: it draws one cell in such a frame
+  now. A room drawn whole cleared the message line after drawing it. The
+  input moved to `data.c` (the ports read directly), to leave the program's
+  segments room. `test/sprites.sh`'s turns sampled ten frames of the draws
+  that reach the screen: in that crowded layout a frame's work runs just past
+  the blank and a draw that misses it is dropped (M5, `Sprites_Prepare`), in
+  runs that drift with the frame's timing, so which creatures it saw was down
+  to the phase (M10 passed by it, this build did not); it samples twenty now.
+  The drops themselves are M13's.
+- **Still to do: the disk** (part 2): MSXgl's delayed boot, so the disk ROM
+  is set up before the game starts; its work area under F380h, which the
+  game's variables and stack overlap (to be kept aside around each disk
+  call); the slots and the table as files through MSX-DOS; the power cycle.
+
 ### M12 — Endings, New Game+, the credits and the plane intro
 
 **For:** everything after the arch, and before the title.
@@ -1045,7 +1105,9 @@ against the data); the plane intro plays and any key returns to the title.
   and the sound's interrupt must cost the busiest room no tick (M9: 2 900
   cycles a frame, 11 000 at worst). The pause menu must come up at once (M10:
   1.2 s to dim the jungle, again for each menu over it), and no key pressed
-  during a stall may be lost (M10).
+  during a stall may be lost (M10). A crowded frame's sprites must not be
+  dropped in runs because its work runs past the blank (M11, seen in
+  `test/sprites.sh`'s turns).
 - Check every timing on a 60 Hz machine: the tick-skip keeps game speed equal
   to 50 Hz; music and effects keep their pitch and tempo.
 - Run on real MSX2 hardware (at least one European and one Japanese machine,

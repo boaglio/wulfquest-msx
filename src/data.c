@@ -1054,3 +1054,86 @@ void Data_Palette(u8 dim)
 	}
 	__asm__("ei");
 }
+
+//-----------------------------------------------------------------------------
+// The input (§7; M11 moved it here from wulfquest.c, for room there): the
+// keyboard's rows (the PPI) and joystick 1 (the PSG's port A), read from
+// their ports with the interrupts off, as the BIOS's own scan and the sound
+// share them.
+
+#include "shell.h"
+#include "vale.h"
+
+__sfr __at(0xA9) s_PpiB;
+__sfr __at(0xAA) s_PpiC;
+
+static u8 KeyRow(u8 row)
+{
+	__asm__("di");
+	s_PpiC = (u8)((s_PpiC & 0xF0) | row);
+	u8 v = s_PpiB;
+	__asm__("ei");
+	return v;
+}
+
+static bool Key(u8 key)   // MSXgl's KEY_*: row in bits 3-0, bit in 6-4
+{
+	return !(KeyRow(key & 0x0F) & (1 << (key >> 4)));
+}
+
+// Joystick 1's port A: bits 0-5 (up, down, left, right, A, B), 0 when held.
+// test/shell.sh's breakpoint is Data_JoyPortA, just after it is read.
+u8 Data_Joystick() __naked
+{
+	__asm
+		ld	a, #15
+		di
+		out	(#0xA0), a
+		ld	a, #0x0F                ; joystick port 1
+		out	(#0xA1), a
+		ld	a, #14
+		out	(#0xA0), a
+		in	a, (#0xA2)
+	_Data_JoyPortA::
+		ei
+		ret
+	__endasm;
+}
+
+u8 Data_ReadKeys(u8 profile)
+{
+	u8 joy = ~Data_Joystick();
+	u8 k = joy & (VALE_UP | VALE_DOWN | VALE_LEFT | VALE_RIGHT);
+	if (joy & 0x10)
+		k |= VALE_FIRE;
+	if (Key(profile ? KEY_Q : KEY_UP))
+		k |= VALE_UP;
+	if (Key(profile ? KEY_A : KEY_DOWN))
+		k |= VALE_DOWN;
+	if (Key(profile ? KEY_O : KEY_LEFT))
+		k |= VALE_LEFT;
+	if (Key(profile ? KEY_P : KEY_RIGHT))
+		k |= VALE_RIGHT;
+	if (Key(KEY_SPACE))
+		k |= VALE_FIRE;
+	return k;
+}
+
+u8 Data_ShellKeys()
+{
+	u8 k = 0;
+	if (Key(KEY_ESC))
+		k |= SK_ESC;
+	if (Key(KEY_STOP) || Key(KEY_F1))
+		k |= SK_PAUSE;
+	if (Key(KEY_M) || !(Data_Joystick() & 0x20))
+		k |= SK_MAP;
+	if (Key(KEY_D))
+		k |= SK_DIFF;
+	if (Key(KEY_RETURN))
+		k |= SK_ENTER;
+	for (u8 r = 0; r < 11; r++)
+		if (KeyRow(r) != 0xFF)
+			k |= SK_ANY;
+	return k;
+}

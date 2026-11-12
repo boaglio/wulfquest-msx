@@ -209,20 +209,34 @@ public final class Shell {
         def("SAVE_SLOTS", sv.slots());
         str("STR_SAVE_HEADING", sv.saveHeading(), true);
         str("STR_LOAD_HEADING", sv.loadHeading(), true);
-        for (int n = 1; n <= sv.slots(); n++) {
-            str("STR_SLOT_EMPTY_" + n, sv.empty().replace("{n}", Integer.toString(n)), true);
-            str("STR_SLOT_IS_EMPTY_" + n, sv.emptySlot().replace("{n}", Integer.toString(n)), false);
-        }
         str("STR_SAVE_FOOTER", sv.footer(), false);
-        h.append("#define SLOT_EMPTY_STRS\t");
-        for (int n = 1; n <= sv.slots(); n++) {
-            h.append(n == 1 ? "" : ", ").append("STR_SLOT_EMPTY_").append(n);
+        str("STR_NEW_GAME_HEADING", sv.newGameHeading(), true);
+        str("STR_NEW_GAME", t.newGameLabel(), true);
+        str("STR_CONTINUE_LINE", label(t.items(), "continue"), true);
+        str("STR_MODE_NAME_HARD", sv.modeNames().hard(), true);
+        str("STR_MODE_NAME_EASY", sv.modeNames().easy(), true);
+        str("STR_JOB_0", sv.jobNames().get(0), true);
+        def("AUTOSAVE_TICKS", sv.autosaveEveryTicks());
+        def("NOTE_TICKS", sv.noteTicks());
+        h.append("// Templates: each {field} a byte under 32 (TF_*), which shell.c fills in.\n");
+        for (int i = 0; i < FIELDS.size(); i++) {
+            def("TF_" + Gen.cName(FIELDS.get(i).replaceAll("[{}]", "")), i + 1);
         }
-        h.append("\n#define SLOT_IS_EMPTY_STRS\t");
-        for (int n = 1; n <= sv.slots(); n++) {
-            h.append(n == 1 ? "" : ", ").append("STR_SLOT_IS_EMPTY_").append(n);
-        }
-        h.append('\n');
+        tmpl("STR_T_SLOT", sv.slot());
+        tmpl("STR_T_DETAIL", sv.detail());
+        tmpl("STR_T_EMPTY", sv.empty());
+        tmpl("STR_T_SAVED", sv.saved());
+        tmpl("STR_T_LOADED", sv.loaded());
+        tmpl("STR_T_EMPTY_SLOT", sv.emptySlot());
+        tmpl("STR_T_REFUSED", sv.refused());
+        tmpl("STR_T_REPLACE", sv.replace());
+        tmpl("STR_T_AUTOSAVED", sv.autosaved());
+        tmpl("STR_T_CONTINUE_DETAIL", t.continueDetail());
+        // Why a slot will not load: SaveSlots.load's words (literals in its code); and the MSX's own
+        // when it has nothing to save on (AGENTS.md §10, M11: saving greyed out, and saying why).
+        str("STR_WHY_DAMAGED", "SAVE IS DAMAGED", false);
+        str("STR_WHY_OTHER_VERSION", "SAVE IS FROM ANOTHER VERSION", false);
+        str("STR_WHY_NO_MEDIUM", "NO DISK DRIVE TO SAVE ON", false);
         // Game over (GameOverScreen), the reveal (AmuletRevealScreen), the tally's heading.
         ShellConfig.GameOver go = s.gameOver();
         str("STR_GAME_OVER", go.text(), true);
@@ -639,6 +653,15 @@ public final class Shell {
 
     /** A string, checked to fit a line in its font (the big, or the small). */
     private void str(String name, String text, boolean big) {
+        fits(text, big);
+        byte[] b = text.getBytes(StandardCharsets.US_ASCII);
+        def(name, bin.size());
+        bin.write(b.length);
+        bin.writeBytes(b);
+    }
+
+    /** Whether the text fits a line in its font, and the font has its characters. */
+    private void fits(String text, boolean big) {
         int advance = c.font().sets().get(big ? "big" : "small").advance();
         if (text.length() * advance > SCREEN_W) {
             throw new ConvertException("config/shell.json: \"" + text + "\" is " + text.length() * advance
@@ -650,7 +673,25 @@ public final class Shell {
                         + (big ? "big" : "small") + " font has not");
             }
         }
-        byte[] b = text.getBytes(StandardCharsets.US_ASCII);
+    }
+
+    /** The fields the saves' templates fill in (shell.json's saves, title.continueDetail). */
+    static final List<String> FIELDS = List.of("{n}", "{mode}", "{job}", "{quarters}", "{score}", "{date}", "{room}",
+            "{why}", "{line}");
+
+    /** A template: its {@code {field}}s as bytes 1.. (FIELDS' order), the rest as it is. */
+    private void tmpl(String name, String text) {
+        String plain = text;
+        String coded = text;
+        for (int i = 0; i < FIELDS.size(); i++) {
+            plain = plain.replace(FIELDS.get(i), "");
+            coded = coded.replace(FIELDS.get(i), String.valueOf((char) (i + 1)));
+        }
+        if (plain.contains("{")) {
+            throw new ConvertException("config/shell.json: \"" + text + "\" has a field the MSX does not fill in");
+        }
+        fits(plain, false);   // its words are the font's
+        byte[] b = coded.getBytes(StandardCharsets.US_ASCII);
         def(name, bin.size());
         bin.write(b.length);
         bin.writeBytes(b);

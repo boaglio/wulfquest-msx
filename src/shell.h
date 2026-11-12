@@ -12,6 +12,7 @@
 
 #include "msxgl.h"
 #include "data.h"
+#include "shell_data.h"
 
 #define SHELL_SEG	28
 #define SHELL(fn)	BANKED(SHELL_SEG, fn)
@@ -20,7 +21,7 @@
 enum
 {
 	SH_TITLE, SH_ATTRACT, SH_HISCORES, SH_OPTIONS, SH_PLAYING, SH_PAUSED, SH_SAVE, SH_LOAD,
-	SH_REVEAL, SH_MAP, SH_GAME_OVER, SH_WON, SH_ENTRY
+	SH_REVEAL, SH_MAP, SH_GAME_OVER, SH_WON, SH_ENTRY, SH_NEW_GAME
 };
 extern u8  g_Shell;
 extern u16 g_ShellTick;   // ticks on this screen (Shell.stateTick)
@@ -42,10 +43,15 @@ extern u8 g_ShellDo;
 #define DO_NEW_GAME	0x02   // a new game (g_Easy as chosen), then show its room
 #define DO_DEMO		0x04   // the demo's game (DEMO_*), then show its room
 #define DO_CARRY_ON	0x08   // with DO_TICK: fire pressed anew (Vale_FireReleased first)
+#define DO_LOAD		0x10   // the game in save.c's g_SaveBuf (Save_Before, _Apply, _After), then show it
 extern u8 g_ShellPlay;
 
-// The options: the keys (0: the first profile, the cursors; 1: Q A O P).
+// The options: the keys (0: the first profile, the cursors; 1: Q A O P); the
+// next game's mode. The hi-score table (HighScores): HISCORE_SIZE rows. The
+// saves keep them (save.c).
 extern u8 g_Profile;
+extern u8 g_ShellEasy;
+extern u8 g_HiTable[HISCORE_SIZE * HISCORE_ROW_BYTES];
 
 // The page the game is on (wulfquest.c's), 0 or 1: the shell's screens over
 // the game go on the other and leave it as it was.
