@@ -3,6 +3,7 @@
 #pragma once
 
 #include "msxgl.h"
+#include "tables.h"   // and ram.h
 #include "data.h"
 
 // The whole pixels of an 8.8 fixed-point i32 variable: its middle two bytes,
@@ -58,7 +59,7 @@ extern i16 g_RoomX;
 extern i16 g_RoomY;
 extern i16 g_CellsX;
 extern i16 g_CellsY;
-extern u8  s_Cells[];
+extern __at(RAM_CELLS) u8 s_Cells[RAM_CELLS_BYTES];   // at its place in RAM (ram.h)
 
 // Whether any cell of s_Cells under a box is solid: the box in the cells'
 // pixels, wholly inside them (vale.c, assembly).

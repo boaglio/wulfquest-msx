@@ -67,4 +67,5 @@ extern u8 g_DrawPage;
 
 // test/shell.sh: the demo's ticks played; set to open the map (from any screen).
 extern u16 g_DemoTicks;
+extern u8 g_Booted;
 extern u8 g_TestMapOpen;

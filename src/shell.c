@@ -37,6 +37,7 @@ u8  g_Profile = 0;
 u8  g_PageShown = 0;
 u8  g_DrawPage = 0;
 u8  g_TestMapOpen = 0;
+u8  g_Booted = 0;   // A5h once the shell is up: the tests wait for it (RAM is anything before)
 
 // The hi-score table, ranked (HighScores): HISCORE_SIZE rows of a name,
 // the score and ticks (32 bits, little-endian), the quarters, Easy.
@@ -1823,6 +1824,7 @@ void Shell_Init()
 	s_On = 0;
 	g_Shell = 0xFF;
 	Go(SH_TITLE);
+	g_Booted = 0xA5;
 }
 
 static void Enter()

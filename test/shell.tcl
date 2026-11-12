@@ -26,6 +26,8 @@ proc peek {name {n 1}} {
 proc poke {name v {n 1}} {
     for {set i 0} {$i < $n} {incr i} { debug write memory [expr {$::a($name) + $i}] [expr {($v >> (8 * $i)) & 0xFF}] }
 }
+# The shell is up (g_Booted, when the plan's symbols have it): before, RAM holds anything.
+proc booted {} { expr {![info exists ::a(g_Booted)] || [peek g_Booted] == 0xA5} }
 proc dump {tag} {
     puts $::out "$tag regs [binary encode hex [debug read_block {VDP regs} 0 24]]"
     puts $::out "$tag palette [binary encode hex [debug read_block {VDP palette} 0 32]]"
@@ -59,7 +61,7 @@ proc next {} {
     set ::deadline [expr {[machine_info time] + 120}]
     lassign $step what x y z
     switch $what {
-        wait { poll [list expr "\[peek g_Shell\] == $x && \[peek g_ShellTick 2\] >= 2 && \[peek g_ShellTick 2\] < 1000"] "state $x" }
+        wait { poll [list expr "\[booted\] && \[peek g_Shell\] == $x && \[peek g_ShellTick 2\] >= 2 && \[peek g_ShellTick 2\] < 1000"] "state $x" }
         until { poll [list expr $x] $x }
         key {
             keymatrixdown $x $y

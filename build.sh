@@ -41,11 +41,12 @@ rom=$(find build/msxgl -name 'wulfquest.rom' -newer build/gen/palette.h 2>/dev/n
 cp "$rom" build/wulfquest.rom
 
 # src/data.c maps blobs into bank 1 (8000h), so it must run from segment 0,
-# below 8000h. It is linked first and wulfquest.c's main comes after it, so
-# main below 8000h means all of data.c is.
-main_at=$(awk '$2 == "_main" { print $1 }' build/msxgl/wulfquest.map)
+# below 8000h, and so must rng.c, move.c and sound.c, which banked code calls.
+# They are linked first and wulfquest.c comes after them: its first symbol
+# below 8000h means all of them are (M11: main itself may lie past it now).
+main_at=$(awk '$3 == "wulfquest" && $1 ~ /^0000[4-B]/ { print $1 }' build/msxgl/wulfquest.map | sort | head -1)
 [[ -n "$main_at" ]] && (( 16#$main_at < 16#8000 )) \
-    || die "src/data.c no longer fits in ROM segment 0 (main at ${main_at:-?}h)"
+    || die "src/data.c, rng.c, move.c, sound.c no longer fit in ROM segment 0 (wulfquest.c from ${main_at:-?}h)"
 # And everything data.c calls must be there too: with bank 1 switched to a
 # data segment, a call above 8000h (SDCC's library, for a division) lands in
 # data. Every call in data.c's listing, to an address in the map, below 8000h.
@@ -76,12 +77,18 @@ for lst in $(for f in src/wulfquest_s*_b1.c; do echo "build/msxgl/$(basename "$f
     done)
     [[ -z "$bad" ]] || die "$(basename "$lst" .lst) calls code in segment 1, which banked code hides: $bad"
 done
-# RAM: the game's variables end below the BIOS's work area (F380h) with room
-# for the stack (512 bytes) left (M8: the RAM tables once ran past it).
+# RAM (src/ram.h, M11): the linker's variables end below the big arrays'
+# fixed places (g_RamLow), which end 512 bytes below F380h for the stack; and
+# below where a disk ROM's HIMEM may come down to, with room for the stack
+# MSXgl's start-up puts there (the 8245's is DE79h; two drives' lower).
 ram_end=$(awk '$2 == "s__BSS" { print $1 }' build/msxgl/wulfquest.map)
-(( 16#$ram_end <= 16#F380 - 512 )) \
-    || die "RAM runs to ${ram_end}h: the stack needs 512 bytes below F380h (see build/msxgl/wulfquest.map)"
-echo "build.sh: build/wulfquest.rom ($(stat -c %s build/wulfquest.rom) bytes), RAM to ${ram_end#0000}h"
+ram_low=$(awk '$2 == "_g_RamLow" { print $1 }' build/msxgl/wulfquest.map)
+[[ -n "$ram_low" ]] || die "g_RamLow is not in build/msxgl/wulfquest.map (src/ram.h, data.c)"
+(( 16#$ram_end <= 16#$ram_low )) \
+    || die "RAM runs to ${ram_end}h, into the big arrays at ${ram_low}h (src/ram.h; build/msxgl/wulfquest.map)"
+(( 16#$ram_end + 512 <= 16#D600 )) \
+    || die "RAM runs to ${ram_end}h: a disk ROM's HIMEM may be as low as D600h, the start-up's stack under it"
+echo "build.sh: build/wulfquest.rom ($(stat -c %s build/wulfquest.rom) bytes), RAM to ${ram_end#0000}h, big arrays from ${ram_low#0000}h"
 
 if [[ "${1:-}" == test ]]; then
     echo "build.sh: the converter's tests"

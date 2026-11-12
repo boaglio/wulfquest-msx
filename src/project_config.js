@@ -17,7 +17,7 @@ MakeLib   = `${SDCCPath}bin/sdar`;
 ProjName    = "wulfquest";
 // data first: it must sit in ROM segment 0 (see data.c; build.sh checks it);
 // then what banked code calls (wulfquest_sN_b1.c), which must too: rng, move
-ProjModules = [ "data", "rng", "move", "sound", ProjName, "room", "vale", "panel", "sprites" ];
+ProjModules = [ "data", "rng", "move", "sound", ProjName, "room", "vale", "sprites" ];
 // The simulation is banked code: src/wulfquest_sN_b1.c, one per segment (data.c's Bank_Call).
 LibModules  = [ "system", "bios", "vdp", "print", "input", "memory" ];
 
@@ -35,6 +35,7 @@ Target   = "ROM_ASCII16";
 ROMSize  = 512;   // §1: 256-512 KB; the program grew past 256 in M7
 CheckVersion    = true;   // an MSX1 gets MSXgl's "A MSX2 is required" instead of a crash
 AddROMSignature = true;
+ROMDelayBoot    = true;   // M11: the disk ROM sets itself up before the game starts (H.STKE)
 
 AppSignature = true;
 AppCompany   = "WQ";

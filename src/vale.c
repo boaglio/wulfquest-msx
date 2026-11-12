@@ -21,6 +21,7 @@
 #include "game.h"
 #include "game_data.h"
 #include "sound.h"
+#include "tables.h"   // and ram.h
 
 #define ONE			(1 << FIXED_SHIFT)
 #define LEVELS		(PLAYER_MOMENTUM_MAX / PLAYER_MOMENTUM_STEP)
@@ -99,7 +100,7 @@ static const i8 c_FaceDY[8] = { -1, -1, 0, 1, 1, 1, 0, -1 };
 
 // The cells of his room and a margin around it, a byte each, unpacked when
 // he enters it: a byte is quicker to test than a bit.
-u8 s_Cells[CELLS_H * CELLS_W];
+__at(RAM_CELLS) u8 s_Cells[RAM_CELLS_BYTES];   // at its place in RAM (ram.h)
 
 static void EnterRoom(u8 room)
 {

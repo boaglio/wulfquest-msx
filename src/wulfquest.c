@@ -100,7 +100,8 @@ static void ShowRoom()
 	u8 room = g_ValeRoom;
 	Data_LoadRoom(room, &s_Room);
 	Room_Draw(&s_Room, hidden);
-	Panel_Draw(hidden);
+	g_PanelPage = hidden;
+	PANEL(Panel_Draw);
 	g_DrawFrames = (u8)(g_JIFFY - start);
 	if (g_DrawFrames > g_DrawWorst)
 		g_DrawWorst = g_DrawFrames;
@@ -825,7 +826,20 @@ static u8 s_DemoSeed[8] = { DEMO_SEED_BYTES };
 static bool s_Frozen = FALSE;
 static bool s_SpritesOn = TRUE;
 
-void main()
+static void Main();
+
+// MSXgl's start-up calls this with the stack at HIMEM, where a disk ROM's
+// work area begins (ram.h): first that area is set aside and the stack moved
+// to the top of RAM, then the game. No frame here: the stack moves under it.
+void main() __naked
+{
+	__asm
+		call	_Data_DiskAside
+		jp	_Main
+	__endasm;
+}
+
+static void Main()
 {
 	Data_LoadTables();
 	Data_InstallFlip();
@@ -840,7 +854,7 @@ void main()
 	VDP_EnableSprite(TRUE);
 	Data_LoadScenery();
 	Data_LoadShellImages();
-	Panel_Init();
+	PANEL(Panel_Init);
 	Vale_Init();
 	s_Skip60 = VDP_GetFrequency() == VDP_FREQ_60HZ;
 	Sound_Init(s_Skip60);
@@ -894,7 +908,7 @@ void main()
 				SHELL(Shell_Tick);
 				if (g_ShellDo & (DO_NEW_GAME | DO_DEMO | DO_LOAD))
 				{
-					Panel_Init();   // drawn whole with the room: the screen on show is the shell's
+					PANEL(Panel_Init);   // drawn whole with the room: the screen on show is the shell's
 					if (g_ShellDo & DO_LOAD)
 					{
 						// A saved game (M11): its seed's new game, the save put back, Vale in his room.
@@ -957,7 +971,21 @@ void main()
 		// The panel: a cell less in a frame that loaded sprites, the busy ones
 		// (M11: none at all starved a room of animated creatures of its notes).
 		if (g_TestMode || s_Frozen || g_Shell == SH_PLAYING)
-			Panel_Update(g_PageShown, s_Loaded);
+		{
+			// The flower's bar (PanelPainter.remainingPerMille): its sums need
+			// SDCC's library, which the banked panel may not call.
+			g_PanelBarFill = 0xFF;
+			if (g_EffectKind != EFFECT_NONE && g_EffectOrchid >= 0)
+			{
+				u16 perMille = g_EffectTotal ? (u16)((u32)g_EffectTicks * 1000 / g_EffectTotal) : 0;
+				if (perMille > 1000)
+					perMille = 1000;
+				g_PanelBarFill = (u8)((u32)(EFFECT_BAR_W - 2) * perMille / 1000);
+			}
+			g_PanelPage = g_PageShown;
+			g_PanelBusy = s_Loaded;
+			PANEL(Panel_Update);
+		}
 		if (game && g_Shell != SH_ATTRACT)
 			Border();
 		else if (s_Border != BORDER_IDLE)

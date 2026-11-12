@@ -13,6 +13,7 @@
 #include "sprite_bank.h"
 #include "tables.h"
 #include "blade.h"
+#include "tables.h"   // and ram.h
 #include "palette.h"
 
 __sfr __at(0x98) s_VdpData;
@@ -146,7 +147,8 @@ void Data_LoadCells(u8 room, u8* cells)
 	SET_BANK_SEGMENT(ROM_DATA_BANK, g_CodeSeg);
 }
 
-u8 g_Tables[TABLES_BYTES];
+__at(RAM_TABLES) unsigned char g_Tables[TABLES_BYTES];   // at its place in RAM (ram.h)
+__at(RAM_LOW) u8 g_RamLow;   // the big arrays' lowest byte: build.sh's check
 
 //-----------------------------------------------------------------------------
 // Flips in the blank (H.TIMI). The BIOS's interrupt routine calls the hook
@@ -166,6 +168,7 @@ volatile u8 g_SpritesShown = 0;  // the sprite set the VDP shows: written here
 u16 g_FlipDraw = 0;
 volatile u16 g_ShownDraw = 0;
 static u8 s_OldHook[5];
+u8  g_DiskReady = 0;     // a disk ROM, and its area set aside: Data_DiskCall works (M11)
 
 void Data_Flip() __naked
 {
@@ -223,8 +226,10 @@ void Data_InstallFlip()
 {
 	u8* hook = (u8*)H_TIMI_ADDR;
 	__asm__("di");
+	// A disk ROM's hook (its motor's timer) works in its area, which is the
+	// game's now (Data_DiskAside): it runs only in a disk call (M11).
 	for (u8 i = 0; i < 5; i++)
-		s_OldHook[i] = hook[i];
+		s_OldHook[i] = g_DiskReady ? 0xC9 : hook[i];
 	hook[0] = 0xC3;   // jp Data_Flip
 	*(u16*)(hook + 1) = (u16)Data_Flip;
 	hook[3] = 0xC9;
@@ -904,6 +909,26 @@ void Data_TextNum(u32 v)
 	}
 }
 
+// v as n digits, zero-padded, all nines when it has more (PanelPainter.pad;
+// the panel's, banked, which may not divide).
+void Data_Pad(u32 v, u8 n, u8* out)
+{
+	u8 first = 10 - n;
+	if (first && v >= c_Tens[first - 1])
+		v = c_Tens[first - 1] - 1;
+	for (u8 i = 0; i < n; i++)
+	{
+		u32 ten = c_Tens[first + i];
+		u8 d = '0';
+		while (v >= ten)
+		{
+			v -= ten;
+			d++;
+		}
+		out[i] = d;
+	}
+}
+
 // g_Text's characters, x even, in a font (big or small), ink on black, on a
 // page (0 or 1).
 void Data_TextDraw(u8 big, u8 page, u8 x, u8 y, u8 ink)
@@ -1136,4 +1161,215 @@ u8 Data_ShellKeys()
 		if (KeyRow(r) != 0xFF)
 			k |= SK_ANY;
 	return k;
+}
+
+//-----------------------------------------------------------------------------
+// The disk (M11; src/ram.h). A disk ROM keeps its work area from HIMEM up to
+// F37Fh, where the game's big arrays and its stack are: Data_DiskAside, the
+// first thing main does, copies that area into the RAM under the BIOS (page
+// 0's RAM, by RAMAD0) and takes the top of RAM for the stack; each disk call
+// (Data_DiskCall) puts the area back for the call and the game's back after.
+// While page 0 holds RAM the interrupts are off: there is no handler there.
+
+#define HIMEM_ADDR	0xFC4A
+#define RAMAD0_ADDR	0xF341
+#define BDOS_ADDR	0xF37D
+#define DISKVE_ADDR	0xF323   // the disk error handler: a pointer to its address
+#define BREAKV_ADDR	0xF325   // CTRL-STOP's, the same
+#define AREA_DISK	0x0000   // in page 0's RAM: the disk ROM's area
+#define AREA_GAME	0x2000   //   and the game's, while a call has the disk's out
+#define AREA_MAX	0x2000
+
+static u8  s_RamSlot = 0;     // page 0's RAM (RAMAD0: expanded flag, secondary, primary)
+static u16 s_Himem = 0;
+static u16 s_AreaLen = 0;
+static u8  s_A8 = 0;
+static u8  s_FFFF = 0;
+static u16 s_GameSP = 0;
+static u8  s_DiskHook[5];          // H.TIMI as the disk ROM had it: for its calls only
+static u8  s_DiskStack[192];       // the calls' stack, below HIMEM
+// The error handlers MSX-DOS calls (through DISKVE, BREAKV): "abort" (c = 2).
+static u8  s_Abort[3] = { 0x0E, 0x02, 0xC9 };   // ld c, 2; ret
+static u16 s_AbortAt = 0;
+u8  g_BdosC = 0;
+u16 g_BdosDE = 0;
+u16 g_BdosHL = 0;
+u8  g_BdosA = 0;
+
+// Page 0 to the RAM (s_RamSlot), and back; the interrupts off between.
+static void Page0Ram() __naked
+{
+	__asm
+		in	a, (#0xA8)
+		ld	(_s_A8), a
+		ld	a, (_s_RamSlot)
+		bit	7, a
+		jr	z, 00001$
+		ld	a, (0xFFFF)             ; the secondary slots of page 3's slot (RAM's too)
+		cpl
+		ld	(_s_FFFF), a
+		and	a, #0xFC
+		ld	b, a
+		ld	a, (_s_RamSlot)
+		rrca
+		rrca
+		and	a, #0x03
+		or	a, b
+		ld	(0xFFFF), a
+	00001$:
+		ld	a, (_s_RamSlot)
+		and	a, #0x03
+		ld	b, a
+		ld	a, (_s_A8)
+		and	a, #0xFC
+		or	a, b
+		out	(#0xA8), a
+		ret
+	__endasm;
+}
+
+static void Page0Bios() __naked
+{
+	__asm
+		ld	a, (_s_A8)
+		out	(#0xA8), a
+		ld	a, (_s_RamSlot)
+		bit	7, a
+		ret	z
+		ld	a, (_s_FFFF)
+		ld	(0xFFFF), a
+		ret
+	__endasm;
+}
+
+// main's first call: set the disk ROM's area aside, if there is one, and the
+// stack to the top of RAM (main has no frame yet: it is to have none).
+void Data_DiskAside() __naked
+{
+	__asm
+		pop	de                      ; main's return
+		di
+		ld	hl, (HIMEM_ADDR)
+		ld	(_s_Himem), hl
+		ld	a, h                    ; HIMEM below F380h: a disk ROM took the rest
+		cp	a, #0xF3
+		jr	c, 00010$
+		jr	nz, 00090$
+		ld	a, l
+		cp	a, #0x80
+		jr	nc, 00090$
+	00010$:
+		ld	a, (BDOS_ADDR)          ; and its MSX-DOS hook
+		cp	a, #0xC9
+		jr	z, 00090$
+		ld	hl, #0xF380
+		ld	bc, (_s_Himem)
+		or	a
+		sbc	hl, bc
+		ld	(_s_AreaLen), hl
+		ld	bc, #AREA_MAX + 1
+		or	a
+		sbc	hl, bc
+		jr	nc, 00090$              ; more than page 0 holds two of: no disk
+		ld	a, (RAMAD0_ADDR)
+		ld	(_s_RamSlot), a
+		in	a, (#0xA8)              ; page 0's RAM must share page 3's primary slot
+		rlca
+		rlca
+		and	a, #0x03
+		ld	b, a
+		ld	a, (_s_RamSlot)
+		and	a, #0x03
+		cp	a, b
+		jr	nz, 00090$
+		ld	hl, #0xFD9F             ; H.TIMI as the disk ROM left it
+		ld	bc, #5
+		push	de
+		ld	de, #_s_DiskHook
+		ldir
+		call	_Page0Ram
+		ld	hl, (_s_Himem)
+		ld	de, #AREA_DISK
+		ld	bc, (_s_AreaLen)
+		ldir
+		call	_Page0Bios
+		ld	a, #0xC9                ; its H.TIMI quiet from now on: its area is the game's
+		ld	(0xFD9F), a
+		pop	de
+		ld	a, #1
+		ld	(_g_DiskReady), a
+	00090$:
+		ld	sp, #RAM_STACK
+		ei
+		push	de
+		ret
+	__endasm;
+}
+
+// An MSX-DOS call (BDOS, F37Dh): c g_BdosC, de g_BdosDE, hl g_BdosHL; back,
+// a in g_BdosA, hl in g_BdosHL. Its own stack, the disk ROM's area and hook
+// in place for it, the game's after; disk errors answered "abort".
+void Data_DiskCall() __naked
+{
+	__asm
+		di
+		ld	(_s_GameSP), sp
+		ld	sp, #_s_DiskStack + 192
+		push	ix
+		push	iy
+		call	_Page0Ram
+		ld	hl, (_s_Himem)          ; the game's area out
+		ld	de, #AREA_GAME
+		ld	bc, (_s_AreaLen)
+		ldir
+		ld	hl, #AREA_DISK          ; the disk ROM's in
+		ld	de, (_s_Himem)
+		ld	bc, (_s_AreaLen)
+		ldir
+		call	_Page0Bios
+		ld	hl, #_s_DiskHook        ; its H.TIMI
+		ld	de, #0xFD9F
+		ld	bc, #5
+		ldir
+		ld	hl, #_s_Abort
+		ld	(_s_AbortAt), hl
+		ld	hl, #_s_AbortAt
+		ld	(DISKVE_ADDR), hl
+		ld	(BREAKV_ADDR), hl
+		ei
+		ld	a, (_g_BdosC)
+		ld	c, a
+		ld	de, (_g_BdosDE)
+		ld	hl, (_g_BdosHL)
+		call	BDOS_ADDR
+		ld	(_g_BdosA), a
+		ld	(_g_BdosHL), hl
+		di
+		ld	hl, #0xFD9F             ; its H.TIMI, kept; ours back
+		ld	de, #_s_DiskHook
+		ld	bc, #5
+		ldir
+		ld	a, #0xC3
+		ld	(0xFD9F), a
+		ld	hl, #_Data_Flip
+		ld	(0xFDA0), hl
+		ld	a, #0xC9
+		ld	(0xFDA2), a
+		ld	(0xFDA3), a
+		call	_Page0Ram
+		ld	hl, (_s_Himem)          ; the disk ROM's area kept, as the call left it
+		ld	de, #AREA_DISK
+		ld	bc, (_s_AreaLen)
+		ldir
+		ld	hl, #AREA_GAME          ; the game's back
+		ld	de, (_s_Himem)
+		ld	bc, (_s_AreaLen)
+		ldir
+		call	_Page0Bios
+		pop	iy
+		pop	ix
+		ld	sp, (_s_GameSP)
+		ei
+		ret
+	__endasm;
 }

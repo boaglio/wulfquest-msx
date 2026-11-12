@@ -152,3 +152,16 @@ void Data_Palette(u8 dim);
 u8 Data_ReadKeys(u8 profile);
 u8 Data_ShellKeys();
 u8 Data_Joystick();
+// The disk (M11): main's first call sets a disk ROM's work area aside and the
+// stack to the top of RAM (ram.h); then g_DiskReady says MSX-DOS can be
+// called, through Data_DiskCall (c g_BdosC, de g_BdosDE, hl g_BdosHL; a back
+// in g_BdosA, hl in g_BdosHL).
+extern u8  g_DiskReady;
+extern u8  g_BdosC;
+extern u16 g_BdosDE;
+extern u16 g_BdosHL;
+extern u8  g_BdosA;
+void Data_DiskAside();
+void Data_DiskCall();
+// v as n digits (up to 10), zero-padded, all nines if it has more.
+void Data_Pad(u32 v, u8 n, u8* out);

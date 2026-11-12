@@ -103,8 +103,8 @@ To run it alone: `mvn -q -pl convert -am package -DskipTests exec:java`.
 
 **Banked code** (AGENTS.md §3). `src/wulfquest_sN_b1.c` is compiled into ROM
 segment N, for bank 1 (8000h): each holds one module (`#include "jungle.c"`),
-whose header names the segment (`JUNGLE_SEG`; segments 24-29 are the jungle,
-the respawns, the quest, the game, the shell and the saves) and a macro to call into it
+whose header names the segment (`JUNGLE_SEG`; segments 24-30 are the jungle,
+the respawns, the quest, the game, the shell, the saves and the panel) and a macro to call into it
 (`JUNGLE(Jungle_TickBeasts)`, through `data.c`'s `Bank_Call`). A banked
 function takes no arguments and returns nothing: they go in globals. While
 it runs, segment 1 is not mapped: it may call code below 8000h (`data.c`,
@@ -117,8 +117,12 @@ banked file goes in segment 24 or up, and `build/gen/report.txt` shows what
 the data uses below.
 
 **RAM is short.** The game's variables live in page 3 below the BIOS's work
-area at F380h; `build.sh` prints where they end and fails when less than 512
-bytes are left for the stack. Tables read rarely go in ROM blobs read on
+area at F380h. Since M11 the big arrays sit at fixed places at the top
+(`src/ram.h`, `__at`), under 512 bytes of stack, and the linker's RAM must end
+below them and below D600h, where a disk ROM's work area may begin (MSXgl's
+start-up puts its stack at HIMEM and writes the globals' start values before
+main): `build.sh` prints both ends and fails past either. A new big array goes
+in `ram.h`. Tables read rarely go in ROM blobs read on
 demand (`data.c`: `frames.bin`, `rooms_more.bin`); game state too big for RAM
 goes in video RAM below the screen (page 0's lines 212-231: `game.h`'s
 `VRAM_TREASURES`, `VRAM_ORCHIDS`), read and written with `Data_VramRead` and
@@ -268,6 +272,11 @@ ignores it, so the submodule stays clean.
   continuing, and a damaged slot; `check_saves.py` reads the screens' words
   (`shell.bin`'s templates filled as `MenuScreen` fills them) and compares the
   game left with the game loaded.
+- **`test/disk.sh`** (M11) saves to a disk on a Philips NMS 8245 and loads
+  after a power cycle (two runs of openMSX on one disk image). The 8245's
+  system ROM is not free: put it (`NMS8245SystemROM1.08.bin`, or 1.06, 1.05)
+  in `roms/`, which git ignores; the test links it into openMSX's
+  `systemroms` and is skipped without it.
 - **`test/boot.sh`**, **`rooms.sh`** and **`sprites.sh`** start from the title
   (M10): boot checks it comes first, then each presses Space for a game.
 - **`test/gate.sh`** checks the binaries gate in a scratch repository: it

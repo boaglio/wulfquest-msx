@@ -24,6 +24,7 @@
 #include "sprites.h"
 #include "constants.h"
 #include "data.h"
+#include "tables.h"   // and ram.h
 
 #define NONE		0xFF
 #define BANDS		((PLAYFIELD_H + 3) / 4)
@@ -43,7 +44,7 @@ static const u8 c_First[SPR_SLOTS + 1] = {
 #endif
 static u8 s_SlotEnd[SPR_SLOTS] = { 2, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 32, 40, 48, 56, 64 };
 
-static u8 s_Colour[SPR_SPRITES * 16];   // as loaded, by sprite
+static __at(RAM_COLOUR) u8 s_Colour[RAM_COLOUR_BYTES];   // as loaded, by sprite (at its place in RAM, ram.h)
 static i8 s_DX[SPR_SPRITES];
 static i8 s_DY[SPR_SPRITES];
 static u8 s_Serial[SPR_SLOTS];          // goes up when a slot's colours change

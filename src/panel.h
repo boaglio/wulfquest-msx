@@ -3,17 +3,25 @@
 #pragma once
 
 #include "msxgl.h"
+#include "data.h"
+
+// Banked code (M11, for the program's room): PANEL(fn), arguments in globals.
+#define PANEL_SEG	30
+#define PANEL(fn)	BANKED(PANEL_SEG, fn)
+extern u8 g_PanelPage;      // the page drawn on, 0 or 1
+extern u8 g_PanelBusy;      // a busy frame: a cell fewer
+extern u8 g_PanelBarFill;   // the flower's bar's fill in pixels (the main loop's sum), 0xFF none
 
 // At start, and before each new game (M11: the page on show may be the
 // shell's, not a panel to copy): the next Panel_Draw draws it whole.
 void Panel_Init();
 
-// The whole panel into a page (the hidden one, as a room is drawn).
-void Panel_Draw(u8 page);
+// The whole panel into page g_PanelPage (the hidden one, as a room is drawn).
+void Panel_Draw();
 
 // The page on show: what changed since, a few glyphs a frame (one fewer in a
 // busy frame).
-void Panel_Update(u8 page, u8 busy);
+void Panel_Update();
 
 // Debug: the panel's line shows the room and Vale's feet, as the Java
 // game's dev mode does (F4 toggles it).

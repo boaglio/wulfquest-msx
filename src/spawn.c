@@ -21,22 +21,17 @@
 #include "vale.h"
 #include "data.h"
 #include "constants.h"
+#include "tables.h"   // and ram.h
 
-#define SLACK		8   // SpawnFinder.SLACK_PX: how far past the room's edges the walk goes
-#define FEET_W		(PLAYFIELD_W + 2 * SLACK + 1)
-#define FEET_H		(PLAYFIELD_H + 2 * SLACK + 1)
-#define COLS		CELL_COLS
-#define ROWS		CELL_ROWS
-// Runs along an axis of n positions for a box s long: a box whose far edge
-// is a whole number of cells from its near one changes cells once in 8
-// positions, any other twice.
-#define RUNS(n, s)	(((s) - 1) % CELL == 0 ? (n) / CELL + 2 : 2 * ((n) / CELL) + 3)
-#define RUNS_X		RUNS(FEET_W, PLAYER_BOX_W)
-#define RUNS_Y		RUNS(FEET_H, PLAYER_BOX_H)
-#define CLASSES		(RUNS_X * RUNS_Y)
-#if CELL != 8
-#error "spawn.c divides by CELL with shifts"
-#endif
+// spawn.h's names, short here.
+#define SLACK		SPAWN_SLACK
+#define COLS		SPAWN_COLS
+#define ROWS		SPAWN_ROWS
+#define RUNS_X		SPAWN_RUNS_X
+#define RUNS_Y		SPAWN_RUNS_Y
+#define CLASSES		SPAWN_CLASSES
+#define FEET_W		SPAWN_FEET_W
+#define FEET_H		SPAWN_FEET_H
 
 // The runs along x and along y: the first foot position of each (from -SLACK).
 static u8 s_RunX[RUNS_X + 1];
@@ -44,10 +39,11 @@ static u8 s_RunY[RUNS_Y + 1];
 static u8 s_NX;
 static u8 s_NY;
 // Per class (run x, run y): free, and reached; 2 bits a class.
-static u8 s_Class[(CLASSES + 3) / 4];
+// (These three at their fixed places in RAM, ram.h: M11.)
+static __at(RAM_SPAWN_CLASS) u8 s_Class[RAM_SPAWN_CLASS_BYTES];
 // The flood's queue: the classes', then the cells' (fewer).
-static u16 s_Queue[CLASSES > COLS * ROWS ? CLASSES : COLS * ROWS];
-static u8 s_Seen[COLS * ROWS];
+static __at(RAM_SPAWN_QUEUE) u16 s_Queue[SPAWN_QUEUE_N];
+static __at(RAM_SPAWN_SEEN) u8 s_Seen[RAM_SPAWN_SEEN_BYTES];
 
 static i16 s_RoomX;
 static i16 s_RoomY;

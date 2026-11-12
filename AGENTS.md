@@ -78,7 +78,7 @@ segments 2-23 hold the converter's blobs, mapped into bank 1 (8000h) only
 while `data.c` reads them; segments 24-31 hold **banked code**, one
 `src/wulfquest_sN_b1.c` each, mapped into bank 1 while it runs (`data.c`'s
 `Bank_Call`, wrapped as `JUNGLE(fn)`, `SPAWN(fn)`, `QUEST(fn)`, `GAME(fn)`,
-`SHELL(fn)`). Banked code
+`SHELL(fn)`, `SAVE(fn)`, `PANEL(fn)`). Banked code
 replaces segment 1 while it runs, so it may call only code below 8000h
 (`data.c`, `rng.c`, `move.c`, `sound.c`, linked first), keeps its tables in RAM
 (`tables.h`), and uses no SDCC library routine (they are linked into segment
@@ -1066,10 +1066,45 @@ the user adds to openMSX: C-BIOS's disk ROM has no MSX-DOS.
   runs that drift with the frame's timing, so which creatures it saw was down
   to the phase (M10 passed by it, this build did not); it samples twenty now.
   The drops themselves are M13's.
-- **Still to do: the disk** (part 2): MSXgl's delayed boot, so the disk ROM
-  is set up before the game starts; its work area under F380h, which the
-  game's variables and stack overlap (to be kept aside around each disk
-  call); the slots and the table as files through MSX-DOS; the power cycle.
+
+**Part 2 landed (2026-11-12), the disk.** Specifics:
+
+- **The machine:** a Philips NMS 8245 in openMSX, its system ROM the user's
+  (in `roms/`, which git ignores; `test/disk.sh` is skipped without it).
+- **The start:** MSXgl's delayed boot (`ROMDelayBoot`, H.STKE), so the disk
+  ROM is set up before the game. It keeps its work area from HIMEM (DE79h on
+  the 8245) up to F37Fh, and MSXgl's start-up puts its stack at HIMEM and
+  copies the globals' start values before main. So the big arrays (the RAM
+  tables, the respawn's queue and marks, the sprites' colours, the room's
+  cells: 8.4 KB) moved to fixed places at the top of RAM (`src/ram.h`), and
+  the linker's RAM ends below D600h (`build.sh` checks both). main's first
+  call (`Data_DiskAside`) copies the disk ROM's area into the RAM under the
+  BIOS (page 0's, `RAMAD0`, with the interrupts off), quiets its H.TIMI
+  (its motor's timer would work in that area, the game's now) and takes the
+  top of RAM for the stack. Each MSX-DOS call (`Data_DiskCall`) swaps the two
+  back for the call: the disk ROM's area and hook in, its own stack below
+  HIMEM, disk errors answered "abort" (a stub in RAM, through DISKVE and
+  BREAKV), the game's after.
+- **The file:** `WULFQ.SAV`, four records of 256 bytes (the table, then the
+  slots), through MSX-DOS's FCB calls (open or make it, random block read and
+  write); a disk with none reads as empty slots. Without a disk ROM (C-BIOS)
+  the game is as before.
+- **Room for it:** the program's two segments were full: the panel moved to
+  banked code (segment 30, `PANEL(fn)`; the flower's bar's sum, which needs
+  SDCC's library, stays in the main loop).
+- **Tests:** `test/disk.sh`: on a blank disk, a game started (saved to slot 1
+  at once: the file made), saved to slot 2 from the pause menu and left for
+  the title; openMSX quit and started again on the same disk (the power
+  cycle): the title offers that game first, with its line, and it loads back
+  to the same room, place, score, lives, quarters, rooms walked and
+  treasures; the disk holds `WULFQ.SAV` as MSX-DOS made it. The tests now
+  wait for `g_Booted` (set when the shell is up): on the 8245 the RAM's start
+  pattern looked like a title already up.
+- **Not done, for M13's real hardware:** the drive's motor is stopped by the
+  disk ROM's timer, which runs only during a call: on a real drive it may
+  stay on after one. A machine whose page-0 RAM is in another primary slot
+  than page 3's, or whose disk ROM leaves under F380h - 8 KB, is taken as
+  having no disk.
 
 ### M12 — Endings, New Game+, the credits and the plane intro
 

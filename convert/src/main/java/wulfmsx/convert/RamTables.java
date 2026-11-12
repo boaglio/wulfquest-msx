@@ -58,6 +58,8 @@ final class RamTables {
         return Gen.banner("data/") + "#pragma once\n\n"
                 + "// Tables copied from tables.bin into RAM at start (data.c); each a pointer into it.\n"
                 + "#define TABLES_BYTES\t" + blob.size() + "\n"
-                + "extern unsigned char g_Tables[TABLES_BYTES];\n\n" + names;
+                + "// At its fixed place in RAM (src/ram.h, M11: above where a disk ROM's work area may begin).\n"
+                + "#include \"ram.h\"\n"
+                + "extern __at(RAM_TABLES) unsigned char g_Tables[TABLES_BYTES];\n\n" + names;
     }
 }

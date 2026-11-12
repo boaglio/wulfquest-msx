@@ -123,9 +123,88 @@ static void Check(u8 kind)
 #error "the video RAM medium holds four records"
 #endif
 
+// The disk: one file, WULFQ.SAV, a record of SAVE_BYTES each (the table,
+// then the slots), through MSX-DOS's FCB calls (data.c's Data_DiskCall,
+// which has the disk ROM's work area back for each).
+#define BDOS_SET_DMA		0x1A
+#define BDOS_OPEN			0x0F
+#define BDOS_CLOSE			0x10
+#define BDOS_CREATE			0x16
+#define BDOS_RANDOM_WRITE	0x26
+#define BDOS_RANDOM_READ	0x27
+#define FCB_RECORD_SIZE		0x0E
+#define FCB_RANDOM			0x21
+static u8 s_Fcb[37];
+static u8 s_FcbName[11] = { 'W', 'U', 'L', 'F', 'Q', ' ', ' ', ' ', 'S', 'A', 'V' };
+
+static u8 Bdos(u8 c, const void* de, u16 hl)
+{
+	g_BdosC = c;
+	g_BdosDE = (u16)de;
+	g_BdosHL = hl;
+	Data_DiskCall();
+	return g_BdosA;
+}
+
+// The file open, its records SAVE_BYTES, the transfer to g_SaveBuf; made
+// (four empty records) when there is none and make says so. 0 when open.
+static u8 DiskOpen(u8 make)
+{
+	for (u8 i = 0; i < sizeof(s_Fcb); i++)
+		s_Fcb[i] = 0;
+	Copy(s_Fcb + 1, s_FcbName, 11);
+	Bdos(BDOS_SET_DMA, g_SaveBuf, 0);
+	if (Bdos(BDOS_OPEN, s_Fcb, 0) == 0)
+	{
+		s_Fcb[FCB_RECORD_SIZE] = (u8)SAVE_BYTES;
+		s_Fcb[FCB_RECORD_SIZE + 1] = (u8)(SAVE_BYTES >> 8);
+		return 0;
+	}
+	if (!make || Bdos(BDOS_CREATE, s_Fcb, 0) != 0)
+		return 0xFF;
+	s_Fcb[FCB_RECORD_SIZE] = (u8)SAVE_BYTES;
+	s_Fcb[FCB_RECORD_SIZE + 1] = (u8)(SAVE_BYTES >> 8);
+	// Every record written once, empty, so none reads as what the disk held
+	// before. The record to save waits in video RAM meanwhile (the tests'
+	// medium's place: not in use with a disk; RAM has no room for it).
+	Data_VramWrite(MEDIUM_VRAM_AT, g_SaveBuf, 128);
+	Data_VramWrite(MEDIUM_VRAM_AT + 128, g_SaveBuf + 128, 128);
+	for (u16 i = 0; i < SAVE_BYTES; i++)
+		g_SaveBuf[i] = 0;
+	for (u8 r = 0; r <= SAVE_SLOTS; r++)
+	{
+		s_Fcb[FCB_RANDOM] = r;
+		s_Fcb[FCB_RANDOM + 1] = 0;
+		s_Fcb[FCB_RANDOM + 2] = 0;
+		s_Fcb[FCB_RANDOM + 3] = 0;
+		if (Bdos(BDOS_RANDOM_WRITE, s_Fcb, 1) != 0)
+			return 0xFF;
+	}
+	Data_VramRead(MEDIUM_VRAM_AT, g_SaveBuf, 128);
+	Data_VramRead(MEDIUM_VRAM_AT + 128, g_SaveBuf + 128, 128);
+	return 0;
+}
+
+static void DiskRecord(u8 op)
+{
+	s_Fcb[FCB_RANDOM] = g_SaveSlot;
+	s_Fcb[FCB_RANDOM + 1] = 0;
+	s_Fcb[FCB_RANDOM + 2] = 0;
+	s_Fcb[FCB_RANDOM + 3] = 0;
+	u8 a = Bdos(op, s_Fcb, 1);
+	Bdos(BDOS_CLOSE, s_Fcb, 0);
+	g_SaveResult = a == 0 ? SAVE_OK : SAVE_FAILED;
+}
+
 static void Put()
 {
 	g_SaveResult = SAVE_FAILED;
+	if (g_SaveMedium == MEDIUM_DISK)
+	{
+		if (DiskOpen(TRUE) == 0)
+			DiskRecord(BDOS_RANDOM_WRITE);
+		return;
+	}
 	if (g_SaveMedium == MEDIUM_VRAM)
 	{
 		u16 at = MEDIUM_VRAM_AT + ((u16)g_SaveSlot << 8);
@@ -138,6 +217,26 @@ static void Put()
 static void Get()
 {
 	g_SaveResult = SAVE_FAILED;
+	if (g_SaveMedium == MEDIUM_DISK)
+	{
+		if (DiskOpen(FALSE) != 0)
+		{
+			// No file yet: every slot empty.
+			for (u16 i = 0; i < SAVE_BYTES; i++)
+				g_SaveBuf[i] = 0;
+			g_SaveResult = SAVE_OK;
+			return;
+		}
+		DiskRecord(BDOS_RANDOM_READ);
+		if (g_SaveResult != SAVE_OK)
+		{
+			// Past the end of the file: an empty slot.
+			for (u16 i = 0; i < SAVE_BYTES; i++)
+				g_SaveBuf[i] = 0;
+			g_SaveResult = SAVE_OK;
+		}
+		return;
+	}
 	if (g_SaveMedium == MEDIUM_VRAM)
 	{
 		u16 at = MEDIUM_VRAM_AT + ((u16)g_SaveSlot << 8);
@@ -180,7 +279,7 @@ void Save_Peek()
 
 void Save_Init()
 {
-	g_SaveMedium = g_TestMedium ? MEDIUM_VRAM : MEDIUM_NONE;
+	g_SaveMedium = g_TestMedium ? MEDIUM_VRAM : g_DiskReady ? MEDIUM_DISK : MEDIUM_NONE;
 	if (g_SaveMedium != MEDIUM_NONE)
 	{
 		g_SaveSlot = SAVE_TABLE;

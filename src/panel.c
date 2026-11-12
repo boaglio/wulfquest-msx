@@ -1,4 +1,6 @@
 // Wulf Quest for MSX2: the panel under the playfield (AGENTS.md §10, M9).
+// Banked code since M11 (segment PANEL_SEG: PANEL(fn)): it calls only data.c,
+// keeps its tables in RAM, and leaves SDCC's library to the main loop.
 //
 // The Java game's PanelPainter's contents, laid out anew for the MSX2's 36
 // lines under the playfield: the score and the run's best (the big font),
@@ -77,8 +79,12 @@ static u16 s_DebugKey = 0;
 static u8 s_Bar = 0xFF;         // the bar's fill in pixels, 0xFF none
 static u8 s_BarInk = 0;
 
-static const u16 c_Hints[16] = { STR_HINTS };
-static const u8 c_OrchidInk[] = { ORCHID_INKS };
+// Tables in RAM: banked code (segment PANEL_SEG, M11) reads none from ROM.
+static u16 s_Hints[16] = { STR_HINTS };
+static u8 s_OrchidInk[] = { ORCHID_INKS };
+u8 g_PanelPage = 0;
+u8 g_PanelBusy = 0;
+u8 g_PanelBarFill = 0xFF;
 
 static void Put(u8 i, u8 v)
 {
@@ -98,30 +104,11 @@ static void Text(u8 first, const u8* s, u8 n, u8 cells)
 		Put(first + i, i < n ? s[i] : BLANK);
 }
 
-// A number as digits, zero-padded to SCORE_DIGITS (PanelPainter.pad).
-// Powers of ten subtracted, not SDCC's 32-bit division (thousands of cycles a digit).
-static const u32 c_Tens[] = { 1000000000, 100000000, 10000000, 1000000, 100000, 10000, 1000, 100, 10, 1 };
-#define TENS	(sizeof(c_Tens) / sizeof(c_Tens[0]))
-#if SCORE_DIGITS > 10
-#error "the panel's score has 10 digits at most"
-#endif
-
+// A number as digits, zero-padded to SCORE_DIGITS (PanelPainter.pad; data.c).
 static void Digits(u8 first, u32 v)
 {
 	u8 d[SCORE_DIGITS];
-	if (v >= c_Tens[TENS - SCORE_DIGITS - 1])
-		v = c_Tens[TENS - SCORE_DIGITS - 1] - 1;   // more than the panel has room for: all nines
-	for (u8 i = 0; i < SCORE_DIGITS; i++)
-	{
-		u32 ten = c_Tens[TENS - SCORE_DIGITS + i];
-		u8 n = '0';
-		while (v >= ten)
-		{
-			v -= ten;
-			n++;
-		}
-		d[i] = n;
-	}
+	Data_Pad(v, SCORE_DIGITS, d);
 	Text(first, d, SCORE_DIGITS, SCORE_DIGITS);
 }
 
@@ -168,8 +155,14 @@ static void Write(u8 i)
 // The bottom line: a rectangle of ground, the bar's frame and fill.
 static void Fill(u8 page, u8 x, u8 y, u8 w, u8 h, u8 colour)
 {
-	VDP_CommandLMMV(x, (u16)page * 256 + y, w, h, colour, VDP_OP_IMP);
-	VDP_CommandWait();
+	g_VDX = x;
+	g_VDY = ((u16)page << 8) + y;
+	g_VNX = w;
+	g_VNY = h;
+	g_VClr = colour;
+	g_VCmd = VCMD_LMMV;
+	Data_Vdp();
+	Data_VdpWait();
 }
 
 static void Bar(u8 page)
@@ -242,7 +235,7 @@ static bool Want()
 		u8 buf[MESSAGE_MAX];
 		u8 n = 0;
 		if (msg < 16)
-			n = Data_String(c_Hints[msg], buf);
+			n = Data_String(s_Hints[msg], buf);
 		else if (msg == 0xF3)
 		{
 			n = g_PanelNoteN;
@@ -252,31 +245,29 @@ static bool Want()
 		else if (msg == 0xF0)
 		{
 			// ROOM cc,rr  X xxxx Y yyyy: GameSession.message's dev line.
-			static const u8 c_Room[] = "ROOM ";
-			for (u8 i = 0; i < 5; i++)
-				buf[n++] = c_Room[i];
-			u8 col = g_ValeRoom % GRID_W;
-			u8 r = g_ValeRoom / GRID_W;
-			buf[n++] = '0' + col / 10;
-			buf[n++] = '0' + col % 10;
+			buf[n++] = 'R';
+			buf[n++] = 'O';
+			buf[n++] = 'O';
+			buf[n++] = 'M';
+			buf[n++] = ' ';
+			Data_Pad(g_ValeRoom & (GRID_W - 1), 2, buf + n);
+			n += 2;
 			buf[n++] = ',';
-			buf[n++] = '0' + r / 10;
-			buf[n++] = '0' + r % 10;
+			Data_Pad(g_ValeRoom >> 4, 2, buf + n);
+			n += 2;
 			buf[n++] = ' ';
 			buf[n++] = 'X';
-			u16 x = (u16)FP_PX(g_ValeX);
-			u16 y = (u16)FP_PX(g_ValeY);
-			for (u16 d = 1000; d; d /= 10)
-				buf[n++] = '0' + (u8)((x / d) % 10);
+			Data_Pad((u16)FP_PX(g_ValeX), 4, buf + n);
+			n += 4;
 			buf[n++] = ' ';
 			buf[n++] = 'Y';
-			for (u16 d = 1000; d; d /= 10)
-				buf[n++] = '0' + (u8)((y / d) % 10);
+			Data_Pad((u16)FP_PX(g_ValeY), 4, buf + n);
+			n += 4;
 		}
 		if (redo)
 		{
 			line = TRUE;
-			s_MsgX = (u8)((256 - n * 4) / 2) & 0xFE;   // drawCentred
+			s_MsgX = (u8)(128 - (n << 1)) & 0xFE;   // drawCentred
 			for (u8 i = 0; i < MESSAGE_MAX; i++)
 			{
 				s_Shown[C_MESSAGE + i] = BLANK;   // the line is cleared below
@@ -286,14 +277,12 @@ static bool Want()
 		Text(C_MESSAGE, buf, n, MESSAGE_MAX);
 	}
 	// The flower's bar: what is left of it, in its colour (remainingPerMille).
+	// (The fill is the main loop's, g_PanelBarFill: its sums take SDCC's library.)
 	u8 bar = 0xFF;
-	if (msg == 0xFF && g_EffectKind != EFFECT_NONE && g_EffectOrchid >= 0)
+	if (msg == 0xFF && g_PanelBarFill != 0xFF)
 	{
-		u16 perMille = g_EffectTotal ? (u16)((u32)g_EffectTicks * 1000 / g_EffectTotal) : 0;
-		if (perMille > 1000)
-			perMille = 1000;
-		bar = (u8)((u32)(EFFECT_BAR_W - 2) * perMille / 1000);
-		s_BarInk = c_OrchidInk[g_EffectOrchid];
+		bar = g_PanelBarFill;
+		s_BarInk = s_OrchidInk[g_EffectOrchid];
 	}
 	if (bar != s_Bar)
 	{
@@ -303,12 +292,13 @@ static bool Want()
 	return line;
 }
 
-void Panel_Update(u8 page, u8 busy)
+void Panel_Update()
 {
+	u8 page = g_PanelPage;
 	s_Top = page ? 0x8000 : 0;
 	if (Want())
 		Bar(page);   // the line cleared, and the bar if no message is on it
-	u8 left = busy ? PANEL_CELLS_A_FRAME - 1 : PANEL_CELLS_A_FRAME;
+	u8 left = g_PanelBusy ? PANEL_CELLS_A_FRAME - 1 : PANEL_CELLS_A_FRAME;
 	while (left && s_Head != s_Tail)
 	{
 		u8 i = s_Queue[s_Head++ & 127];
@@ -339,19 +329,33 @@ void Panel_Init()
 	s_Message = 0xFE;
 }
 
-void Panel_Draw(u8 page)
+void Panel_Draw()
 {
+	u8 page = g_PanelPage;
 	if (s_Drawn)
 	{
 		// The page on show's panel, as it is (its cells' shown state stays true):
 		// the VDP copies it in a few milliseconds, where drawing it took 140.
-		VDP_CommandHMMM(0, (u16)(page ^ 1) * 256 + TOP, 0, (u16)page * 256 + TOP, 256, 212 - TOP);
-		VDP_CommandWait();
+		g_VSX = 0;
+		g_VSY = ((u16)(page ^ 1) << 8) + TOP;
+		g_VDX = 0;
+		g_VDY = ((u16)page << 8) + TOP;
+		g_VNX = 256;
+		g_VNY = 212 - TOP;
+		g_VCmd = VCMD_HMMM;
+		Data_Vdp();
+		Data_VdpWait();
 		return;
 	}
 	s_Drawn = TRUE;
-	VDP_CommandHMMV(0, (u16)page * 256 + TOP, 256, 212 - TOP, (PANEL_GROUND << 4) | PANEL_GROUND);
-	VDP_CommandWait();
+	g_VDX = 0;
+	g_VDY = ((u16)page << 8) + TOP;
+	g_VNX = 256;
+	g_VNY = 212 - TOP;
+	g_VClr = (PANEL_GROUND << 4) | PANEL_GROUND;
+	g_VCmd = VCMD_HMMV;
+	Data_Vdp();
+	Data_VdpWait();
 	s_Top = page ? 0x8000 : 0;
 	Want();
 	Bar(page);   // the line first: a message on it is drawn over it, not cleared by it

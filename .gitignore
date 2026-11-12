@@ -17,3 +17,6 @@ __pycache__/
 
 # Maven: the converter (and wulfquest/core, inside the submodule)
 target/
+
+# System ROMs the user provides for the tests (an MSX2 disk ROM, M11): never committed.
+roms/
