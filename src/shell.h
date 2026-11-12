@@ -21,7 +21,8 @@
 enum
 {
 	SH_TITLE, SH_ATTRACT, SH_HISCORES, SH_OPTIONS, SH_PLAYING, SH_PAUSED, SH_SAVE, SH_LOAD,
-	SH_REVEAL, SH_MAP, SH_GAME_OVER, SH_WON, SH_ENTRY, SH_NEW_GAME
+	SH_REVEAL, SH_MAP, SH_GAME_OVER, SH_WON, SH_ENTRY, SH_NEW_GAME,
+	SH_ENDING, SH_TALLY, SH_ROLL, SH_INTRO   // M12 (scenes.c); SH_WON, M10's stand-in, unused
 };
 extern u8  g_Shell;
 extern u16 g_ShellTick;   // ticks on this screen (Shell.stateTick)

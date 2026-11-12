@@ -989,7 +989,9 @@ void Data_MapRoom(u8 room, u8 page, u8 ink)
 // byte through the table, written (C took seconds).
 static const u8 c_Dim[16] = { DIM_COLOURS };
 static const u8 c_DimByte[256] = { DIM_BYTES };
-static u8 s_DimBuf[128];
+// The pause menu's line of jungle being dimmed, and a save's record
+// (save.h's g_SaveBuf): one buffer, never wanted by both at once (RAM, M12).
+u8 g_Scratch[256];
 static u16 s_DimSrc;
 static u16 s_DimDst;
 
@@ -1010,11 +1012,11 @@ static void DimLine() __naked
 		ld	a, d
 		and	a, #0x3F
 		out	(#0x99), a              ; bits 13-8, and "read"
-		ld	hl, #_s_DimBuf
+		ld	hl, #_g_Scratch
 		ld	bc, #0x8098             ; 128 bytes from port 98h
 		inir
 		; each byte through the table
-		ld	de, #_s_DimBuf
+		ld	de, #_g_Scratch
 		ld	b, #128
 	00001$:
 		ld	a, (de)
@@ -1042,7 +1044,7 @@ static void DimLine() __naked
 		and	a, #0x3F
 		or	a, #0x40
 		out	(#0x99), a              ; and "write"
-		ld	hl, #_s_DimBuf
+		ld	hl, #_g_Scratch
 		ld	bc, #0x8098
 		otir
 		ei
@@ -1372,4 +1374,84 @@ void Data_DiskCall() __naked
 		ei
 		ret
 	__endasm;
+}
+
+//-----------------------------------------------------------------------------
+// The scenes (M12; scenes.c): scenes.bin's bytes, the figures into the
+// atlas's video RAM (Data_LoadScenery puts the atlas back after), a VDP
+// register, one pixel row of g_Text (the credits roll, a line at a time).
+
+#include "scenes_data.h"
+
+void Data_ScenesBytes(u16 at, u8* out, u8 n)
+{
+	SET_BANK_SEGMENT(ROM_DATA_BANK, SCENES_BIN_SEG);
+	const u8* src = (const u8*)(ROM_DATA_ADDR + SCENES_BIN_REL) + at;
+	while (n--)
+		*out++ = *src++;
+	SET_BANK_SEGMENT(ROM_DATA_BANK, g_CodeSeg);
+}
+
+void Data_LoadSceneImages()
+{
+	SET_BANK_SEGMENT(ROM_DATA_BANK, SCENES_IMG_BIN_SEG);
+	const u8* src = (const u8*)(ROM_DATA_ADDR + SCENES_IMG_BIN_REL);
+	for (u8 i = 0; i < SCENE_IMAGES; i++)
+	{
+		u8 x = src[0];
+		u16 y = SCENE_BACKDROP_Y + (src[1] | (u16)src[2] << 8);
+		u8 w = src[3] >> 1;
+		u8 h = src[4];
+		src += 5;
+		for (u8 l = 0; l < h; l++)
+		{
+			u32 a = ((u32)(y + l) << 7) + (x >> 1);
+			VramWriteAt((u8)(a >> 16), (u16)a);
+			for (u8 b = 0; b < w; b++)
+				s_VdpData = *src++;
+		}
+	}
+	SET_BANK_SEGMENT(ROM_DATA_BANK, g_CodeSeg);
+}
+
+void Data_VdpReg(u8 reg, u8 value)
+{
+	__asm__("di");
+	s_VdpCtrl = value;
+	s_VdpCtrl = 0x80 | reg;
+	__asm__("ei");
+}
+
+// Pixel row k of g_Text's glyphs (big: 8 a glyph, small: 6), ink on black,
+// from x (even) on line y of a page; past the glyphs' rows, black.
+void Data_TextLine(u8 big, u8 page, u8 x, u8 y, u8 k, u8 ink)
+{
+	u8 line[128];
+	u8 n = 0;
+	u8 rows = big ? 8 : FONT_SMALL_H;
+	u8 pair[4];
+	pair[0] = (u8)((INK_GROUND << 4) | INK_GROUND);
+	pair[1] = (u8)((INK_GROUND << 4) | ink);
+	pair[2] = (u8)((ink << 4) | INK_GROUND);
+	pair[3] = (u8)((ink << 4) | ink);
+	SET_BANK_SEGMENT(ROM_DATA_BANK, FONT_BIN_SEG);
+	const u8* font = (const u8*)(ROM_DATA_ADDR + FONT_BIN_REL);
+	for (u8 i = 0; i < g_TextN && n < 124; i++)
+	{
+		u8 bits = 0;
+		if (k < rows)
+		{
+			u8 g = (u8)(g_Text[i] - (big ? FONT_BIG_FIRST : FONT_SMALL_FIRST));
+			if (g >= (big ? FONT_BIG_GLYPHS : FONT_SMALL_GLYPHS))
+				g = 0;
+			bits = big ? font[((u16)g << 3) + k] : font[FONT_SMALL_AT + ((u16)g << 2) + ((u16)g << 1) + k];
+		}
+		for (u8 b = 0; b < (big ? 4 : 2); b++)
+		{
+			line[n++] = pair[bits >> 6];
+			bits <<= 2;
+		}
+	}
+	SET_BANK_SEGMENT(ROM_DATA_BANK, g_CodeSeg);
+	Data_VramWrite(((u16)page << 15) + ((u16)y << 7) + (x >> 1), line, n);
 }

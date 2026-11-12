@@ -61,6 +61,7 @@ public final class Convert {
         Panel panel = new Panel(c, palette);
         Sound sound = new Sound(c);
         Shell shell = new Shell(c, palette, SceneryAtlas.VRAM_FIRST_LINE + atlas.lines());
+        Scenes scenes = new Scenes(c, palette, atlas, SceneryAtlas.VRAM_FIRST_LINE + atlas.lines());
         bank.tables(tables);
         blade.tables(tables);
         vale.tables(tables);
@@ -93,6 +94,8 @@ public final class Convert {
         Gen.write(out.resolve("panel_data.h"), panel.header());
         Gen.write(out.resolve("sound_data.h"), sound.header());
         Gen.write(out.resolve("shell_data.h"), shell.header());
+        Gen.write(out.resolve("scenes_data.h"), scenes.header());
+        Gen.write(out.resolve("roll.txt"), String.join("\n", scenes.rollRows()) + "\n");
         Gen.write(out.resolve("demo_check.txt"), shell.demoCheck());
         Gen.write(out.resolve("demo_map.bin"), shell.demoMap());
         Gen.write(out.resolve("tables.h"), tables.header());
@@ -134,6 +137,10 @@ public final class Convert {
         Gen.write(out.resolve("shell.bin"), shell.blob());
         blobs.add(new Budget.Blob("shell.bin", shell.blob().length));
         Gen.write(out.resolve("shell_img.bin"), shell.images());
+        Gen.write(out.resolve("scenes.bin"), scenes.blob());
+        blobs.add(new Budget.Blob("scenes.bin", scenes.blob().length));
+        Gen.write(out.resolve("scenes_img.bin"), scenes.images());
+        blobs.add(new Budget.Blob("scenes_img.bin", scenes.images().length));
         blobs.add(new Budget.Blob("shell_img.bin", shell.images().length));
         Gen.write(out.resolve("font.bin"), panel.font());
         blobs.add(new Budget.Blob("font.bin", panel.font().length));

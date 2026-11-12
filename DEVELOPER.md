@@ -89,6 +89,7 @@ the Java game's `Content.load` and writes `build/gen/`:
 | `frames.bin` | the sprite bank's frames' numbers: where each starts, its chunk, blocks and origin (read on demand: RAM is short) |
 | `panel_data.h`, `font.bin`, `panel.bin` | the panel (M9, `Panel`): the big and small fonts, the half-size quarters and a life's head, the strings (the hints as `GameSession.hint` words them), the colours |
 | `shell_data.h`, `shell.bin`, `shell_img.bin` | the shell (M10, `Shell`): every string its screens show, the hi-score table a new machine has, each room's 16x11 miniature for the map, the attract demo's input; the images it copies from video RAM (page 3, below the scenery: the menu's wolf, the map's marks, the quarters at the reveal's scale, the wordmark's stencils) |
+| `scenes_data.h`, `scenes.bin`, `scenes_img.bin`, `roll.txt` | the scenes (M12, `Scenes`): the closing scene, the tally, the credits roll and the plane's intro from `shell.json`, moved onto the MSX2's screen; the backdrops as clipped copies from the scenery atlas, the moves a tick at a time, the typed lines; the figures' images (loaded into the atlas's video RAM while a scene plays); the roll's rows as the ROM shows them, the MSXgl credit included (`msx_credits.txt`) |
 | `demo_check.txt`, `demo_map.bin` | for `test/shell.sh`: where the Java game ends given the demo's keys, and its map screen there, a byte a pixel |
 | `sound_data.h`, `sound50.bin`, `sound60.bin` | the sound (M9, `Sound`): every effect and tune as the PSG's entries a frame, for each interrupt rate; each sound's number, priority, loop |
 | `quest_data.h` | the quest and the Wulf (M7, `Quest`): the amulet's sets, the lairs, the guardians, the Keeper, the way out, the original's Wulf; their tables are in `tables.h` |
@@ -103,8 +104,9 @@ To run it alone: `mvn -q -pl convert -am package -DskipTests exec:java`.
 
 **Banked code** (AGENTS.md §3). `src/wulfquest_sN_b1.c` is compiled into ROM
 segment N, for bank 1 (8000h): each holds one module (`#include "jungle.c"`),
-whose header names the segment (`JUNGLE_SEG`; segments 24-30 are the jungle,
-the respawns, the quest, the game, the shell, the saves and the panel) and a macro to call into it
+whose header names the segment (`JUNGLE_SEG`; segments 24-31 are the jungle,
+the respawns, the quest, the game, the shell, the saves, the panel and the
+scenes: all eight are taken) and a macro to call into it
 (`JUNGLE(Jungle_TickBeasts)`, through `data.c`'s `Bank_Call`). A banked
 function takes no arguments and returns nothing: they go in globals. While
 it runs, segment 1 is not mapped: it may call code below 8000h (`data.c`,

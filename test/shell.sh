@@ -17,7 +17,7 @@ command -v openmsx >/dev/null || { echo "shell.sh: openMSX is needed" >&2; exit 
 mkdir -p build/test build/shots
 
 syms=""
-for n in g_Shell g_ShellTick g_DemoTicks g_ValeRoom g_ValeX g_ValeY g_Score g_ValeLives g_TestMapOpen \
+for n in g_Booted g_RollTick g_TallyBefore g_TallyEscape g_TallyTime g_TallyLives g_Shell g_ShellTick g_DemoTicks g_ValeRoom g_ValeX g_ValeY g_Score g_ValeLives g_TestMapOpen \
          g_QuestSlots g_QuestPieces g_ValeMode g_ContinuesUsed g_BestScore; do
     a=$(awk -v s="_$n" '$2 == s { print "0x" substr($1, length($1) - 3) }' "$map")
     [[ -n "$a" ]] || { echo "shell.sh: $n is not in $map" >&2; exit 1; }
@@ -38,7 +38,9 @@ plan=(
     "$DOWN" "$SPACE" "wait 3" "dump options"
     "$DOWN" "$DOWN" "$DOWN" "$DOWN" "pause 0.6" "$SPACE" "wait 2" "dump hiscores"
     "pause 0.6" "$SPACE" "wait 3" "$ESC" "wait 0"
-    # Left alone: the demo, to its end; then the map over its game.
+    # Left alone: the plane's intro (M12); a key brings the title back.
+    "wait 17" "until {[peek g_ShellTick 2] >= 700}" "dump intro" "$SPACE" "wait 0"
+    # Left alone again: the intro, then the demo, to its end; then the map over its game.
     "until {[peek g_Shell] == 1 && [peek g_DemoTicks 2] >= 100}" "dump attract"
     "until {[peek g_Shell] == 0 && [peek g_ShellTick 2] >= 2}"
     "log demo {[peek g_DemoTicks 2] [peek g_ValeRoom] [peek g_ValeX 4] [peek g_ValeY 4] [peek g_Score 4] [peek g_ValeLives]}"
@@ -58,8 +60,14 @@ plan=(
     "until {[peek g_ShellTick 2] >= 52}" "dump reveal2" "$SPACE" "wait 4"
     "poke g_ValeMode 3" "wait 10" "pause 0.6" "dump gameover" "$SPACE" "wait 4"
     "log continued {[peek g_ContinuesUsed]}"
-    "poke g_BestScore 0 4" "poke g_ValeMode 5" "wait 11" "until {[peek g_ShellTick 2] >= 101}" "dump won"
-    "$SPACE" "wait 0" "log keys done"
+    # The win (M12): the escape's walk, then the closing scene, the tally, the credits roll.
+    "poke g_ValeMode 4" "wait 14" "until {[peek g_ShellTick 2] >= 100}" "dump ending1"
+    "until {[peek g_ShellTick 2] >= 505}" "dump ending2"
+    "$SPACE" "wait 15" "until {[peek g_ShellTick 2] >= 105}" "dump tally"
+    "log tally {[peek g_TallyBefore 4] [peek g_TallyEscape 2] [peek g_TallyTime 2] [peek g_TallyLives 2] [peek g_Score 4]}"
+    "$SPACE" "wait 16" "poke g_BestScore 0 4"
+    "until {[peek g_RollTick 2] >= 150}" "dump roll150" "until {[peek g_RollTick 2] >= 300}" "dump roll300" "until {[peek g_RollTick 2] >= 450}" "dump roll450" "until {[peek g_RollTick 2] >= 600}" "dump roll600" "until {[peek g_RollTick 2] >= 750}" "dump roll750" "until {[peek g_RollTick 2] >= 900}" "dump roll900" "until {[peek g_RollTick 2] >= 1050}" "dump roll1050" "until {[peek g_RollTick 2] >= 1200}" "dump roll1200" "until {[peek g_RollTick 2] >= 1350}" "dump roll1350" "until {[peek g_RollTick 2] >= 1500}" "dump roll1500" "until {[peek g_RollTick 2] >= 1650}" "dump roll1650" "until {[peek g_RollTick 2] >= 1800}" "dump roll1800"
+    "wait 0" "log keys done"
     # The same ways with the joystick: options, hi-scores, back, a game, its map.
     "$J_DOWN" "$J_FIRE" "wait 3" "pause 0.6"
     "$J_DOWN" "$J_DOWN" "$J_DOWN" "$J_DOWN" "$J_FIRE" "wait 2" "dump joyhiscores"

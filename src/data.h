@@ -144,6 +144,8 @@ void Data_GlyphBits(u8 ch, u8* out);
 // playfield lines in their plain colours onto the other (the pause menu).
 void Data_MapRoom(u8 room, u8 page, u8 ink);
 void Data_Dim(u8 from, u8 to, u8 lines);
+// A buffer shared by what never runs at once: Data_Dim's line, a save's record.
+extern u8 g_Scratch[256];
 // The game's palette, or (dim) each colour as its plain twin, the shell's
 // heading and bright inks kept (the attract demo).
 void Data_Palette(u8 dim);
@@ -165,3 +167,9 @@ void Data_DiskAside();
 void Data_DiskCall();
 // v as n digits (up to 10), zero-padded, all nines if it has more.
 void Data_Pad(u32 v, u8 n, u8* out);
+// The scenes (M12): scenes.bin's bytes; the figures into the atlas's video
+// RAM; a VDP register; pixel row k of g_Text (x even) on line y of a page.
+void Data_ScenesBytes(u16 at, u8* out, u8 n);
+void Data_LoadSceneImages();
+void Data_VdpReg(u8 reg, u8 value);
+void Data_TextLine(u8 big, u8 page, u8 x, u8 y, u8 k, u8 ink);

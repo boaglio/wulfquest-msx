@@ -1127,6 +1127,52 @@ map screen; the jobs' line under `START`.
 scripted win; the credits carry the §2.5 text exactly (checked by a test
 against the data); the plane intro plays and any key returns to the title.
 
+**Part 1 landed (2026-11-12): the first job's win, and the intro.** Specifics:
+
+- **The scenes** (`src/scenes.c`, banked in segment 31, `SCENES(fn)`; the
+  converter's `Scenes`): the Java game's `EndingScreen`, `TallyScreen`,
+  `CreditsRoll` and `IntroScreen` as the shell's states `SH_ENDING`,
+  `SH_TALLY`, `SH_ROLL`, `SH_INTRO`, their ways in and out the Java
+  `Shell`'s. The Java scenes fill a 320x256 canvas; here everything is moved
+  by the playfield's place on it (32, 32), so a scene stands where the rooms
+  do and its edges are cut. A typed line wider than 32 big characters is
+  broken at a word (Mr Jones's).
+- **The closing scene and the intro**: the backdrop drawn from the scenery
+  atlas, its band (where the figures move) kept in the atlas's video RAM with
+  the figures after it (`scenes_img.bin`: Vale walking, Mr Jones, the amulet
+  at half size, the plane, the intro's strip), the atlas loaded again when
+  the scene is left; a tick's figures drawn on the page not shown over the
+  band put back where they were, the pages swapped. The moves the Java scenes
+  divide for (Vale's walk, the amulet handed over, the plane's way) are the
+  converter's, a tick at a time. The prompt is on the screen's last line (the
+  Java one's falls past the MSX2's bottom).
+- **The tally**: the win's sums kept as `vale.c` adds them (`g_TallyBefore`,
+  the escape's, the time's, the lives' bonus), a line every
+  `tally.lineEveryTicks`, "a new best" when the total reaches the table's;
+  its prompt on the pages' footer line.
+- **The credits roll**: `CreditsRoll`'s rows (`credits.rollRows`: the end, the
+  heading, `shell.json`'s lines with the §2.5 text verbatim, then the MSX2's
+  credit of MSXgl and its author, `convert/.../msx_credits.txt`), scrolled by
+  the VDP (R#23) a pixel every `roll.ticksPerPx`: each step draws the line the
+  band uncovers and the band at its new place, so the band stands still.
+  Fire stops it; Escape skips it. It runs through the page's lines under the
+  screen (sprite set 0's tables, the treasures' state), which a new game sets
+  up again.
+- **The intro** before the demo when the title is left alone; any key, the
+  title again.
+- **Tests:** `test/shell.sh` now plays the intro (and a key back), and a win
+  from the escape's walk: the ending's rows and prompt, the tally's labels
+  and the win's own sums, and every row of the roll seen on screen as it
+  rises (each dump as the VDP shows it, R#23). Convert's `ScenesTest`: the
+  roll carries `credits.lines` verbatim and in order, then the MSXgl credit;
+  the §2.5 text (read from the Java game's `AGENTS.md`) is in those lines; a
+  wrapped row rejoins to its line.
+- **RAM**: the pause menu's dimming buffer and a save's record share one
+  (`g_Scratch`): RAM again had no room.
+- **Still to do (part 2, 3):** New Game+ (the later jobs, their amulets, their
+  endings and Mr Jones's offer, the ride home); the looking glass's trail on
+  the map.
+
 ### M13 — 60 Hz machines and real hardware
 
 **For:** the game as players will run it.

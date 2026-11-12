@@ -33,7 +33,10 @@ extern u8 g_TestMedium;   // a test sets it before the title: the video RAM medi
 enum { SAVE_OK, SAVE_EMPTY, SAVE_DAMAGED, SAVE_OTHER_VERSION, SAVE_FAILED };
 extern u8 g_SaveSlot;
 extern u8 g_SaveResult;
-extern u8 g_SaveBuf[SAVE_BYTES];
+#define g_SaveBuf	g_Scratch   // data.c's: the pause menu's dimming uses it too, never at once
+#if SAVE_BYTES > 256
+#error "a save's record is g_Scratch"
+#endif
 
 // Each slot as its line shows it (MenuScreen.slotLine), from Save_Peek.
 typedef struct

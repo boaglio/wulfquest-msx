@@ -18,7 +18,6 @@ u8 g_SaveMedium = MEDIUM_NONE;
 u8 g_TestMedium = 0;
 u8 g_SaveSlot = 0;
 u8 g_SaveResult = SAVE_EMPTY;
-u8 g_SaveBuf[SAVE_BYTES];
 SlotInfo g_Slots[SAVE_SLOTS];
 i32 g_LoadX = 0;
 i32 g_LoadY = 0;

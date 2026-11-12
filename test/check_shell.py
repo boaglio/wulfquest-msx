@@ -37,6 +37,38 @@ class Gen:
         self.palette = check_boot.palette_from_header(f"{gen}/palette.h")
         self.demo = open(f"{gen}/demo_check.txt", encoding="ascii").read().split()
         self.demo_map = open(f"{gen}/demo_map.bin", "rb").read()
+        self.sc = defines(f"{gen}/scenes_data.h")
+        self.scenes = open(f"{gen}/scenes.bin", "rb").read()
+
+    def scene_str(self, at):
+        return self.scenes[at + 1:at + 1 + self.scenes[at]].decode("ascii"), at + 1 + self.scenes[at]
+
+    def ending_rows(self):
+        """The closing scene's lines' rows, as scenes.bin has them (wrapped to the screen)."""
+        at, rows = self.sc["ENDING_LINES"], []
+        for _ in range(self.sc["ENDING_LINES_N"]):
+            n = self.scenes[at + 5]
+            at += 6
+            for _ in range(n):
+                row, at = self.scene_str(at)
+                rows.append(row)
+        return rows
+
+    def intro_rows(self):
+        at, rows = self.sc["INTRO_TEXT"], []
+        for _ in range(self.sc["INTRO_ROWS"]):
+            row, at = self.scene_str(at)
+            rows.append(row)
+        return rows
+
+    def roll_rows(self):
+        """The credits roll's rows: (text, big font)."""
+        at, rows = self.sc["ROLL_TEXT"], []
+        for _ in range(self.sc["ROLL_ROWS"]):
+            body = self.scenes[at]
+            row, at = self.scene_str(at + 1)
+            rows.append((row, not body))
+        return rows
 
     def str(self, name):
         at = self.s[name]
@@ -56,8 +88,17 @@ class Gen:
         return [[x for x in range(4) if r & (0x80 >> x)] for r in rows], 4
 
 
-def pixels(vram):
-    return [[(vram[y * 128 + x // 2] >> (4 if x % 2 == 0 else 0)) & 15 for x in range(W)] for y in range(H)]
+def pixels(vram, scroll=0):
+    """The screen as shown: line s is the page's line (scroll + s) round 256 (R#23)."""
+    rows = []
+    for s in range(H):
+        y = (scroll + s) & 255
+        rows.append([(vram[y * 128 + x // 2] >> (4 if x % 2 == 0 else 0)) & 15 for x in range(W)])
+    return rows
+
+
+def shown_bytes(vram, scroll=0):
+    return b"".join(vram[((scroll + s) & 255) * 128:((scroll + s) & 255) * 128 + 128] for s in range(H))
 
 
 def find(gen, px, text, big):
@@ -140,7 +181,8 @@ def main(dump, gen_dir, shot):
         "reveal2": [(s("STR_REVEAL_PROMPT"), big)],
         "gameover": [(s("STR_GAME_OVER"), big), (s("STR_PROGRESS_B"), big), (s("STR_CONTINUE"), big),
                      (s("STR_CONTINUES_A") + str(gen.g["CONTINUES_START"]) + s("STR_CONTINUES_B"), big)],
-        "won": [(s("STR_TALLY"), big), (s("STR_PRESS_FIRE"), small)],
+        "intro": [(r, big) for r in gen.intro_rows()],
+        "ending2": [(r, big) for r in gen.ending_rows()] + [(gen.scene_str(gen.sc["STR_ENDING_PROMPT"])[0], big)],
         "joyhiscores": [(s("STR_HISCORES"), big)],
         "joymap": [(s("STR_MAP"), small)],
     }
@@ -155,6 +197,23 @@ def main(dump, gen_dir, shot):
     want["hiscores2"] += [(alphabet[2] + alphabet[0] + alphabet[0], small), (demo["score"], small)]
     want["entry"] += [(s("STR_ENTRY_SCORE") + demo["score"] + s("STR_ENTRY_PLACE"), small)]
 
+    # The tally: its heading, each label and its figure, the total (the win's own sums, logged).
+    tl = next((l for l in logs if l[0] == "tally"), None)
+    if tl:
+        before, escape, time, lives, total = (int(v) for v in tl[2:7])
+        if before + escape + time + lives != total:
+            problems.append(f"tally: {before} + {escape} + {time} + {lives} is not the score {total}")
+        labels = [gen.scene_str(gen.sc[f"STR_TALLY_LABEL_{i}"])[0] for i in range(gen.sc["TALLY_LABELS"])]
+        want["tally"] = [(gen.scene_str(gen.sc["STR_TALLY_HEADING"])[0], big)] \
+            + [(t, big) for t in labels] + [(str(v), big) for v in (before, escape, time, lives, total)] \
+            + [(gen.scene_str(gen.sc["STR_TALLY_TOTAL"])[0], big), (gen.scene_str(gen.sc["STR_TALLY_PROMPT"])[0], big)]
+        # TallyScreen: "a new best" when the total is the table's best or more (the table a new machine has).
+        t = gen.s["HISCORE_DEFAULTS"]
+        best = int.from_bytes(gen.bin[t + 3:t + 7], "little")
+        if total >= best:
+            want["tally"].append((gen.scene_str(gen.sc["STR_TALLY_NEW_BEST"])[0], big))
+    else:
+        problems.append("the tally's sums were not logged")
     for tag, items in want.items():
         if tag not in screens:
             problems.append(f"no screen '{tag}'")
@@ -165,6 +224,19 @@ def main(dump, gen_dir, shot):
         for text, font in items:
             if find(gen, px, text, font) is None:
                 problems.append(f"{tag}: \"{text}\" is not on screen ({'big' if font else 'small'} font)")
+    # The credits roll: every row of it seen on screen as it rose (each dump as shown, R#23).
+    rolls = sorted((t for t in screens if t.startswith("roll")), key=lambda t: int(t[4:]))
+    if not rolls:
+        problems.append("no screen of the credits roll")
+    unseen = [r for r in gen.roll_rows() if r[0].strip()]
+    for tag in rolls:
+        sc = screens[tag]
+        scroll = sc["regs"][23]
+        check_boot.write_png(f"{shot}-{tag}.png", shown_bytes(sc["vram"], scroll), sc["palette"])
+        px = pixels(sc["vram"], scroll)
+        unseen = [r for r in unseen if find(gen, px, r[0], r[1]) is None]
+    for text, font in unseen:
+        problems.append(f"roll: \"{text}\" was never on screen ({'big' if font else 'small'} font)")
     for tag in ("title", "game"):
         if tag in screens:
             check_boot.write_png(f"{shot}-{tag}.png", screens[tag]["vram"], screens[tag]["palette"])
@@ -202,7 +274,8 @@ def main(dump, gen_dir, shot):
     for p in problems:
         print(f"FAIL {name}: {p}")
     if not problems:
-        print(f"ok   {name}: {len(want)} screens, the demo ({demo['ticks']} ticks) and its map as the Java game's")
+        print(f"ok   {name}: {len(want)} screens, the demo ({demo['ticks']} ticks) and its map as the Java game's; "
+              f"the intro, the ending, the tally, every row of the credits roll ({len(gen.roll_rows())} rows)")
     return 1 if problems else 0
 
 

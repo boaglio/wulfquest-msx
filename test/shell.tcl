@@ -32,7 +32,8 @@ proc dump {tag} {
     puts $::out "$tag regs [binary encode hex [debug read_block {VDP regs} 0 24]]"
     puts $::out "$tag palette [binary encode hex [debug read_block {VDP palette} 0 32]]"
     set start [expr {([debug read {VDP regs} 2] >> 5 & 3) * 32768}]
-    puts $::out "$tag vram [binary encode hex [debug read_block VRAM $start 27136]]"
+    # The whole page: the credits roll scrolls it (R#23) through all of its 256 lines.
+    puts $::out "$tag vram [binary encode hex [debug read_block VRAM $start 32768]]"
     flush $::out
 }
 

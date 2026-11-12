@@ -20,6 +20,7 @@
 #include "quest_data.h"
 #include "game.h"
 #include "game_data.h"
+#include "scenes.h"
 #include "sound.h"
 #include "tables.h"   // and ram.h
 
@@ -660,11 +661,16 @@ static void Escape()
 	g_ValeY -= PLAYER_SPEED_Y_FP;   // no collision: the arch is the way out
 	if (g_ValeModeTick >= ESCAPE_WALK_TICKS)
 	{
-		// win: the bonuses for getting out, for time, for the lives left.
+		// win: the bonuses for getting out, for time, for the lives left (each
+		// kept for the tally, M12: Quest's scoreBeforeBonuses and the rest).
+		g_TallyBefore = g_Score;
+		g_TallyEscape = SCORE_ESCAPE;
 		Score_Add(SCORE_ESCAPE);
 		u32 t = g_SimTick / SCORE_TIME_DIVISOR;
-		Score_Add(t >= SCORE_TIME_MAX ? 0 : (u16)(SCORE_TIME_MAX - t));
-		Score_Add((u16)g_ValeLives * SCORE_LIFE_LEFT);
+		g_TallyTime = t >= SCORE_TIME_MAX ? 0 : (u16)(SCORE_TIME_MAX - t);
+		Score_Add(g_TallyTime);
+		g_TallyLives = (u16)g_ValeLives * SCORE_LIFE_LEFT;
+		Score_Add(g_TallyLives);
 		g_ValeMode = MODE_WON;
 		g_ValeModeTick = 0;
 	}

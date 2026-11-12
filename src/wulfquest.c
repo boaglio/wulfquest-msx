@@ -795,6 +795,11 @@ static void SpritesInit()
 // seed (the Java game's long, little-endian), Vale at (x, y); its room shown.
 static void MakeGame()
 {
+	// The sprites' tables as at start: the credits roll writes over set 0's (M12).
+	SpritesInit();
+	s_ValeFrame[0] = s_ValeFrame[1] = 0xFFFF;
+	s_ValeBuf = 0xFFFF;
+	s_BladeShape[0] = s_BladeShape[1] = -1;
 	g_ValeOpen = 0;
 	g_JungleOn = 1;
 	g_QuestOn = 1;

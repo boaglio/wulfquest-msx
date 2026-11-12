@@ -1,0 +1,7 @@
+# The MSX2 version's own lines in the credits roll, after the game's (shell.json's
+# credits.lines, whose §2.5 text stays verbatim): AGENTS.md §2 asks for MSXgl and its
+# author to be credited. Rows of the small font, 64 characters at most; '#' lines are notes.
+
+THE MSX2 VERSION IS MADE WITH MSXGL,
+BY GUILLAUME 'AOINEKO' BLANCHARD,
+UNDER CC BY-SA 4.0.

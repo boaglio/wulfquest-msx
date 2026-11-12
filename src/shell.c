@@ -26,6 +26,8 @@
 #include "panel.h"
 #include "tables.h"
 #include "save.h"
+#include "scenes.h"
+#include "scenes_data.h"
 
 u8  g_Shell = SH_TITLE;
 u16 g_ShellTick = 0;
@@ -433,16 +435,26 @@ static u8 TuneFor(u8 state)   // Shell.tuneFor
 		return 0xFF;
 	case SH_GAME_OVER:
 		return TUNE_GAME_OVER;
-	case SH_WON:
+	case SH_TALLY:
 		return TUNE_WIN;
+	case SH_ENDING:
+		return 0xFF;   // the closing scene's own tune comes in on its tick (scenes.c)
 	default:
 		return TUNE_TITLE;
 	}
 }
 
+static u8 SceneOf(u8 state)
+{
+	return state == SH_ENDING ? SCENE_ENDING : state == SH_TALLY ? SCENE_TALLY
+		: state == SH_ROLL ? SCENE_ROLL : state == SH_INTRO ? SCENE_INTRO : SCENE_NONE;
+}
+
 static void Go(u8 next)
 {
 	u8 from = g_Shell;
+	if (g_Scene != SCENE_NONE && SceneOf(next) != g_Scene)
+		SCENES(Scenes_Leave);   // the atlas back, the screen's scroll back
 	if (next == SH_TITLE && from != SH_TITLE)
 		LookForAGame();   // a game saved, or quit, since: the title offers the newest
 	if (next == SH_TITLE || next == SH_PLAYING)
@@ -741,8 +753,7 @@ static void Title()
 	else if (++s_Idle >= ATTRACT_IDLE_TICKS)
 	{
 		s_Idle = 0;
-		g_ShellDo |= DO_DEMO;
-		Go(SH_ATTRACT);
+		Go(SH_INTRO);   // the plane first, then the demo
 	}
 }
 
@@ -1218,7 +1229,7 @@ void Shell_AfterTick()
 		Go(SH_REVEAL);
 	}
 	if (g_ValeMode == MODE_WON)
-		Go(SH_WON);
+		Go(SH_ENDING);
 	else if (g_ValeMode == MODE_GAME_OVER)
 		Go(SH_GAME_OVER);
 	// Shell.autosave: the game in play to its slot every AUTOSAVE_TICKS, not
@@ -1541,28 +1552,61 @@ static void GameOver()
 		EndRun();
 }
 
-static void DrawWon()
+// The win (Shell.ending, tally, roll; scenes.c draws them): the closing
+// scene, its prompt once its words are out; the escape added up, a beat
+// before fire counts; the credits, which fire stops to read and starts again.
+// Escape anywhere banks the run.
+static void Ending()
 {
-	Begin(FALSE, FALSE);
-	u8 y = Heading(STR_TALLY);
-	g_TextN = 0;
-	Data_TextStr(STR_TOTAL);
-	Put(' ');
-	Put(' ');
-	Data_TextNum(g_Score);
-	Centre(TRUE, y + 4 * BIG_LINE, INK_BRIGHT);
-	Show(FALSE);
+	SCENES(Scenes_Step);
+	if (s_KeyPress & SK_ESC)
+		EndRun();
+	else if (g_ShellTick >= ENDING_PROMPT_AT && Fire())
+		Go(SH_TALLY);
 }
 
-static void Won()
+static void Tally()
 {
-	if (g_ShellTick == TALLY_HOLD_TICKS)
-	{
-		s_Page = s_On;
-		Footer(STR_PRESS_FIRE, INK_BRIGHT);
-	}
-	if ((s_KeyPress & SK_ESC) || (g_ShellTick >= TALLY_HOLD_TICKS && Fire()))
+	SCENES(Scenes_Step);
+	if (s_KeyPress & SK_ESC)
 		EndRun();
+	else if (g_ShellTick >= TALLY_HOLD_TICKS && Fire())
+		Go(SH_ROLL);
+}
+
+#define ROLL_TICKS	((u16)ROLL_PX * ROLL_TICKS_PER_PX)
+
+static void Roll()
+{
+	if (g_ShellTick >= SHELL_HOLD_TICKS && Fire())
+	{
+		g_RollPaused ^= 1;
+		Sound_Play(SFX_MENU_MOVE);
+	}
+	if (!g_RollPaused)
+		g_RollTick++;
+	SCENES(Scenes_Step);
+	if ((s_KeyPress & SK_ESC) || g_RollTick >= ROLL_TICKS)
+		EndRun();
+}
+
+// Shell.intro: the plane lands, the line types out, then the demo; any key
+// brings the title back.
+static void Intro()
+{
+	if ((s_KeyPress & (SK_ANY | SK_ESC)) || (s_Press & VALE_FIRE))
+	{
+		s_Idle = 0;
+		Go(SH_TITLE);
+		return;
+	}
+	SCENES(Scenes_Step);
+	if (g_ShellTick >= INTRO_TICKS)
+	{
+		s_Idle = 0;
+		g_ShellDo |= DO_DEMO;
+		Go(SH_ATTRACT);
+	}
 }
 
 //-----------------------------------------------------------------------------
@@ -1864,8 +1908,9 @@ static void Enter()
 	case SH_GAME_OVER:
 		DrawGameOver();
 		break;
-	case SH_WON:
-		DrawWon();
+	case SH_ENDING: case SH_TALLY: case SH_ROLL: case SH_INTRO:
+		g_Scene = SceneOf(g_Shell);
+		SCENES(Scenes_Enter);
 		break;
 	case SH_ENTRY:
 		DrawEntry();
@@ -1940,8 +1985,17 @@ void Shell_Tick()
 	case SH_GAME_OVER:
 		GameOver();
 		break;
-	case SH_WON:
-		Won();
+	case SH_ENDING:
+		Ending();
+		break;
+	case SH_TALLY:
+		Tally();
+		break;
+	case SH_ROLL:
+		Roll();
+		break;
+	case SH_INTRO:
+		Intro();
 		break;
 	case SH_ENTRY:
 		Entry();
