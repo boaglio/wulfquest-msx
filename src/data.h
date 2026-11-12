@@ -132,6 +132,7 @@ void Data_ShowPage(u8 page);
 // shell.bin's bytes; shell_img.bin's images into video RAM (once, at start).
 void Data_ShellBytes(u16 at, u8* out, u8 n);
 void Data_LoadShellImages();
+void Data_LoadJobImages(u8 job);   // job's quarters at the reveal's scale over the game's (§14.9)
 // A line of text put together in g_Text: a string of shell.bin, a number's
 // digits; then drawn in the big font or the small (x even), ink on black.
 extern u8 g_Text[64];

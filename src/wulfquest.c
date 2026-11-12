@@ -328,6 +328,8 @@ u8  g_TestEndless = 0;
 // M8: with g_TestGame too, the whole game (Content.ecosystem()); g_TestEasy, in Easy.
 u8  g_TestGame = 0;
 u8  g_TestEasy = 0;
+// M12: with g_TestGame too, Mr Jones's job (§14.9; 0 the game itself).
+u8  g_TestJob = 0;
 // M9: test/sound.sh writes a sound's number + 1 here (0xFF stops the tune).
 u8  g_TestSound = 0;
 
@@ -491,6 +493,39 @@ static u8 s_WayRoom = 0xFF;   // the way out of this room, read once a room and 
 static u8 s_WayTaken = 0xFF;
 static u8 s_Way = 0xFF;
 
+// A piece filling mask's slots, its quarters where they sit in the amulet
+// (QuestPainter.blitPiece, a later job's half or whole, §14.9): on its
+// pedestal, its feet at (x, y); or flying, (x, y) its middle where it lay.
+static u8 DrawPiece(u8 m, u8 mask, i16 x, i16 y, bool flying)
+{
+	u8 cols = (mask | mask >> 2) & 3;          // the columns it covers, a bit each
+	u8 rows = ((mask & 3) ? 1 : 0) | ((mask & 12) ? 2 : 0);
+	u8 minCol = cols & 1 ? 0 : 1;
+	u8 minRow = rows & 1 ? 0 : 1;
+	u8 maxRow = rows & 2 ? 1 : 0;
+	i16 half = cols == 3 ? 8 : 0;              // (cols - 1) * w / 2
+	i16 done = AMULET_FLY_TICKS - g_QuestFly;
+	for (u8 slot = 0; slot < QUEST_SLOTS && m < SPR_SMALL; slot++)
+	{
+		if (!(mask & (1 << slot)))
+			continue;
+		i16 fx = x - half + (i16)((slot & 1) - minCol) * 16;
+		i16 fy;
+		if (flying)
+		{
+			fy = y + (i16)((slot >> 1) - minRow) * 16 - (rows == 3 ? 8 : 0);
+			i16 tx = (256 - 16) / 2 + (slot & 1) * 8 + 4;
+			i16 ty = PLAYFIELD_H + 10 + (slot >> 1) * 8 + 4;
+			fx += (tx - fx) * done / AMULET_FLY_TICKS;
+			fy += (ty - fy) * done / AMULET_FLY_TICKS + 8;   // its feet: the 16x16's foot
+		}
+		else
+			fy = y - (i16)(maxRow - (slot >> 1)) * 16;
+		PutFrame(m++, g_JobFrame[slot], 0, fx, fy);
+	}
+	return m;
+}
+
 static u8 DrawLoot(u8 m)
 {
 	u8 room = g_ValeRoom;
@@ -518,11 +553,12 @@ static u8 DrawLoot(u8 m)
 		u16 blink = g_WayTicks <= WAY_WARN_TICKS ? WAY_WARN_BLINK_TICKS : WAY_BLINK_TICKS;
 		if (((u16)(g_SimTick / blink) & 1) == 0)
 		{
-			if (s_WayRoom != room || s_WayTaken != g_QuestTaken)
+			u8 done = Quest_Done();   // a later job's lairs without a piece count as taken
+			if (s_WayRoom != room || s_WayTaken != done)
 			{
 				s_WayRoom = room;
-				s_WayTaken = g_QuestTaken;
-				s_Way = Data_Way(g_QuestSet, g_QuestTaken, room);
+				s_WayTaken = done;
+				s_Way = Data_Way(g_QuestSet, done, room);
 			}
 			if (s_Way != 0xFF)
 			{
@@ -654,36 +690,19 @@ static void DrawJungle()
 	// Under the creatures, in the slots they leave: the quarter on its
 	// pedestal, the items and treasures (loot before creatures), the orchid
 	// (under everything that moves).
-	if (g_QuestOn && g_QuestLair >= 0 && !(g_QuestTaken & (1 << g_QuestLair)) && m < SPR_SMALL)
+	if (g_QuestOn && g_QuestLair >= 0 && !(g_QuestTaken & (1 << g_QuestLair)))
 	{
 		u8 k = g_QuestSet * LAIRS + g_QuestLair;
-		PutFrame(m++, g_PieceFrame[g_QuestLair], 0, g_LairPedX[k], g_LairPedY[k]);
+		m = DrawPiece(m, g_LairSlots[g_QuestLair], g_LairPedX[k], g_LairPedY[k], FALSE);
 	}
 	if (g_GameOn)
 		m = DrawLoot(m);
-	// A taken quarter flies to its place on the panel (QuestPainter.paintFlight):
-	// from where it lay to the slot's middle, a straight line over the flight's
-	// ticks. Sprites stop at the playfield's foot, so it goes out of sight there.
-	if (g_QuestOn && g_QuestFly > 0 && m < SPR_SMALL)
-	{
-		u8 slot = 0;
-		while (!(g_QuestFlyMask & (1 << slot)))
-			slot++;
-		u8 lair = 0;
-		while (lair < LAIRS && g_LairMask[lair] != g_QuestFlyMask)
-			lair++;
-		if (lair < LAIRS)
-		{
-			i16 done = AMULET_FLY_TICKS - g_QuestFly;
-			i16 fx = g_QuestFlyX - s_RoomX;
-			i16 fy = g_QuestFlyY - s_RoomY;
-			i16 tx = (256 - 16) / 2 + (slot & 1) * 8 + 4;
-			i16 ty = PLAYFIELD_H + 10 + (slot >> 1) * 8 + 4;
-			i16 x = fx + (tx - fx) * done / AMULET_FLY_TICKS;
-			i16 y = fy + (ty - fy) * done / AMULET_FLY_TICKS;
-			PutFrame(m++, g_PieceFrame[lair], 0, x, y + 8);   // its feet: the 16x16's foot
-		}
-	}
+	// A taken piece flies to its place on the panel (QuestPainter.paintFlight),
+	// each quarter from where it lay in the piece to its slot's middle, a
+	// straight line over the flight's ticks. Sprites stop at the playfield's
+	// foot, so it goes out of sight there.
+	if (g_QuestOn && g_QuestFly > 0)
+		DrawPiece(m, g_QuestFlyMask, g_QuestFlyX - s_RoomX, g_QuestFlyY - s_RoomY, TRUE);
 }
 
 // Vale (four layered sprites, PlayerPainter's frame), his blade out of his
@@ -926,11 +945,13 @@ static void Main()
 					else if (g_TestRecord == 1)
 					{
 						g_Easy = 0;
+						g_Job = 0;
 						NewGame(g_TestSeed, g_TestX, g_TestY);
 					}
 					else if (g_ShellDo & DO_DEMO)
 					{
 						g_Easy = 0;
+						g_Job = 0;
 						NewGame(s_DemoSeed, DEMO_START_X_FP, DEMO_START_Y_FP);
 					}
 					else
@@ -1021,6 +1042,7 @@ static void Main()
 			g_QuestOn = g_TestJungle && g_TestQuest;
 			g_GameOn = g_QuestOn && g_TestGame;
 			g_Easy = g_GameOn && g_TestEasy;
+			g_Job = g_GameOn ? g_TestJob : 0;
 			g_LivesStart = g_Easy ? EASY_LIVES : PLAYER_LIVES_START;
 			g_ValeEndless = g_TestEndless;
 			g_EffectKind = EFFECT_NONE;   // nothing left over from the last test's game

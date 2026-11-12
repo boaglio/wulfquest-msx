@@ -50,6 +50,7 @@ public final class Shell {
     private final StringBuilder h = new StringBuilder();
     private final ByteArrayOutputStream bin = new ByteArrayOutputStream();
     private final ByteArrayOutputStream img = new ByteArrayOutputStream();
+    private final ByteArrayOutputStream jobImg = new ByteArrayOutputStream();
     private final VdpPalette vdp;
     private final Content c;
     private final int vramLine;
@@ -145,7 +146,36 @@ public final class Shell {
         h.append("\n// shell.bin: the strings, each a length and its characters.\n");
         // The title (TitleScreen): the wordmark (in the attract demo's band), the tagline, the menu.
         str("STR_WORDMARK", s.title().wordmark(), true);
+        int taglineAt = bin.size();
         str("STR_TAGLINE", s.title().tagline(), false);
+        // §14.9: the title's job line (TitleScreen: "< label >"), each job's tagline (else the
+        // title's), the key that goes through them, the line's ink.
+        List<ShellConfig.Job> jobList = s.newGamePlus().levels();
+        int[] label = new int[jobList.size()];
+        int[] tagline = new int[jobList.size()];
+        for (int j = 0; j < jobList.size(); j++) {
+            label[j] = bin.size();
+            str("STR_JOB_LABEL_" + j, "< " + jobList.get(j).label() + " >", false);
+            if (jobList.get(j).tagline() == null) {
+                tagline[j] = -1;
+            } else {
+                tagline[j] = bin.size();
+                str("STR_JOB_TAGLINE_" + j, jobList.get(j).tagline(), false);
+            }
+        }
+        for (int j = 0; j < jobList.size(); j++) {
+            if (tagline[j] < 0) {
+                tagline[j] = taglineAt;
+            }
+        }
+        h.append("#define STR_JOB_LABEL(j)\t").append(chain("j", label)).append('\n');
+        h.append("#define STR_JOB_TAGLINE(j)\t").append(chain("j", tagline)).append('\n');
+        String jobKey = s.newGamePlus().key();
+        if (!jobKey.matches("[A-Z]")) {
+            throw new ConvertException("config/shell.json: newGamePlus.key '" + jobKey + "' is not a letter");
+        }
+        h.append("#define JOB_KEY\tKEY_").append(jobKey).append('\n');
+        def("INK_JOB", colour(s.newGamePlus().labelColour()));
         ShellConfig.Title t = s.title();
         str("STR_START", label(t.items(), "start"), true);
         str("STR_OPTIONS", label(t.items(), "options"), true);
@@ -215,7 +245,15 @@ public final class Shell {
         str("STR_CONTINUE_LINE", label(t.items(), "continue"), true);
         str("STR_MODE_NAME_HARD", sv.modeNames().hard(), true);
         str("STR_MODE_NAME_EASY", sv.modeNames().easy(), true);
-        str("STR_JOB_0", sv.jobNames().get(0), true);
+        // Each job's name (§14.9), and STR_JOB(j) to pick one.
+        int jobs = c.game().newGamePlus().levels().size();
+        StringBuilder pick = new StringBuilder();
+        for (int j = 0; j < jobs; j++) {
+            str("STR_JOB_" + j, sv.jobNames().get(j), true);
+            pick.append(j + 1 < jobs ? "(j) == " + j + " ? " : "").append("STR_JOB_").append(j)
+                    .append(j + 1 < jobs ? " : " : "");
+        }
+        h.append("#define STR_JOB(j)\t(").append(pick).append(")\n");
         def("AUTOSAVE_TICKS", sv.autosaveEveryTicks());
         def("NOTE_TICKS", sv.noteTicks());
         h.append("// Templates: each {field} a byte under 32 (TF_*), which shell.c fills in.\n");
@@ -248,6 +286,7 @@ public final class Shell {
         str("STR_PRESS_FIRE", s.tally().prompt(), false);
         str("STR_REVEAL_PROMPT", s.amuletReveal().prompt(), true);
         List<List<String>> verses = s.amuletReveal().verses();
+        List<Integer> verseAt = new ArrayList<>();
         def("VERSES", verses.size());
         def("VERSE_LINES", verses.get(0).size());
         for (int v = 0; v < verses.size(); v++) {
@@ -255,6 +294,7 @@ public final class Shell {
                 throw new ConvertException("config/shell.json: the reveal's verses must have as many lines each");
             }
             for (int l = 0; l < verses.get(v).size(); l++) {
+                verseAt.add(bin.size());
                 str("STR_VERSE_" + v + "_" + l, verses.get(v).get(l), true);
             }
         }
@@ -270,15 +310,52 @@ public final class Shell {
         str("STR_ALPHABET", hs.alphabet(), false);
         // The map (MapScreen): what the panel's line says while it is open.
         str("STR_MAP", s.map().messageFor(c.input().active()), false);
-        // The verses' strings, one after the other: a table of their offsets.
-        h.append("// The verses' lines by verse, then line: STR_VERSE_v_l in order.\n");
-        h.append("#define VERSE_STRS\t");
-        for (int v = 0; v < verses.size(); v++) {
-            for (int l = 0; l < verses.get(v).size(); l++) {
-                h.append(v + l == 0 ? "" : ", ").append("STR_VERSE_").append(v).append('_').append(l);
+        // §14.9: each job's verses (Shell.revealFor: the game's own for the first), their lines'
+        // strings, then a table of each job's: its lines' offsets, verse by verse, two bytes each.
+        int[][] lines = new int[jobs][];
+        int[] count = new int[jobs];
+        for (int j = 0; j < jobs; j++) {
+            List<List<String>> own = j == 0 || s.newGamePlus().levels().get(j).verses() == null ? null
+                    : s.newGamePlus().levels().get(j).verses();
+            if (own == null) {
+                lines[j] = null;
+                count[j] = verses.size();
+                continue;
+            }
+            count[j] = own.size();
+            lines[j] = new int[own.size() * verses.get(0).size()];
+            for (int v = 0; v < own.size(); v++) {
+                if (own.get(v).size() != verses.get(0).size()) {
+                    throw new ConvertException("config/shell.json: job " + j + "'s verses must have "
+                            + verses.get(0).size() + " lines each, as the reveal's");
+                }
+                for (int l = 0; l < own.get(v).size(); l++) {
+                    lines[j][v * verses.get(0).size() + l] = bin.size();
+                    str("STR_JOB_VERSE_" + j + "_" + v + "_" + l, own.get(v).get(l), true);
+                }
             }
         }
-        h.append('\n');
+        h.append("// Job j's verses (VERSE_TABLE(j)): VERSE_LINES offsets of shell.bin's strings a verse; JOB_VERSES(j) of them.\n");
+        int[] table = new int[jobs];
+        for (int j = 0; j < jobs; j++) {
+            table[j] = bin.size();
+            if (lines[j] == null) {
+                for (int v = 0; v < verses.size(); v++) {
+                    for (int l = 0; l < verses.get(v).size(); l++) {
+                        int at = verseAt.get(v * verses.get(0).size() + l);
+                        bin.write(at & 0xFF);
+                        bin.write(at >> 8);
+                    }
+                }
+            } else {
+                for (int at : lines[j]) {
+                    bin.write(at & 0xFF);
+                    bin.write(at >> 8);
+                }
+            }
+        }
+        h.append("#define VERSE_TABLE(j)\t").append(chain("j", table)).append('\n');
+        h.append("#define JOB_VERSES(j)\t").append(chain("j", count)).append('\n');
 
         // The hi-score table a new machine has (default_highscores.json), ranked.
         h.append("\n// The hi-score table a new machine has: HISCORE_SIZE rows of HISCORE_ROW_BYTES.\n");
@@ -363,6 +440,22 @@ public final class Shell {
             image(slot * qw, rowTop, scaled(amuletPx.get(bySlot.get(slot)), amulet.size().w(), amulet.size().h(), scale),
                     qw, qh);
         }
+        // §14.9: each later job's own quarters, the same images in the same place, which the ROM
+        // loads over them when a game of that job reveals its amulet (shell_jobs.bin, from job 1;
+        // job 0's are shell_img.bin's own).
+        wulf.render.AmuletFrames jobFrames = wulf.render.AmuletFrames.of(marks, s);
+        int jobCount = c.game().newGamePlus().levels().size();
+        for (int j = 1; j < jobCount; j++) {
+            List<String> own = jobFrames.forLevel(j);
+            for (int slot = 0; slot < own.size(); slot++) {
+                image(jobImg, slot * qw, rowTop,
+                        scaled(amuletPx.get(own.get(slot)), amulet.size().w(), amulet.size().h(), scale), qw, qh);
+            }
+            if (j == 1) {
+                def("SHELL_JOB_IMG_BYTES", jobImg.size());
+            }
+        }
+        def("SHELL_JOB_IMAGES", bySlot.size());
         // The marker after them (the menu's wolf).
         SpriteData marker = c.sprites().get(t.marker().sprite());
         int mx = bySlot.size() * qw;
@@ -595,6 +688,20 @@ public final class Shell {
         return vramLine;
     }
 
+    /** {@code values[arg]} as C: a chain of choices, or the one value they all are. */
+    static String chain(String arg, int[] values) {
+        boolean same = java.util.Arrays.stream(values).allMatch(v -> v == values[0]);
+        if (same) {
+            return "(" + values[0] + ")";
+        }
+        StringBuilder sb = new StringBuilder("(");
+        for (int i = 0; i < values.length; i++) {
+            sb.append(i + 1 < values.length ? "(" + arg + ") == " + i + " ? " : "").append(values[i])
+                    .append(i + 1 < values.length ? " : " : "");
+        }
+        return sb.append(')').toString();
+    }
+
     private static int even(int w) {
         return (w + 1) & ~1;
     }
@@ -611,6 +718,11 @@ public final class Shell {
 
     /** An image of palette indices (-1 transparent) at x, the atlas's line y: its header and bytes. */
     private void image(int x, int y, byte[] px, int w, int hgt) {
+        image(img, x, y, px, w, hgt);
+        images++;
+    }
+
+    private void image(ByteArrayOutputStream img, int x, int y, byte[] px, int w, int hgt) {
         if ((x & 1) != 0) {
             throw new ConvertException("an image at odd x " + x);
         }
@@ -627,7 +739,6 @@ public final class Shell {
                 img.write((a < 0 ? 0 : vdp.vdpColour(a)) << 4 | (b < 0 ? 0 : vdp.vdpColour(b)));
             }
         }
-        images++;
     }
 
     private int colour(String name) {
@@ -745,6 +856,11 @@ public final class Shell {
 
     public byte[] images() {
         return img.toByteArray();
+    }
+
+    /** shell_jobs.bin: each later job's quarters at the reveal's scale, SHELL_JOB_IMG_BYTES a job from job 1. */
+    public byte[] jobImages() {
+        return jobImg.toByteArray();
     }
 
     /** The demo's end, as the Java game plays it: for test/shell.sh. */

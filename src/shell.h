@@ -22,7 +22,8 @@ enum
 {
 	SH_TITLE, SH_ATTRACT, SH_HISCORES, SH_OPTIONS, SH_PLAYING, SH_PAUSED, SH_SAVE, SH_LOAD,
 	SH_REVEAL, SH_MAP, SH_GAME_OVER, SH_WON, SH_ENTRY, SH_NEW_GAME,
-	SH_ENDING, SH_TALLY, SH_ROLL, SH_INTRO   // M12 (scenes.c); SH_WON, M10's stand-in, unused
+	SH_ENDING, SH_TALLY, SH_ROLL, SH_INTRO,  // M12 (scenes.c); SH_WON, M10's stand-in, unused
+	SH_OFFER                                 // M12: Mr Jones's next job (§14.9)
 };
 extern u8  g_Shell;
 extern u16 g_ShellTick;   // ticks on this screen (Shell.stateTick)
@@ -36,6 +37,7 @@ extern u8 g_ShellKeys;
 #define SK_MAP		0x04   // M or the joystick's second button
 #define SK_DIFF		0x08   // D: Hard or Easy, on the title
 #define SK_ENTER	0x10   // chooses on every page, as Space does
+#define SK_JOB		0x20   // N: through the jobs opened, on the title (§14.9)
 #define SK_ANY		0x80   // any key at all
 
 // What the main loop is to do this tick.
@@ -52,6 +54,9 @@ extern u8 g_ShellPlay;
 // saves keep them (save.c).
 extern u8 g_Profile;
 extern u8 g_ShellEasy;
+extern u8 g_ShellJob;
+extern u8 g_Unlocked;      // the furthest job a win has opened (§14.9); kept with the table
+extern u8 g_Offered;       // the job Mr Jones offers after the roll (Shell.offered), 0 none
 extern u8 g_HiTable[HISCORE_SIZE * HISCORE_ROW_BYTES];
 
 // The page the game is on (wulfquest.c's), 0 or 1: the shell's screens over

@@ -231,8 +231,7 @@ public final class Game {
         def("EASY_FLAME", e.flame() ? 1 : 0);
         def("EASY_WAY_TICKS", e.showWayTicks());
         def("EASY_HINTS_ONCE_PER_LIFE", e.hintsOncePerLife() ? 1 : 0);
-        def("EASY_WULF_SPEED_FP", easyPace(easy, eco.wulf().data().patrol().speedFp()));
-        def("EASY_WULF_RISEN_SPEED_FP", easyPace(easy, eco.wulf().data().patrol().risenSpeedFp()));
+        jobs(c, bank);
         BeastRules hb = eco.beasts();
         BeastRules eb = easy.beasts();
         int n = hb.kinds().size();
@@ -445,10 +444,91 @@ public final class Game {
         return List.of(java.util.Arrays.copyOfRange(ways, 0, half), java.util.Arrays.copyOfRange(ways, half, ways.length));
     }
 
-    /** Simulation.paced, in Easy: the Wulf's pace at Easy's percent. */
-    private static int easyPace(Ecosystem easy, int speedFp) {
-        int percent = easy.quest().levelRules().wulfSpeedPercent();
-        percent = percent * easy.quest().easy().wulfSpeedPercent() / 100;
+    /**
+     * §14.9, New Game+: Mr Jones's jobs, as {@code Content.ecosystem(n, easy)} makes each. Their
+     * numbers as macros of the job (a chain of choices, the converter's), so the ROM names none:
+     * how many pieces the amulet comes in (0: one a lair, the game itself), the slots piece p fills,
+     * the jungle's head start, the Wulf's pace (Simulation.paced) in Hard and Easy, the amulet's
+     * frame for each slot (AmuletFrames.forLevel), and the stream that picks the lairs kept.
+     */
+    private void jobs(Content c, RomSprites bank) {
+        int n = c.game().newGamePlus().levels().size();
+        LandmarksData marks = c.landmarks();
+        int lairs = marks.lairs().size();
+        int[] pieces = new int[n];
+        int[] head = new int[n];
+        int[][] mask = new int[lairs][n];
+        int[][] speed = new int[2][n];
+        int[][] risen = new int[2][n];
+        int[][] frame = new int[wulf.sim.Quest.SLOTS][n];
+        wulf.render.AmuletFrames frames = wulf.render.AmuletFrames.of(marks, c.shell());
+        String sprite = marks.amulet().sprite();
+        for (int j = 0; j < n; j++) {
+            GameConfig.Level rules = c.ecosystem(j).quest().levelRules();
+            int k = rules.pieces().size();
+            pieces[j] = k >= lairs ? 0 : k;   // Simulation.shareOut keeps them all
+            head[j] = rules.rampHeadStart();
+            for (int p = 0; p < pieces[j]; p++) {
+                mask[p][j] = rules.slotMask(p);
+            }
+            for (int e = 0; e < 2; e++) {
+                Ecosystem eco = c.ecosystem(j, e == 1);
+                speed[e][j] = paced(eco, eco.wulf().data().patrol().speedFp());
+                risen[e][j] = paced(eco, eco.wulf().data().patrol().risenSpeedFp());
+            }
+            for (int slot = 0; slot < wulf.sim.Quest.SLOTS; slot++) {
+                frame[slot][j] = bank.index(sprite, frames.forLevel(j).get(slot));
+            }
+        }
+        h.append("\n// New Game+ (§14.9): the jobs, job j's numbers.\n");
+        def("JOBS", n);
+        h.append("#define JOB_STREAM_BYTES\t").append(bytes(privateLong(Simulation.class, "JOB_STREAM"))).append('\n');
+        macro("JOB_PIECES(j)", "j", pieces);
+        macro("JOB_HEAD_START(j)", "j", head);
+        h.append("#define JOB_MASK(j, p)\t(");
+        for (int p = 0; p < lairs; p++) {
+            h.append(p + 1 < lairs ? "(p) == " + p + " ? " : "").append(chain("j", mask[p])).append(p + 1 < lairs ? " : " : "");
+        }
+        h.append(")\n");
+        macro("JOB_WULF_SPEED_FP(j, e)", "j", speed[0], speed[1]);
+        macro("JOB_WULF_RISEN_SPEED_FP(j, e)", "j", risen[0], risen[1]);
+        h.append("#define JOB_FRAME(j, s)\t(");
+        for (int s = 0; s < wulf.sim.Quest.SLOTS; s++) {
+            h.append(s + 1 < wulf.sim.Quest.SLOTS ? "(s) == " + s + " ? " : "").append(chain("j", frame[s]))
+                    .append(s + 1 < wulf.sim.Quest.SLOTS ? " : " : "");
+        }
+        h.append(")\n");
+    }
+
+    private void macro(String name, String arg, int[] values) {
+        h.append("#define ").append(name).append('\t').append(chain(arg, values)).append('\n');
+    }
+
+    private void macro(String name, String arg, int[] hard, int[] easy) {
+        h.append("#define ").append(name).append("\t((e) ? ").append(chain(arg, easy)).append(" : ")
+                .append(chain(arg, hard)).append(")\n");
+    }
+
+    /** {@code values[arg]} as C: a chain of choices, or the one value they all are. */
+    private static String chain(String arg, int[] values) {
+        boolean same = java.util.Arrays.stream(values).allMatch(v -> v == values[0]);
+        if (same) {
+            return "(" + values[0] + ")";
+        }
+        StringBuilder sb = new StringBuilder("(");
+        for (int i = 0; i < values.length; i++) {
+            sb.append(i + 1 < values.length ? "(" + arg + ") == " + i + " ? " : "").append(values[i])
+                    .append(i + 1 < values.length ? " : " : "");
+        }
+        return sb.append(')').toString();
+    }
+
+    /** Simulation.paced: the Wulf's pace in a job, and in Easy at Easy's percent of it. */
+    private static int paced(Ecosystem eco, int speedFp) {
+        int percent = eco.quest().levelRules().wulfSpeedPercent();
+        if (eco.quest().isEasy()) {
+            percent = percent * eco.quest().easy().wulfSpeedPercent() / 100;
+        }
         return percent == 100 ? speedFp : speedFp * percent / 100;
     }
 

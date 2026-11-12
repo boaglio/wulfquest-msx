@@ -174,7 +174,6 @@ public final class Quest {
 
         // Each lair's piece and guardian.
         int[] mask = new int[lairs.size()];
-        int[] piece = new int[lairs.size()];
         int[] gbx = new int[lairs.size()];
         int[] gby = new int[lairs.size()];
         int[] gbw = new int[lairs.size()];
@@ -189,7 +188,6 @@ public final class Quest {
             LandmarksData.Lair lair = lairs.get(i);
             CreatureData.Species g = q.guardianSpecies().get(i);
             mask[i] = lair.slotMask();
-            piece[i] = bank.index(amulet.sprite(), lair.piece().frame());
             gbx[i] = g.collisionBox().x();
             gby[i] = g.collisionBox().y();
             gbw[i] = g.collisionBox().w();
@@ -207,9 +205,8 @@ public final class Quest {
                 gf[i * 4 + j] = bank.index(g.sprite(), f[j]);
             }
         }
-        note = "Each lair's piece: the panel slots it fills, its frame in the bank.";
+        note = "Each lair's quarter in the game itself: the panel slots it fills (a later job's are game_data.h's).";
         tables.u8("g_LairMask", mask, note);
-        tables.u8("g_PieceFrame", piece, null);
         note = "Each lair's guardian: its box, its speed (straight, diagonal), its frames (walk0, walk1, walk0_l, walk1_l).";
         tables.i8("g_GuardBoxX", gbx, note);
         tables.i8("g_GuardBoxY", gby, null);

@@ -45,14 +45,7 @@ class Gen:
 
     def ending_rows(self):
         """The closing scene's lines' rows, as scenes.bin has them (wrapped to the screen)."""
-        at, rows = self.sc["ENDING_LINES"], []
-        for _ in range(self.sc["ENDING_LINES_N"]):
-            n = self.scenes[at + 5]
-            at += 6
-            for _ in range(n):
-                row, at = self.scene_str(at)
-                rows.append(row)
-        return rows
+        return self.rows_at(self.sc["ENDING_LINES"], self.sc["ENDING_LINES_N"])
 
     def intro_rows(self):
         at, rows = self.sc["INTRO_TEXT"], []
@@ -61,13 +54,25 @@ class Gen:
             rows.append(row)
         return rows
 
-    def roll_rows(self):
-        """The credits roll's rows: (text, big font)."""
+    def roll_rows(self, job=0):
+        """The credits roll's rows: (text, big font); the first, job's own end (§14.7)."""
         at, rows = self.sc["ROLL_TEXT"], []
         for _ in range(self.sc["ROLL_ROWS"]):
             body = self.scenes[at]
             row, at = self.scene_str(at + 1)
             rows.append((row, not body))
+        rows[0] = (self.scene_str(self.sc[f"STR_THE_END_{job}"])[0], True)
+        return rows
+
+    def rows_at(self, at, n):
+        """n typed lines' rows from scenes.bin's at (EndingScreen.paintLines: at, y, ink, Jones, rows)."""
+        rows = []
+        for _ in range(n):
+            k = self.scenes[at + 5]
+            at += 6
+            for _ in range(k):
+                row, at = self.scene_str(at)
+                rows.append(row)
         return rows
 
     def str(self, name):

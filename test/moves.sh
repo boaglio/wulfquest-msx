@@ -30,7 +30,7 @@ names="g_ValeX g_ValeY g_ValeFacing g_ValeSwing g_ValeWalk g_SabreX g_SabreY g_S
        g_TestStart g_TestKeys g_TestOpen g_TestX g_TestY g_TestJungle g_TestSeed
        g_ValeMode g_ValeModeTick g_ValeLives g_ValeInvuln g_HereN g_Here g_CSpecies g_CMode g_CModeTick g_CX g_CY
        g_CTimer g_CPhase g_CAux g_CFace g_CHome g_Beast g_BKind g_BFace g_BAsleep g_BPause
-       g_TestQuest g_TestGame g_TestEasy g_TestEndless g_Score g_BestScore g_ContinuesUsed g_EffectKind
+       g_TestQuest g_TestGame g_TestEasy g_TestJob g_TestEndless g_Score g_BestScore g_ContinuesUsed g_EffectKind
        g_EffectOrchid g_EffectTicks g_TreasuresTaken g_MapTaken g_EyesTaken g_GlassesTaken g_WayTicks g_HintTicks
        g_HintDirection g_HintToExit g_FlameWait g_OrchidHere g_OrchidStart g_QuestSet g_QuestSlots g_QuestTaken g_QuestLair g_QuestFlash g_QuestFly
        g_KeeperHere g_KeeperState g_KeeperX g_KeeperMoveTicks g_GuardX g_GuardY g_GuardPhase g_GuardTimer

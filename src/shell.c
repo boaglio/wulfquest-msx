@@ -54,7 +54,6 @@ u8 g_HiTable[HISCORE_SIZE * HISCORE_ROW_BYTES];
 static u16 s_OptionStr[] = { OPTION_STRS };
 static u16 s_PauseStr[] = { PAUSE_STRS };
 static u8  s_PauseId[] = { PAUSE_IDS };
-static u16 s_VerseStr[] = { VERSE_STRS };
 static u8  s_Cycle[] = { CYCLE_COLOURS };
 static u8  s_EyeShows[] = { EYE_SHOWS };
 static u8  s_WordW[WORDMARK_WORDS];
@@ -72,6 +71,9 @@ static u8  s_Press = 0;         // this tick's presses
 static u8  s_KeyPress = 0;
 static u16 s_Idle = 0;
 u8  g_ShellEasy = 0;       // the next game's mode (§17.8)
+u8  g_ShellJob = 0;        // the next game's job (§14.9), of those a win has opened
+u8  g_Unlocked = 0;
+u8  g_Offered = 0;   // the job Mr Jones offers after the roll (Shell.offered), 0 none
 static u8  s_Pieces = 0;        // GameSession.piecesSeen
 static u16 s_PlayTick = 0;      // ticks since the game came back (Shell.stateTick in PLAYING)
 static i8  s_Highlight = -1;
@@ -322,7 +324,7 @@ static void Template(u16 str, u8 n)
 			Data_TextStr(sl->Easy ? STR_MODE_NAME_EASY : STR_MODE_NAME_HARD);
 			break;
 		case TF_JOB:
-			Data_TextStr(STR_JOB_0);   // the first job: New Game+ is M12's
+			Data_TextStr(STR_JOB(sl->Job < JOBS ? sl->Job : 0));
 			break;
 		case TF_QUARTERS:
 			Data_TextNum(sl->Quarters);
@@ -437,7 +439,7 @@ static u8 TuneFor(u8 state)   // Shell.tuneFor
 		return TUNE_GAME_OVER;
 	case SH_TALLY:
 		return TUNE_WIN;
-	case SH_ENDING:
+	case SH_ENDING: case SH_OFFER:
 		return 0xFF;   // the closing scene's own tune comes in on its tick (scenes.c)
 	default:
 		return TUNE_TITLE;
@@ -447,7 +449,8 @@ static u8 TuneFor(u8 state)   // Shell.tuneFor
 static u8 SceneOf(u8 state)
 {
 	return state == SH_ENDING ? SCENE_ENDING : state == SH_TALLY ? SCENE_TALLY
-		: state == SH_ROLL ? SCENE_ROLL : state == SH_INTRO ? SCENE_INTRO : SCENE_NONE;
+		: state == SH_ROLL ? SCENE_ROLL : state == SH_INTRO ? SCENE_INTRO : state == SH_OFFER ? SCENE_OFFER
+		: SCENE_NONE;
 }
 
 static void Go(u8 next)
@@ -627,9 +630,24 @@ static void TitleMenu()
 			Say(g_ShellEasy ? STR_MODE_EASY : STR_MODE_HARD);
 			Centre(FALSE, y, g_ShellEasy ? INK_EASY : INK_DIM);
 			y += SMALL_LINE + 2;
+			if (g_Unlocked)   // §14.9: the job START begins, once a later one is open
+			{
+				Say(STR_JOB_LABEL(g_ShellJob));
+				Centre(FALSE, y, INK_JOB);
+				y += SMALL_LINE + 2;
+			}
 		}
 		y += 4;
 	}
+}
+
+// The title's tagline; a later job's own, once one is open (TitleScreen).
+static void Tagline()
+{
+	u8 y = WordY(WORDMARK_WORDS) + 4 - WORDMARK_GAP;
+	Fill(0, y, 256, SMALL_LINE, INK_GROUND);
+	Say(g_Unlocked ? STR_JOB_TAGLINE(g_ShellJob) : STR_TAGLINE);
+	Centre(FALSE, y, INK_DIM);
 }
 
 static void DrawTitle()
@@ -639,8 +657,7 @@ static void DrawTitle()
 	Begin(FALSE, FALSE);
 	Fill(0, 0, 256, 212, INK_GROUND);
 	Wordmark();
-	Say(STR_TAGLINE);
-	Centre(FALSE, WordY(WORDMARK_WORDS) + 4 - WORDMARK_GAP, INK_DIM);
+	Tagline();
 	TitleMenu();
 	if (s_Notice)
 	{
@@ -658,6 +675,7 @@ static u8 s_SaveNew = 0;
 static void StartGame(u8 slot)
 {
 	g_Easy = g_ShellEasy;
+	g_Job = g_ShellJob;
 	s_GameSlot = slot;
 	s_SaveNew = slot;
 	s_SinceSaved = 0;
@@ -732,6 +750,21 @@ static void Title()
 		Sound_Play(SFX_MENU_MOVE);
 		s_Idle = 0;
 		s_Page = s_On;
+		TitleMenu();
+		return;
+	}
+	// §14.9: through the jobs opened, and back to the first: N, or left and right on START.
+	i8 dx = ((s_Press & VALE_RIGHT) ? 1 : 0) - ((s_Press & VALE_LEFT) ? 1 : 0);
+	if (g_Unlocked && ((s_KeyPress & SK_JOB) || (TitleId(s_Cursor) == TL_START && dx != 0)))
+	{
+		if (dx < 0)
+			g_ShellJob = g_ShellJob ? g_ShellJob - 1 : g_Unlocked;
+		else
+			g_ShellJob = g_ShellJob < g_Unlocked ? g_ShellJob + 1 : 0;
+		Sound_Play(SFX_MENU_MOVE);
+		s_Idle = 0;
+		s_Page = s_On;
+		Tagline();
 		TitleMenu();
 		return;
 	}
@@ -970,6 +1003,7 @@ static void Redraw()
 }
 
 static void EndRun();
+static void Unlock();
 
 // Nothing to save on: the line is greyed out and says why (AGENTS.md M11).
 static void NoMedium()
@@ -1229,7 +1263,10 @@ void Shell_AfterTick()
 		Go(SH_REVEAL);
 	}
 	if (g_ValeMode == MODE_WON)
+	{
+		Unlock();
 		Go(SH_ENDING);
+	}
 	else if (g_ValeMode == MODE_GAME_OVER)
 		Go(SH_GAME_OVER);
 	// Shell.autosave: the game in play to its slot every AUTOSAVE_TICKS, not
@@ -1243,12 +1280,33 @@ void Shell_AfterTick()
 	}
 }
 
+// Shell.unlock: winning a job opens the next, if there is one not yet open;
+// it is kept with the table, and the next game from the title is it.
+static void Unlock()
+{
+	u8 next = g_Job + 1;
+	g_Offered = 0;
+	if (next >= JOBS || next <= g_Unlocked)
+		return;
+	g_Unlocked = next;
+	g_ShellJob = next;
+	g_Offered = next;
+	SAVE(Save_Table);
+}
+
 // The reveal (AmuletRevealScreen): the playfield cleared, the quarters held
 // drawn large, the verse for how many.
 static u8 s_PromptY;
 
+static u8 s_RevealJob = 0;   // whose quarters the video RAM holds (shell_img.bin's: the game's own)
+
 static void DrawReveal()
 {
+	if (s_RevealJob != g_Job)
+	{
+		Data_LoadJobImages(g_Job);
+		s_RevealJob = g_Job;
+	}
 	Begin(TRUE, FALSE);
 	Fill(0, 0, 256, PLAYFIELD_H, INK_GROUND);
 	u8 size = 2 * IMG_QUARTER_W;
@@ -1264,12 +1322,15 @@ static void DrawReveal()
 		sx += IMG_QUARTER_W;
 	}
 	u8 y = top + size + BIG_LINE;
-	u8 at = 0;
-	for (u8 v = 1; v < s_Pieces && v < VERSES; v++)
-		at += VERSE_LINES;
-	for (u8 l = 0; l < VERSE_LINES; l++)
+	// The job's verse for the pieces held (GameSession.reveal: verses[pieces - 1]).
+	u16 at = VERSE_TABLE(g_Job);
+	for (u8 v = 1; v < s_Pieces && v < JOB_VERSES(g_Job); v++)
+		at += VERSE_LINES * 2;
+	for (u8 l = 0; l < VERSE_LINES; l++, at += 2)
 	{
-		Say(s_VerseStr[at + l]);
+		u16 str;
+		Data_ShellBytes(at, (u8*)&str, 2);
+		Say(str);
 		Centre(TRUE, y, INK_BODY);
 		y += BIG_LINE;
 	}
@@ -1335,8 +1396,12 @@ static void MapCell(u8 room, u8 alone)
 	u8 base = 0;
 	for (u8 k = 0; k < g_QuestSet; k++)
 		base += LAIRS;
+	u8 j = 0;   // its place among this game's lairs (a later job keeps only some)
 	for (u8 l = 0; l < LAIRS; l++)
 	{
+		if (!(g_LairKept & (1 << l)))
+			continue;
+		j++;
 		if (lairs[base + l] != room)
 			continue;
 		u8 taken = g_QuestTaken & (1 << l);
@@ -1349,7 +1414,7 @@ static void MapCell(u8 room, u8 alone)
 		u8 f = MAP_ICON_SHINY;
 		if (!taken)
 		{
-			f = s_IconStep + l;
+			f = s_IconStep + j - 1;
 			while (f >= MAP_ICON_SHINY)
 				f -= MAP_ICON_SHINY;
 		}
@@ -1358,7 +1423,7 @@ static void MapCell(u8 room, u8 alone)
 	// paintArch: always; its doorway glowing once the amulet is whole.
 	if (room == MAP_ARCH_ROOM)
 	{
-		u8 f = g_QuestPieces >= EXIT_REQUIRES_PIECES ? 1 + s_ArchStep : 0;
+		u8 f = Quest_Quarters() >= EXIT_REQUIRES_PIECES ? 1 + s_ArchStep : 0;
 		Icon(IMG_ARCH_X + Times(f, IMG_ICON_STEP), room, IMG_ARCH_W, IMG_ARCH_H, IMG_ARCH_OX, IMG_ARCH_OY);
 	}
 	if (room == g_ValeRoom && s_Blink)
@@ -1445,7 +1510,7 @@ static void Map()
 		s_ArchT = 0;
 		if (++s_ArchStep >= MAP_ARCH_OPEN)
 			s_ArchStep = 0;
-		arch = g_QuestPieces >= EXIT_REQUIRES_PIECES;
+		arch = Quest_Quarters() >= EXIT_REQUIRES_PIECES;
 	}
 	if (++s_BlinkT >= MAP_BLINK_TICKS)
 	{
@@ -1561,7 +1626,7 @@ static void Ending()
 	SCENES(Scenes_Step);
 	if (s_KeyPress & SK_ESC)
 		EndRun();
-	else if (g_ShellTick >= ENDING_PROMPT_AT && Fire())
+	else if (g_ShellTick >= ENDING_PROMPT_AT(g_Job) && Fire())
 		Go(SH_TALLY);
 }
 
@@ -1587,6 +1652,20 @@ static void Roll()
 		g_RollTick++;
 	SCENES(Scenes_Step);
 	if ((s_KeyPress & SK_ESC) || g_RollTick >= ROLL_TICKS)
+	{
+		g_RollPaused = 0;
+		if (g_Offered)
+			Go(SH_OFFER);
+		else
+			EndRun();
+	}
+}
+
+// Shell.offer: Mr Jones has a new job; fire, once his words are out, banks the run.
+static void Offer()
+{
+	SCENES(Scenes_Step);
+	if ((s_KeyPress & SK_ESC) || (g_ShellTick >= OFFER_PROMPT_AT(g_Offered) && Fire()))
 		EndRun();
 }
 
@@ -1642,6 +1721,7 @@ static u8 PlaceOf(u32 score, u32 ticks)
 // gone from it), the run offered to the table, and back to the title.
 static void EndRun()
 {
+	g_Offered = 0;
 	if (s_GameSlot)
 	{
 		g_SaveSlot = s_GameSlot;
@@ -1908,7 +1988,7 @@ static void Enter()
 	case SH_GAME_OVER:
 		DrawGameOver();
 		break;
-	case SH_ENDING: case SH_TALLY: case SH_ROLL: case SH_INTRO:
+	case SH_ENDING: case SH_TALLY: case SH_ROLL: case SH_INTRO: case SH_OFFER:
 		g_Scene = SceneOf(g_Shell);
 		SCENES(Scenes_Enter);
 		break;
@@ -1996,6 +2076,9 @@ void Shell_Tick()
 		break;
 	case SH_INTRO:
 		Intro();
+		break;
+	case SH_OFFER:
+		Offer();
 		break;
 	case SH_ENTRY:
 		Entry();

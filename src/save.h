@@ -43,6 +43,7 @@ typedef struct
 {
 	u8  Used;
 	u8  Easy;
+	u8  Job;
 	u8  Quarters;
 	u8  Room;
 	u16 Serial;     // goes up with each save: the newest is the title's CONTINUE

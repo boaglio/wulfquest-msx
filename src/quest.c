@@ -39,6 +39,10 @@ u8 g_QuestFlyMask = 0;
 i16 g_QuestFlyX = 0;
 i16 g_QuestFlyY = 0;
 u8 g_QuestHit = 0;
+u8 g_Job = 0;
+u8 g_LairKept = (1 << LAIRS) - 1;
+u8 g_LairSlots[LAIRS];
+u8 g_JobFrame[QUEST_SLOTS];
 
 i32 g_GuardX = 0;
 i32 g_GuardY = 0;
@@ -64,6 +68,7 @@ i32 g_KeeperY = 0;
 u16 g_KeeperMoveTicks = 0;
 
 static u8 s_Stream[8] = { AMULET_STREAM_BYTES };
+static u8 s_JobStream[8] = { JOB_STREAM_BYTES };
 
 static void Wulf_Place();
 static void Wulf_Head(i8 heading);
@@ -291,9 +296,54 @@ static void GuardTick()
 //-----------------------------------------------------------------------------
 // The quest (Simulation's questEntersRoom, tickQuest, takePiece)
 
+// shareOut: a later job keeps JOB_PIECES of the set's lairs, picked by a
+// stream of their own (a Fisher-Yates's first draws), the first kept (in the
+// lairs' order) holding the job's first piece.
+static void ShareOut()
+{
+	g_LairKept = (1 << LAIRS) - 1;
+	for (u8 s = 0; s < QUEST_SLOTS; s++)
+		g_JobFrame[s] = JOB_FRAME(g_Job, s);
+	for (u8 i = 0; i < LAIRS; i++)
+		g_LairSlots[i] = g_LairMask[i];
+	u8 k = JOB_PIECES(g_Job);
+	if (k == 0)
+		return;
+	u8 keep[16];
+	u8 order[LAIRS];
+	Rng_Save(keep);
+	for (u8 b = 0; b < 8; b++)
+	{
+		g_RngValues[0][b] = g_TestSeed[b];
+		g_RngValues[1][b] = s_JobStream[b];
+	}
+	Rng_HashSeed(2);
+	for (u8 i = 0; i < LAIRS; i++)
+		order[i] = i;
+	for (u8 j = 0; j < k; j++)
+	{
+		u8 pick = j + (u8)Rng_Next(LAIRS - j);
+		u8 t = order[j];
+		order[j] = order[pick];
+		order[pick] = t;
+	}
+	Rng_Restore(keep);
+	g_LairKept = 0;
+	for (u8 j = 0; j < k; j++)
+		g_LairKept |= 1 << order[j];
+	u8 p = 0;
+	for (u8 i = 0; i < LAIRS; i++)
+		if (g_LairKept & (1 << i))
+		{
+			g_LairSlots[i] = JOB_MASK(g_Job, p);
+			p++;
+		}
+}
+
 void Quest_NewGame()
 {
 	g_QuestSet = (u8)Rng_Stream(g_TestSeed, s_Stream, AMULET_SETS);
+	ShareOut();
 	g_QuestTaken = 0;
 	g_QuestSlots = 0;
 	g_QuestPieces = 0;
@@ -324,7 +374,7 @@ void Quest_EnterRoom()
 	g_QuestLair = -1;
 	u8 at = g_QuestSet * LAIRS;
 	for (u8 i = 0; i < LAIRS; i++)
-		if (g_LairRoom[at + i] == g_ValeRoom)
+		if ((g_LairKept & (1 << i)) && g_LairRoom[at + i] == g_ValeRoom)
 		{
 			g_QuestLair = i;
 			break;
@@ -476,9 +526,10 @@ static void PointTheWay()
 	u8 k = g_QuestSet * LAIRS;
 	i8 col = g_ValeRoom % GRID_W;
 	i8 row = g_ValeRoom / GRID_W;
+	u8 done = Quest_Done();
 	for (u8 i = 0; i < LAIRS; i++)
 	{
-		if (g_QuestTaken & (1 << i))
+		if (done & (1 << i))
 			continue;
 		u8 r = g_LairRoom[k + i];
 		i8 dx = (i8)(r % GRID_W) - col;
@@ -528,11 +579,11 @@ static void TakePiece(i16 cx, i16 cy)
 	u8 l = (u8)g_QuestLair;
 	g_QuestTaken |= 1 << l;
 	g_QuestPieces++;
-	g_QuestSlots |= g_LairMask[l];
+	g_QuestSlots |= g_LairSlots[l];
 	g_QuestFlash = AMULET_PICKUP_FLASH_TICKS;
 	Sound_Play(SFX_AMULET_PIECE);
 	g_QuestFly = AMULET_FLY_TICKS;
-	g_QuestFlyMask = g_LairMask[l];
+	g_QuestFlyMask = g_LairSlots[l];
 	g_QuestFlyX = cx;
 	g_QuestFlyY = cy;
 	g_WayTicks = 0;   // the glass showed the way to a piece; with one taken, its work is done

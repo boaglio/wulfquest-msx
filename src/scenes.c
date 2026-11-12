@@ -27,6 +27,7 @@
 #include "sound.h"
 #include "game.h"
 #include "panel.h"
+#include "quest.h"
 
 u8  g_Scene = SCENE_NONE;
 u8  g_RollPaused = 0;
@@ -284,14 +285,80 @@ static void Swap()
 	s_Shown = s_Page;
 }
 
+#if ENDING_RIDE_JOB >= 0
+// The frame of a horse's four: in turn while moving, the first standing (EndingScreen.frameOf).
+static u8 HorseFrame(u8 first, u8 moving, u16 t)
+{
+	if (!moving)
+		return first;
+	u16 step = Over(t, RIDE_EVERY);
+	while (step >= RIDE_FRAMES)
+		step -= RIDE_FRAMES;
+	return first + (u8)step;
+}
+
+// The last ending's ride home (EndingScreen.paintHorses): two horses trot in, each to where one
+// of them stands; once they are up, standing, then away to the right. Whether they are up.
+static u8 Horses(u16 t)
+{
+	if (g_Job != ENDING_RIDE_JOB || t < RIDE_COME_AT)
+		return FALSE;
+	if (t < RIDE_MOUNT_AT)
+	{
+		u16 k = t - RIDE_COME_AT;
+		u8 coming = k < RIDE_COME_TICKS;
+		i16 vx = ENDING_VALE_AT;
+		i16 jx = ENDING_JONES_X;
+		if (coming)
+		{
+			vx = Read16(RIDE_COME_PATH + (k << 2));
+			jx = Read16(RIDE_COME_PATH + (k << 2) + 2);
+		}
+		Figure(HorseFrame(SCI_HORSE_VALE, coming, t), vx, ENDING_GROUND);
+		Figure(HorseFrame(SCI_HORSE_JONES, coming, t), jx, ENDING_GROUND);
+		return FALSE;
+	}
+	u8 riding = t >= RIDE_AT;
+	i16 shift = 0;
+	if (riding)
+	{
+		u16 k = t - RIDE_AT;
+		shift = Read16(RIDE_SHIFT_PATH + ((k < RIDE_TICKS ? k : RIDE_TICKS) << 1));
+	}
+	Figure(HorseFrame(SCI_RIDE_JONES, riding, t), ENDING_JONES_X + shift, ENDING_GROUND);
+	Figure(HorseFrame(SCI_RIDE_VALE, riding, t), ENDING_VALE_AT + shift, ENDING_GROUND);
+	return TRUE;
+}
+#endif
+
+static void EndingPrompt(u16 t)
+{
+	if (t == ENDING_PROMPT_AT(g_Job))
+	{
+		Words(STR_ENDING_PROMPT);
+		Both(TRUE, Centre(TRUE), ENDING_PROMPT_Y, ENDING_PROMPT_INK);
+	}
+}
+
 static void EndingStep()
 {
 	u16 t = g_ShellTick;
 	s_Page = 1 - s_Shown;
 	Restore(s_Page);
+#if ENDING_RIDE_JOB >= 0
+	if (Horses(t))
+	{
+		Swap();
+		Type(ENDING_LINES(g_Job), ENDING_LINES_N(g_Job), ENDING_TICKS_PER_CHAR, BIG_LINE);
+		if (t == ENDING_TUNE_AT(g_Job))
+			Sound_Tune(TUNE_ENDING);
+		EndingPrompt(t);
+		return;
+	}
+#endif
 	// Mr Jones: holding the amulet once it is his, his mouth open on every other beat of his line.
 	u8 holding = t >= ENDING_HAND_AT + ENDING_HAND_TICKS;
-	u8 talking = JonesSpeaking(ENDING_LINES, ENDING_LINES_N, ENDING_TICKS_PER_CHAR)
+	u8 talking = JonesSpeaking(ENDING_LINES(g_Job), ENDING_LINES_N(g_Job), ENDING_TICKS_PER_CHAR)
 		&& (Over(t, ENDING_TALK_EVERY) & 1);
 	Figure(holding ? (talking ? SCI_JONES_HOLD_TALK : SCI_JONES_HOLD) : (talking ? SCI_JONES_TALK : SCI_JONES_STAND),
 		ENDING_JONES_X, ENDING_GROUND);
@@ -321,14 +388,30 @@ static void EndingStep()
 		cx = Read16(ENDING_HAND_PATH + (k << 2));
 		cy = Read16(ENDING_HAND_PATH + (k << 2) + 2);
 	}
-	for (u8 slot = 0; slot < 4; slot++)
-		Figure(SCI_QUARTER_0 + slot, cx - ENDING_HALF + ((slot & 1) ? ENDING_HALF : 0),
+	for (u8 slot = 0; slot < QUEST_SLOTS; slot++)
+		Figure(SCI_QUARTER(g_Job) + slot, cx - ENDING_HALF + ((slot & 1) ? ENDING_HALF : 0),
 			cy - ENDING_HALF + ((slot & 2) ? ENDING_HALF : 0));
 	Swap();
-	Type(ENDING_LINES, ENDING_LINES_N, ENDING_TICKS_PER_CHAR, BIG_LINE);
-	if (t == ENDING_TUNE_AT)
+	Type(ENDING_LINES(g_Job), ENDING_LINES_N(g_Job), ENDING_TICKS_PER_CHAR, BIG_LINE);
+	if (t == ENDING_TUNE_AT(g_Job))
 		Sound_Tune(TUNE_ENDING);
-	if (t == ENDING_PROMPT_AT)
+	EndingPrompt(t);
+}
+
+// The offer (EndingScreen.paintOffer): the clearing again, Vale standing where he stopped, Mr Jones
+// with his hands free, the next job's lines typing out under them.
+static void OfferStep()
+{
+	u16 t = g_ShellTick;
+	s_Page = 1 - s_Shown;
+	Restore(s_Page);
+	u8 talking = JonesSpeaking(OFFER_LINES(g_Offered), OFFER_LINES_N(g_Offered), ENDING_TICKS_PER_CHAR)
+		&& (Over(t, ENDING_TALK_EVERY) & 1);
+	Figure(talking ? SCI_JONES_TALK : SCI_JONES_STAND, ENDING_JONES_X, ENDING_GROUND);
+	Figure(SCI_VALE_STAND, ENDING_VALE_AT, ENDING_GROUND);
+	Swap();
+	Type(OFFER_LINES(g_Offered), OFFER_LINES_N(g_Offered), ENDING_TICKS_PER_CHAR, BIG_LINE);
+	if (t == OFFER_PROMPT_AT(g_Offered))
 	{
 		Words(STR_ENDING_PROMPT);
 		Both(TRUE, Centre(TRUE), ENDING_PROMPT_Y, ENDING_PROMPT_INK);
@@ -451,7 +534,7 @@ static u8 RollRow(u8 i)
 		at += 2 + b[1];
 	}
 	Data_ScenesBytes(at, b, 2);
-	Words(at + 1);
+	Words(i == 0 ? STR_THE_END(g_Job) : at + 1);   // §14.7: the job's own end
 	return b[0];
 }
 
@@ -563,6 +646,10 @@ void Scenes_Enter()
 	case SCENE_ROLL:
 		RollEnter();
 		break;
+	case SCENE_OFFER:
+		Stage(ENDING_BACK0, ENDING_BACK0_N, ENDING_BACK1, ENDING_BACK1_N);
+		OfferStep();
+		break;
 	}
 }
 
@@ -582,6 +669,9 @@ void Scenes_Step()
 	case SCENE_ROLL:
 		RollStep();
 		break;
+	case SCENE_OFFER:
+		OfferStep();
+		break;
 	}
 }
 
@@ -589,7 +679,7 @@ void Scenes_Leave()
 {
 	if (g_Scene == SCENE_ROLL)
 		Data_VdpReg(23, 0);
-	if (g_Scene == SCENE_ENDING || g_Scene == SCENE_INTRO)
+	if (g_Scene == SCENE_ENDING || g_Scene == SCENE_INTRO || g_Scene == SCENE_OFFER)
 	{
 		Data_LoadScenery();   // the atlas, which the figures borrowed
 		g_PageShown = s_Shown;

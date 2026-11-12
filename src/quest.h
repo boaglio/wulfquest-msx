@@ -7,6 +7,8 @@
 
 #include "msxgl.h"
 #include "data.h"
+#include "quest_data.h"
+#include "game_data.h"
 
 #define QUEST_SEG	26
 #define QUEST(fn)	BANKED(QUEST_SEG, fn)
@@ -27,6 +29,15 @@ extern u8 g_QuestFly;           // the quarter's flight to the panel, ticks left
 extern u8 g_QuestFlyMask;
 extern i16 g_QuestFlyX;         // where it flies from, world pixels
 extern i16 g_QuestFlyY;
+// New Game+ (§14.9): the job (0, the game itself), set before a new game;
+// the lairs it keeps (a bit each, Simulation.shareOut), and the slots each
+// lair's piece fills in this job.
+extern u8 g_Job;
+extern u8 g_LairKept;
+extern u8 g_LairSlots[LAIRS];
+extern u8 g_JobFrame[QUEST_SLOTS];  // the amulet's frame for each slot, the job's own
+// The lairs with nothing for Vale: their piece taken, or none in this job.
+#define Quest_Done()	(g_QuestTaken | (u8)(~g_LairKept & ((1 << LAIRS) - 1)))
 // Quest.quarters(): the slots held.
 static inline u8 Quest_Quarters()
 {
@@ -34,6 +45,14 @@ static inline u8 Quest_Quarters()
 	for (u8 m = g_QuestSlots; m; m >>= 1)
 		n += m & 1;
 	return n;
+}
+
+// Simulation.ramp: how far on the jungle thinks the quest is, the job's head
+// start added.
+static inline u8 Quest_Ramp()
+{
+	u8 n = Quest_Quarters() + JOB_HEAD_START(g_Job);
+	return n < QUEST_SLOTS ? n : QUEST_SLOTS;
 }
 
 // The lair's guardian (GUARD_ORBIT), a creature of its own.

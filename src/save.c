@@ -55,6 +55,7 @@ i32 g_LoadY = 0;
 #define T_EASY		4
 #define T_PROFILE	5
 #define T_SOUND		6
+#define T_UNLOCKED	7    // the furthest job a win has opened (§14.9)
 #define T_SCORES	8
 #define F_SUM		(SAVE_BYTES - 2)
 
@@ -268,6 +269,7 @@ void Save_Peek()
 		}
 		s->Used = 1;
 		s->Easy = g_SaveBuf[F_EASY];
+		s->Job = g_SaveBuf[F_JOB];
 		s->Quarters = g_SaveBuf[F_PIECES];
 		s->Room = g_SaveBuf[F_ROOM];
 		Copy((u8*)&s->Serial, g_SaveBuf + F_SERIAL, 2);
@@ -290,6 +292,8 @@ void Save_Init()
 			g_ShellEasy = g_SaveBuf[T_EASY];
 			g_Profile = g_SaveBuf[T_PROFILE];
 			g_SoundOn = g_SaveBuf[T_SOUND];
+			g_Unlocked = g_SaveBuf[T_UNLOCKED] < JOBS ? g_SaveBuf[T_UNLOCKED] : JOBS - 1;
+			g_ShellJob = g_Unlocked;   // the next game is the newest job; the title goes back
 			Copy(g_HiTable, g_SaveBuf + T_SCORES, sizeof(g_HiTable));
 		}
 	}
@@ -303,6 +307,7 @@ void Save_Table()
 	g_SaveBuf[T_EASY] = g_ShellEasy;
 	g_SaveBuf[T_PROFILE] = g_Profile;
 	g_SaveBuf[T_SOUND] = g_SoundOn;
+	g_SaveBuf[T_UNLOCKED] = g_Unlocked;
 	Copy(g_SaveBuf + T_SCORES, g_HiTable, sizeof(g_HiTable));
 	Seal('T');
 	g_SaveSlot = SAVE_TABLE;
@@ -318,7 +323,7 @@ void Save_Game()
 	for (u16 i = 0; i < SAVE_BYTES; i++)
 		g_SaveBuf[i] = 0;
 	u8* b = g_SaveBuf;
-	b[F_JOB] = 0;
+	b[F_JOB] = g_Job;
 	b[F_EASY] = g_Easy;
 	b[F_SET] = g_QuestSet;
 	b[F_TAKEN] = g_QuestTaken;
@@ -377,6 +382,7 @@ void Save_Load()
 void Save_Before()
 {
 	g_Easy = g_SaveBuf[F_EASY];
+	g_Job = g_SaveBuf[F_JOB] < JOBS ? g_SaveBuf[F_JOB] : 0;
 	Copy(g_TestSeed, g_SaveBuf + F_SEED, 8);
 	Copy((u8*)&g_LoadX, g_SaveBuf + F_X, 4);
 	Copy((u8*)&g_LoadY, g_SaveBuf + F_Y, 4);

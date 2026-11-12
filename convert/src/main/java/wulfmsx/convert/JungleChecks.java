@@ -87,15 +87,20 @@ final class JungleChecks {
      * or {@code G -} out of a lair), then the Wulf ({@code W STATE STATE_TICK AT HEADING SPEED LATCH
      * HERE X_FP Y_FP MOVE}).
      */
-    static String questLine(Simulation sim) {
+    static String questLine(Simulation sim, wulf.Content c) {
         Quest q = sim.quest();
+        // A later job (§14.9) keeps only some lairs, numbered among themselves; the ROM numbers
+        // every lair of the set, as landmarks.json lists them.
+        List<String> ids = c.landmarks().lairs().stream().map(wulf.data.LandmarksData.Lair::id).toList();
+        List<wulf.data.LandmarksData.Lair> kept = sim.landmarks().lairs();
         int taken = 0;
-        for (int i = 0; i < sim.landmarks().lairs().size(); i++) {
-            taken |= q.taken(i) ? 1 << i : 0;
+        for (int i = 0; i < kept.size(); i++) {
+            taken |= q.taken(i) ? 1 << ids.indexOf(kept.get(i).id()) : 0;
         }
+        int lair = q.lair() < 0 ? q.lair() : ids.indexOf(kept.get(q.lair()).id());
         StringBuilder sb = new StringBuilder("Q ");
         sb.append(sim.landmarks().amuletSet()).append(' ').append(q.slotMask()).append(' ').append(taken).append(' ')
-                .append(q.lair()).append(' ').append(q.pickupFlash()).append(' ').append(q.flyTicks()).append(' ')
+                .append(lair).append(' ').append(q.pickupFlash()).append(' ').append(q.flyTicks()).append(' ')
                 .append(q.keeperHere() ? 1 : 0).append(' ').append(q.keeperState().ordinal()).append(' ')
                 .append(q.keeperHere() ? String.valueOf(q.keeper().xFp()) : "-").append(' ')
                 .append(q.keeper().moveTicks());

@@ -90,7 +90,7 @@ static bool QuestRoom(u8 room)
 		return TRUE;
 	u8 k = g_QuestSet * LAIRS;
 	for (u8 i = 0; i < LAIRS; i++)
-		if (g_LairRoom[k + i] == room)
+		if ((g_LairKept & (1 << i)) && g_LairRoom[k + i] == room)
 			return TRUE;
 	return FALSE;
 }
@@ -160,7 +160,7 @@ void Game_NewGame()
 		bool lair = FALSE;
 		u8 k = g_QuestSet * LAIRS;
 		for (u8 i = 0; i < LAIRS; i++)
-			if (g_LairRoom[k + i] == room)
+			if ((g_LairKept & (1 << i)) && g_LairRoom[k + i] == room)
 				lair = TRUE;
 		for (u8 p = 0; p < 2; p++)
 		{

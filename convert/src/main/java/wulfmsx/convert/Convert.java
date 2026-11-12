@@ -137,6 +137,8 @@ public final class Convert {
         Gen.write(out.resolve("shell.bin"), shell.blob());
         blobs.add(new Budget.Blob("shell.bin", shell.blob().length));
         Gen.write(out.resolve("shell_img.bin"), shell.images());
+        Gen.write(out.resolve("shell_jobs.bin"), shell.jobImages());
+        blobs.add(new Budget.Blob("shell_jobs.bin", shell.jobImages().length));
         Gen.write(out.resolve("scenes.bin"), scenes.blob());
         blobs.add(new Budget.Blob("scenes.bin", scenes.blob().length));
         Gen.write(out.resolve("scenes_img.bin"), scenes.images());

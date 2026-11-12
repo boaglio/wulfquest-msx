@@ -13,7 +13,7 @@
 #define SCENES_SEG	31
 #define SCENES(fn)	BANKED(SCENES_SEG, fn)
 
-enum { SCENE_NONE, SCENE_ENDING, SCENE_TALLY, SCENE_ROLL, SCENE_INTRO };
+enum { SCENE_NONE, SCENE_ENDING, SCENE_TALLY, SCENE_ROLL, SCENE_INTRO, SCENE_OFFER };
 extern u8 g_Scene;
 extern u8 g_RollPaused;    // the roll stood still to read (fire)
 extern u16 g_RollTick;     // the roll's ticks, not counting those stood still

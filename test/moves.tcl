@@ -146,7 +146,7 @@ proc next_scenario {} {
     incr ::scenario
     if {$::scenario >= [llength $::plan]} { finish ok }
     lassign [lindex $::plan $::scenario] head ::keys
-    lassign $head ::name room open x y check seed level endless easy
+    lassign $head ::name room open x y check seed level endless easy job
     puts $::out "scenario $::name"
     poke g_TestOpen $open
     set ::jungle [expr {$seed >= 0}]
@@ -156,6 +156,7 @@ proc next_scenario {} {
     poke g_TestQuest $::quest
     poke g_TestGame $::game
     poke g_TestEasy [expr {$easy eq "1"}]
+    poke g_TestJob $job
     poke g_TestEndless [expr {$endless eq "1"}]
     if {$::jungle} {
         # The seed as the Java game's long, little-endian (Tcl's integers are unbounded).

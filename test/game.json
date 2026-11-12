@@ -4,7 +4,7 @@
     "ecosystem(0, true)), every tick equal to the Java game's, the score among it. 'check' is what the scene is",
     "there to show, shown in the Java game first (convert's JungleChecks): effect:KIND, effects:A+B, flame,",
     "treasure, item, hint, continue, win. 'questRoute' plays the Java game to a win (convert's QuestRoute);",
-    "'orchidScene': N, N ticks of picking the room's orchid and walking with its effect (OrchidScene)."
+    "'job': N, Mr Jones's later job N (§14.9, Content.ecosystem(N, easy)). 'orchidScene': N, N ticks of picking the room's orchid and walking with its effect (OrchidScene)."
   ],
   "scenarios": [
     { "name": "orchids", "room": "8,10", "at": [2176, 1840], "jungle": 3, "game": true, "endless": true,
@@ -20,6 +20,10 @@
     { "name": "win", "room": "8,10", "at": "start", "jungle": 7, "game": true, "endless": true,
       "check": "win", "questRoute": true },
     { "name": "win-easy", "room": "8,10", "at": "start", "jungle": 7, "game": true, "easy": true, "endless": true,
+      "check": "win", "questRoute": true },
+    { "name": "win-halves", "room": "8,10", "at": "start", "jungle": 7, "game": true, "job": 1, "endless": true,
+      "check": "win", "questRoute": true },
+    { "name": "win-whole", "room": "8,10", "at": "start", "jungle": 7, "game": true, "job": 2, "endless": true,
       "check": "win", "questRoute": true }
   ]
 }

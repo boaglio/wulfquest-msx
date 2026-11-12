@@ -27,6 +27,11 @@ class Panel:
         self.c = defines(gen + "/constants.h")
         self.font = open(gen + "/font.bin", "rb").read()
         self.blob = open(gen + "/panel.bin", "rb").read()
+        # The first job's quarters (the panel tests play the game itself): IMAGE_QUARTER(0), _DIM(0).
+        per_job, slots = map(int, re.search(r"#define IMAGE_QUARTER_DIM\(j\)\s+\(\(j\) \* (\d+) \+ (\d+)\)",
+                                            open(gen + "/panel_data.h").read()).groups())
+        self.d["IMAGE_QUARTER"] = 0
+        self.d["IMAGE_QUARTER_DIM"] = slots
         self.inks = list(map(int, re.search(r"#define ORCHID_INKS\s+([\d, ]+)", open(gen + "/panel_data.h").read())
                              .group(1).split(",")))
         self.hints = re.search(r"#define STR_HINTS\s+(.+)", open(gen + "/panel_data.h").read()).group(1).split(", ")

@@ -557,7 +557,7 @@ void Jungle_TickSwarm()
 	i16 lx = SWARM_AREA_X + (i16)Rng_Next(SWARM_AREA_W);
 	i16 ly = SWARM_AREA_Y + (i16)Rng_Next(SWARM_AREA_H);
 	u8 roll = (u8)Rng_Next(SWARM_PICKS);
-	u8 index = g_SwarmPick[roll < SWARM_PICK_OPEN + (g_Easy ? EASY_SWARM_OPEN_PER_QUARTER : SWARM_PICK_OPEN_PER_QUARTER) * Quest_Quarters() ? roll
+	u8 index = g_SwarmPick[roll < SWARM_PICK_OPEN + (g_Easy ? EASY_SWARM_OPEN_PER_QUARTER : SWARM_PICK_OPEN_PER_QUARTER) * Quest_Ramp() ? roll
 		: roll % SWARM_PICK_FOLD];
 	u8 tint = g_SwarmTint[Rng_Next(SWARM_TINTS)];
 	i16 x = g_RoomX + lx;
@@ -922,7 +922,7 @@ static bool LevelWithAQuarter(u8 b)
 	u8 k = g_QuestSet * LAIRS;
 	for (u8 i = 0; i < LAIRS; i++, k++)
 	{
-		if (g_QuestTaken & (1 << i))
+		if (Quest_Done() & (1 << i))
 			continue;
 		u8 room = g_LairRoom[k];
 		i16 dx = g_LairPedX[k] - bx;

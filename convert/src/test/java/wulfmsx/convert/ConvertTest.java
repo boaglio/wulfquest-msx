@@ -31,10 +31,11 @@ class ConvertTest {
     void theDataFitsInTheRomWithRoomToSpare(@TempDir Path out) {
         Convert.run(DATA, out);
         // M1: "fits in the ROM with room to spare": half the data segments free until M8, when Vale's
-        // inked sets and the glass's ways took six; now a quarter, for M9-M12's sound, font and pictures.
+        // inked sets and the glass's ways took six; a quarter through M11, for the sound, font and
+        // pictures; from M12, New Game+ (the horses, the later jobs' amulets), four of the 22.
         String report = read(out.resolve("report.txt"));
         int free = Integer.parseInt(report.replaceAll("(?s).*; (\\d+) segments \\(.*", "$1"));
-        assertThat(free).isGreaterThanOrEqualTo((Budget.BANKED_CODE_FIRST - Budget.CODE_SEGMENTS) / 4);
+        assertThat(free).isGreaterThanOrEqualTo(4);
     }
 
     @Test

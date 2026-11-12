@@ -95,8 +95,12 @@ public final class Panel {
         LandmarksData marks = c.landmarks();
         SpriteData amulet = c.sprites().get(marks.amulet().sprite());
         Map<String, byte[]> frames = amulet.decode(marks.amulet().sprite());
-        List<String> bySlot = wulf.render.QuestPainter.framesBySlot(marks);
-        for (int dim = 0; dim < 2; dim++) {
+        wulf.render.AmuletFrames jobs = wulf.render.AmuletFrames.of(marks, c.shell());
+        int jobCount = c.game().newGamePlus().levels().size();
+        int slots = wulf.sim.Quest.SLOTS;
+        for (int job = 0; job < jobCount; job++) {
+          List<String> bySlot = jobs.forLevel(job);   // §14.9: each job's own amulet
+          for (int dim = 0; dim < 2; dim++) {
             for (int slot = 0; slot < bySlot.size(); slot++) {
                 byte[] px = frames.get(bySlot.get(slot));
                 int w = amulet.size().w();
@@ -109,6 +113,7 @@ public final class Panel {
                 }
                 image(img, out);
             }
+          }
         }
         // A head: 4x5 of bright ink, two dots of ground in its second line (PanelPainter.drawLives).
         int[] head = new int[64];
@@ -119,10 +124,10 @@ public final class Panel {
             }
         }
         image(img, head);
-        h.append("\n// panel.bin: 8x8 images, 32 bytes each: the quarters by slot, held then dim, then a head.\n");
-        def("IMAGE_QUARTER", 0);
-        def("IMAGE_QUARTER_DIM", bySlot.size());
-        def("IMAGE_HEAD", 2 * bySlot.size());
+        h.append("\n// panel.bin: 8x8 images, 32 bytes each: job j's quarters by slot (§14.9), held then dim; then a head.\n");
+        h.append("#define IMAGE_QUARTER(j)\t((j) * ").append(2 * slots).append(")\n");
+        h.append("#define IMAGE_QUARTER_DIM(j)\t((j) * ").append(2 * slots).append(" + ").append(slots).append(")\n");
+        def("IMAGE_HEAD", 2 * slots * jobCount);
         def("IMAGE_BYTES", 32);
         def("PANEL_STRINGS_AT", img.size());
 

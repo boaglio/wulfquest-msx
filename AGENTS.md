@@ -1121,7 +1121,7 @@ the user adds to openMSX: C-BIOS's disk ROM has no MSX-DOS.
 **From M10:** the closing scene, the tally's lines and the roll in place of
 the win's sum the shell shows for now; the plane intro before the demo (the
 title goes straight to the demo until then); the looking glass's trail on the
-map screen; the jobs' line under `START`.
+map screen; the jobs' line under `START` (part 2).
 
 **Accept when:** each of the three endings plays through in openMSX from a
 scripted win; the credits carry the §2.5 text exactly (checked by a test
@@ -1172,6 +1172,42 @@ against the data); the plane intro plays and any key returns to the title.
 - **Still to do (part 2, 3):** New Game+ (the later jobs, their amulets, their
   endings and Mr Jones's offer, the ride home); the looking glass's trail on
   the map.
+
+**Part 2 landed (2026-11-12): New Game+.** Specifics:
+
+- **The jobs in the game** (`quest.c`, `g_Job`): as `Simulation.shareOut`, a
+  later job keeps as many of the set's lairs as it has pieces, picked by the
+  game's seed on a stream of their own (`JOB_STREAM`), the kept ones in the
+  lairs' order holding the job's pieces (`g_LairKept`, `g_LairSlots`). The ROM
+  keeps every lair's number; each loop over them (entering a room, the
+  shrines' way, the beasts' "level with a quarter", the glass's way, the
+  orchids' and treasures' quest rooms, the map) passes over a lair the job
+  does not keep, and the glass and the shrines count it as taken
+  (`Quest_Done`). The swarm's pick has the job's head start
+  (`Quest_Ramp`, `Simulation.ramp`); the Wulf, the job's pace in Hard and
+  Easy (`Simulation.paced`). A job's numbers are the converter's chains of
+  choices (`JOB_PIECES(j)`, `JOB_MASK(j, p)`, `JOB_HEAD_START(j)`,
+  `JOB_WULF_SPEED_FP(j, e)`, ...): the C names none.
+- **Its amulet**: a piece is drawn as its quarters (`QuestPainter.blitPiece`)
+  on its pedestal and in flight, each quarter to its slot; the panel, the
+  reveal (its pictures loaded over the game's: `shell_jobs.bin`) and the
+  closing scene show the job's own amulet (the twins, the sun); the reveal
+  has the job's verses.
+- **The shell**: a win opens the next job (`Shell.unlock`), kept with the
+  hi-scores in the table's record; the title then has the job under `START`
+  (`< label >`) and its tagline, N or left and right on `START` go through the
+  jobs opened, and the next game is the newest. A save keeps its job, and its
+  slot's line names it. After the roll, Mr Jones offers the job a win opened
+  (`SH_OFFER`: the clearing, his lines, fire once they are out).
+- **The endings**: each job's own words and beats (`ShellConfig.endingFor`),
+  amulet and "the end" at the roll's top (`theEndFor`); the last one's ride
+  home, the horses' moves a tick at a time from the converter.
+- **Tests**: `test/game.json` wins each later job (`"job": N`), tick for tick
+  against the Java game (both machines); `test/endings.sh` plays the three
+  endings from a new machine's title, each job's reveal, closing scene,
+  roll's top and offer, the horses checked where `EndingScreen` has them.
+- **Room**: the horses and the later jobs' amulets took a data segment; four
+  of the 22 are free (`ConvertTest` now wants four, not a quarter).
 
 ### M13 — 60 Hz machines and real hardware
 

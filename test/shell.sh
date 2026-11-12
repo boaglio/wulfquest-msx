@@ -27,11 +27,13 @@ done
 joy=$(awk '$2 == "_Data_JoyPortA" { print "0x" substr($1, length($1) - 3) }' "$map")
 [[ -n "$joy" ]] || { echo "shell.sh: Data_JoyPortA is not in $map" >&2; exit 1; }
 
+# Mr Jones's offer of the second job, its prompt (a chain macro of the job).
+offer=$(python3 -I test/cmacro.py build/gen/scenes_data.h OFFER_PROMPT_AT 1)
 # The keys (row, bit of the keyboard matrix) and the joystick's bits.
 UP="key 8 0x20"; DOWN="key 8 0x40"; SPACE="key 8 0x01"; ESC="key 7 0x04"; F1="key 6 0x20"; M="key 4 0x04"
 J_UP="joy 1"; J_DOWN="joy 2"; J_FIRE="joy 16"; J_B="joy 32"
 # Shell states (shell.h): title 0, attract 1, hi-scores 2, options 3, playing 4, paused 5,
-# reveal 8, map 9, game over 10, won 11, entry 12.
+# reveal 8, map 9, game over 10, won 11, entry 12, offer 18.
 plan=(
     # The title, its options page, the hi-scores, and back.
     "wait 0" "dump title"
@@ -67,7 +69,8 @@ plan=(
     "log tally {[peek g_TallyBefore 4] [peek g_TallyEscape 2] [peek g_TallyTime 2] [peek g_TallyLives 2] [peek g_Score 4]}"
     "$SPACE" "wait 16" "poke g_BestScore 0 4"
     "until {[peek g_RollTick 2] >= 150}" "dump roll150" "until {[peek g_RollTick 2] >= 300}" "dump roll300" "until {[peek g_RollTick 2] >= 450}" "dump roll450" "until {[peek g_RollTick 2] >= 600}" "dump roll600" "until {[peek g_RollTick 2] >= 750}" "dump roll750" "until {[peek g_RollTick 2] >= 900}" "dump roll900" "until {[peek g_RollTick 2] >= 1050}" "dump roll1050" "until {[peek g_RollTick 2] >= 1200}" "dump roll1200" "until {[peek g_RollTick 2] >= 1350}" "dump roll1350" "until {[peek g_RollTick 2] >= 1500}" "dump roll1500" "until {[peek g_RollTick 2] >= 1650}" "dump roll1650" "until {[peek g_RollTick 2] >= 1800}" "dump roll1800"
-    "wait 0" "log keys done"
+    # The win opened the next job (M12): Mr Jones offers it; fire once his words are out.
+    "wait 18" "until {[peek g_ShellTick 2] >= $offer}" "$SPACE" "wait 0" "log keys done"
     # The same ways with the joystick: options, hi-scores, back, a game, its map.
     "$J_DOWN" "$J_FIRE" "wait 3" "pause 0.6"
     "$J_DOWN" "$J_DOWN" "$J_DOWN" "$J_DOWN" "$J_FIRE" "wait 2" "dump joyhiscores"

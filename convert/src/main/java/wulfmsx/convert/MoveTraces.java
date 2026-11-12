@@ -53,7 +53,7 @@ import wulf.world.WorldGrid;
  *
  * <ul>
  *   <li>{@code OUT_PREFIX_plan.txt}, for test/moves.tcl: per scenario
- *       {@code scenario NAME ROOM OPEN X_FP Y_FP CHECK SEED LEVEL ENDLESS EASY}, then {@code keys} and
+ *       {@code scenario NAME ROOM OPEN X_FP Y_FP CHECK SEED LEVEL ENDLESS EASY JOB}, then {@code keys} and
  *       a key byte a tick (up 1, down 2, left 4, right 8, fire 16);
  *   <li>{@code OUT_PREFIX_expected.txt}: per scenario {@code scenario NAME},
  *       then after each tick {@code X_FP Y_FP FACING SWING WALK SX SY SW SH ROOM FREEZE FRAME BLADE}:
@@ -76,7 +76,7 @@ public final class MoveTraces {
 
     /** A start, a key byte a tick, and what test/check_moves.py checks on top of equality ("-" nothing). */
     record Scenario(String name, RoomAddress room, boolean open, int xFp, int yFp, List<Integer> keys, String check,
-                    long seed, int level, boolean endless, boolean easy) {
+                    long seed, int level, boolean endless, boolean easy, int job) {
         /** No quest: M6's jungle, or none. */
         static final int JUNGLE = 0;
         /** M7's: the quest and the Wulf, none of M8's. */
@@ -86,7 +86,13 @@ public final class MoveTraces {
 
         Scenario(String name, RoomAddress room, boolean open, int xFp, int yFp, List<Integer> keys, String check,
                  long seed) {
-            this(name, room, open, xFp, yFp, keys, check, seed, JUNGLE, false, false);
+            this(name, room, open, xFp, yFp, keys, check, seed, JUNGLE, false, false, 0);
+        }
+
+        /** The game itself, job 0. */
+        Scenario(String name, RoomAddress room, boolean open, int xFp, int yFp, List<Integer> keys, String check,
+                 long seed, int level, boolean endless, boolean easy) {
+            this(name, room, open, xFp, yFp, keys, check, seed, level, endless, easy, 0);
         }
 
         boolean quest() {
@@ -98,7 +104,7 @@ public final class MoveTraces {
         }
 
         Scenario withKeys(List<Integer> k) {
-            return new Scenario(name, room, open, xFp, yFp, k, check, seed, level, endless, easy);
+            return new Scenario(name, room, open, xFp, yFp, k, check, seed, level, endless, easy, job);
         }
 
         /** With the jungle: the swarm and the big beasts, seeded (else, -1, the empty jungle). */
@@ -142,7 +148,7 @@ public final class MoveTraces {
     static Simulation simulation(Content c, WorldGrid grid, Scenario s) {
         Simulation sim = s.game()
                 ? Simulation.at(c.player(), grid, c.game().transition().freezeTicks(), s.xFp(), s.yFp(),
-                        c.ecosystem(0, s.easy()), s.seed())
+                        c.ecosystem(s.job(), s.easy()), s.seed())
                 : s.quest()
                 ? Simulation.at(c.player(), grid, c.game().transition().freezeTicks(), s.xFp(), s.yFp(), quest(c), s.seed())
                 : simulation(c, grid, s.open(), s.xFp(), s.yFp(), s.seed());
@@ -216,6 +222,13 @@ public final class MoveTraces {
         if (easy && level != Scenario.GAME) {
             throw new ConvertException("scenario " + name + ": Easy is the whole game's ('game': true)");
         }
+        int job = s.has("job") ? s.get("job").asInt() : 0;
+        if (job != 0 && level != Scenario.GAME) {
+            throw new ConvertException("scenario " + name + ": a later job is the whole game's ('game': true)");
+        }
+        if (job < 0 || job >= c.game().newGamePlus().levels().size()) {
+            throw new ConvertException("scenario " + name + ": no job " + job);
+        }
         long seed = !s.has("jungle") ? -1
                 : s.get("jungle").isString() ? seedForSet(c, name, s.get("jungle").asString())
                 : s.get("jungle").asLong();
@@ -258,13 +271,13 @@ public final class MoveTraces {
             if (!quest || !endless) {
                 throw new ConvertException("scenario " + name + ": a quest route needs the quest and endless lives");
             }
-            Scenario bare = new Scenario(name, room, false, xFp, yFp, List.of(), check, seed, level, true, easy);
+            Scenario bare = new Scenario(name, room, false, xFp, yFp, List.of(), check, seed, level, true, easy, job);
             Scenario sc = bare.withKeys(QuestRoute.keys(c, grid, bare));
             JungleChecks.hold(c, grid, sc);
             return sc;
         }
         if (s.has("orchidScene")) {
-            Scenario bare = new Scenario(name, room, false, xFp, yFp, List.of(), check, seed, level, endless, easy);
+            Scenario bare = new Scenario(name, room, false, xFp, yFp, List.of(), check, seed, level, endless, easy, job);
             Scenario sc = bare.withKeys(OrchidScene.keys(c, grid, bare, s.get("orchidScene").asInt()));
             JungleChecks.hold(c, grid, sc);
             return sc;
@@ -279,7 +292,7 @@ public final class MoveTraces {
         if (quest && seed < 0) {
             throw new ConvertException("scenario " + name + ": the quest needs the jungle (a 'jungle' seed)");
         }
-        Scenario sc = new Scenario(name, room, open, xFp, yFp, keys, check, seed, level, endless, easy);
+        Scenario sc = new Scenario(name, room, open, xFp, yFp, keys, check, seed, level, endless, easy, job);
         if (sc.jungle()) {
             JungleChecks.hold(c, grid, sc);
         }
@@ -355,7 +368,7 @@ public final class MoveTraces {
         plan.append("scenario ").append(s.name()).append(' ').append(s.room().index()).append(' ')
                 .append(s.open() ? 1 : 0).append(' ').append(s.xFp()).append(' ').append(s.yFp()).append(' ')
                 .append(s.check()).append(' ').append(s.seed()).append(' ').append(s.level()).append(' ')
-                .append(s.endless() ? 1 : 0).append(' ').append(s.easy() ? 1 : 0).append("\nkeys");
+                .append(s.endless() ? 1 : 0).append(' ').append(s.easy() ? 1 : 0).append(' ').append(s.job()).append("\nkeys");
         for (int k : s.keys()) {
             plan.append(' ').append(k);
         }
@@ -383,7 +396,7 @@ public final class MoveTraces {
                 expected.append(JungleChecks.line(sim)).append('\n');
             }
             if (s.quest()) {
-                expected.append(JungleChecks.questLine(sim)).append('\n');
+                expected.append(JungleChecks.questLine(sim, c)).append('\n');
             }
             if (s.game()) {
                 expected.append(JungleChecks.gameLine(sim)).append('\n');

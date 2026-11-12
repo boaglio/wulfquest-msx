@@ -79,7 +79,7 @@ def read_plan(path):
     plan = {}
     lines = open(path, encoding="utf-8").read().split("\n")
     for head, keys in zip(lines[0::2], lines[1::2]):
-        _, name, room, open_, x, y, check, seed, level, endless, easy = head.split()
+        _, name, room, open_, x, y, check, seed, level, endless, easy, job = head.split()
         plan[name] = {"open": open_ == "1", "check": check, "keys": list(map(int, keys.split()[1:]))}
     return plan
 

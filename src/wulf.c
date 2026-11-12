@@ -33,7 +33,7 @@ static void Wulf_Place()
 	g_WulfState = WULF_PROWLING;
 	g_WulfStateTick = 0;
 	g_WulfAt = WULF_ROOM;
-	g_WulfSpeed = g_Easy ? EASY_WULF_SPEED_FP : WULF_SPEED_FP;   // Simulation.paced
+	g_WulfSpeed = JOB_WULF_SPEED_FP(g_Job, g_Easy);   // Simulation.paced
 	g_WulfLatch = LATCH_FREE;
 	g_WulfHere = 0;
 	g_WulfMoveTicks = 0;
@@ -105,7 +105,7 @@ void Wulf_Prowl()
 		{
 			// By room along the row, or within the room by which side he is on.
 			g_WulfLatch = LATCH_STEERED;
-			g_WulfSpeed = g_Easy ? EASY_WULF_SPEED_FP : WULF_SPEED_FP;
+			g_WulfSpeed = JOB_WULF_SPEED_FP(g_Job, g_Easy);
 			u8 vc = g_ValeRoom % GRID_W;
 			u8 wc = g_WulfAt % GRID_W;
 			Wulf_Head(vc != wc ? (vc > wc ? 1 : -1) : ValeCentreX() < WulfCentreX() ? -1 : 1);
@@ -138,7 +138,7 @@ void Wulf_Prowl()
 			g_WulfState = WULF_PROWLING;
 			g_WulfStateTick = 0;
 			g_WulfLatch = LATCH_SPENT;
-			g_WulfSpeed = g_Easy ? EASY_WULF_RISEN_SPEED_FP : WULF_RISEN_SPEED_FP;
+			g_WulfSpeed = JOB_WULF_RISEN_SPEED_FP(g_Job, g_Easy);
 		}
 		break;
 	default:

@@ -91,9 +91,41 @@ public final class Scenes {
         }
         SpriteData amulet = c.sprites().get(c.landmarks().amulet().sprite());
         Map<String, byte[]> af = amulet.decode(c.landmarks().amulet().sprite());
-        List<String> bySlot = wulf.render.QuestPainter.framesBySlot(c.landmarks());
-        for (int slot = 0; slot < bySlot.size(); slot++) {
-            imageHalf("QUARTER_" + slot, af.get(bySlot.get(slot)), amulet.size().w(), amulet.size().h());
+        // §14.9: each job's own amulet, job after job (SCI_QUARTER(j) + slot).
+        wulf.render.AmuletFrames jobFrames = wulf.render.AmuletFrames.of(c.landmarks(), s);
+        int jobs = c.game().newGamePlus().levels().size();
+        int[] quarter = new int[jobs];
+        for (int j = 0; j < jobs; j++) {
+            List<String> bySlot = jobFrames.forLevel(j);
+            quarter[j] = images.size();
+            for (int slot = 0; slot < bySlot.size(); slot++) {
+                imageHalf("QUARTER_" + j + "_" + slot, af.get(bySlot.get(slot)), amulet.size().w(), amulet.size().h());
+            }
+        }
+        // The ride home (§14.7): the horses of the one job that has it.
+        ShellConfig.Ride ride = null;
+        int rideJob = -1;
+        for (int j = 0; j < jobs; j++) {
+            ShellConfig.Ride rj = s.endingFor(j).ride();
+            if (rj != null) {
+                if (ride != null) {
+                    throw new ConvertException("config/shell.json: two jobs ride home; the ROM has one ride");
+                }
+                ride = rj;
+                rideJob = j;
+            }
+        }
+        if (ride != null) {
+            SpriteData horse = c.sprites().get(ride.sprite());
+            Map<String, byte[]> hf = horse.decode(ride.sprite());
+            for (List<String> set : List.of(ride.valeHorse(), ride.jonesHorse(), ride.valeRiding(), ride.jonesRiding())) {
+                if (set.size() != ride.valeHorse().size()) {
+                    throw new ConvertException("config/shell.json: the ride's frame lists differ in length");
+                }
+                for (String f : set) {
+                    image("HORSE_" + Gen.cName(f), hf.get(f), horse);
+                }
+            }
         }
         SpriteData plane = c.sprites().get(intro.plane().sprite());
         Map<String, byte[]> planeF = plane.decode(intro.plane().sprite());
@@ -172,6 +204,82 @@ public final class Scenes {
         str("STR_ENDING_PROMPT", e.prompt());
         lines("ENDING_LINES", e.lines());
 
+        // §14.9: each job's ending (ShellConfig.endingFor: the game's, its words and beats laid over),
+        // its amulet, its "the end", and Mr Jones's offer of it after the roll.
+        h.append("\n// Job j's ending, roll and offer (shell.json's newGamePlus).\n");
+        int[] linesAt = new int[jobs];
+        int[] linesN = new int[jobs];
+        int[] tuneAt = new int[jobs];
+        int[] promptAt = new int[jobs];
+        int[] theEnd = new int[jobs];
+        int[] offerAt = new int[jobs];
+        int[] offerN = new int[jobs];
+        int[] offerPrompt = new int[jobs];
+        for (int j = 0; j < jobs; j++) {
+            ShellConfig.Ending ej = s.endingFor(j);
+            if (j == 0) {
+                linesAt[j] = (int) defined("ENDING_LINES");
+            } else {
+                linesAt[j] = bin.size();
+                lines("ENDING_LINES_J" + j, ej.lines());
+            }
+            linesN[j] = ej.lines().size();
+            tuneAt[j] = Math.max(1, ej.tuneAt());
+            promptAt[j] = ej.promptAt();
+            String end = s.theEndFor(j);
+            if (end.length() > BIG_CHARS) {
+                throw new ConvertException("config/shell.json: \"" + end + "\" is wider than the screen");
+            }
+            theEnd[j] = bin.size();
+            str("STR_THE_END_" + j, end);
+            ShellConfig.Offer offer = s.newGamePlus().levels().get(j).offer();
+            if (offer == null) {
+                offerAt[j] = 0;
+                offerN[j] = 0;
+                offerPrompt[j] = 0;
+            } else {
+                offerAt[j] = bin.size();
+                lines("OFFER_LINES_J" + j, offer.lines());
+                offerN[j] = offer.lines().size();
+                offerPrompt[j] = offer.promptAt();
+            }
+        }
+        macro("ENDING_LINES(j)", linesAt);
+        macro("ENDING_LINES_N(j)", linesN);
+        macro("ENDING_TUNE_AT(j)", tuneAt);
+        macro("ENDING_PROMPT_AT(j)", promptAt);
+        macro("STR_THE_END(j)", theEnd);
+        macro("OFFER_LINES(j)", offerAt);
+        macro("OFFER_LINES_N(j)", offerN);
+        macro("OFFER_PROMPT_AT(j)", offerPrompt);
+        macro("SCI_QUARTER(j)", quarter);
+        def("ENDING_RIDE_JOB", rideJob);
+        if (ride != null) {
+            // EndingScreen.paintHorses, the moves a tick at a time: the horses trotting in, the gallop away.
+            def("RIDE_EVERY", ride.ticksPerFrame());
+            def("RIDE_FRAMES", ride.valeHorse().size());
+            def("RIDE_COME_AT", ride.comeAt());
+            def("RIDE_COME_TICKS", ride.comeTicks());
+            def("RIDE_MOUNT_AT", ride.mountAt());
+            def("RIDE_AT", ride.rideAt());
+            def("RIDE_TICKS", ride.rideTicks());
+            def("SCI_HORSE_VALE", images.get("HORSE_" + Gen.cName(ride.valeHorse().get(0)))[0]);
+            def("SCI_HORSE_JONES", images.get("HORSE_" + Gen.cName(ride.jonesHorse().get(0)))[0]);
+            def("SCI_RIDE_VALE", images.get("HORSE_" + Gen.cName(ride.valeRiding().get(0)))[0]);
+            def("SCI_RIDE_JONES", images.get("HORSE_" + Gen.cName(ride.jonesRiding().get(0)))[0]);
+            int valeAt = e.vale().toX();
+            int jonesAt = e.jones().x();
+            def("RIDE_COME_PATH", bin.size());   // per tick: Vale's horse x, Mr Jones's
+            for (int k = 0; k < ride.comeTicks(); k++) {
+                u16(ride.fromX() + (valeAt - ride.fromX()) * k / ride.comeTicks() - ox);
+                u16(ride.fromX() + (jonesAt - ride.fromX()) * k / ride.comeTicks() - ox);
+            }
+            def("RIDE_SHIFT_PATH", bin.size());   // per tick of the gallop: how far they are
+            for (int k = 0; k <= ride.rideTicks(); k++) {
+                u16((ride.toX() - valeAt) * k / ride.rideTicks());
+            }
+        }
+
         // The intro (IntroScreen).
         h.append("\n// The intro (shell.json's attract.intro): its backdrop, the plane's way, its words.\n");
         backdrop("INTRO", intro.backdrop());
@@ -232,7 +340,7 @@ public final class Scenes {
         ShellConfig.Credits cr = s.credits();
         ShellConfig.Roll roll = cr.roll();
         List<String> msx = msxCredits();
-        rollRows.add(roll.theEnd());
+        rollRows.add(roll.theEnd());   // the game's; a later job's own in its place (STR_THE_END(j))
         rollRows.addAll(roll.before());
         rollRows.add(cr.heading());
         rollRows.add("");
@@ -497,7 +605,22 @@ public final class Scenes {
         }
     }
 
+    private final Map<String, Long> defined = new java.util.HashMap<>();
+
+    private long defined(String name) {
+        Long v = defined.get(name);
+        if (v == null) {
+            throw new ConvertException("Scenes: " + name + " is not defined yet");
+        }
+        return v;
+    }
+
+    private void macro(String name, int[] values) {
+        h.append("#define ").append(name).append('\t').append(Shell.chain("j", values)).append('\n');
+    }
+
     private void def(String name, long v) {
+        defined.put(name, v);
         h.append("#define ").append(name).append('\t').append(v).append('\n');
     }
 

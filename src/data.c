@@ -851,11 +851,11 @@ void Data_ShellBytes(u16 at, u8* out, u8 n)
 	SET_BANK_SEGMENT(ROM_DATA_BANK, g_CodeSeg);
 }
 
-void Data_LoadShellImages()
+// n images of a blob in segment seg, from src (its header and bytes each).
+static void LoadImages(u8 seg, const u8* src, u8 n)
 {
-	SET_BANK_SEGMENT(ROM_DATA_BANK, SHELL_IMG_BIN_SEG);
-	const u8* src = (const u8*)(ROM_DATA_ADDR + SHELL_IMG_BIN_REL);
-	for (u8 i = 0; i < SHELL_IMAGES; i++)
+	SET_BANK_SEGMENT(ROM_DATA_BANK, seg);
+	for (u8 i = 0; i < n; i++)
 	{
 		u8 x = src[0];
 		u16 y = SHELL_VRAM_LINE + (src[1] | (u16)src[2] << 8);
@@ -871,6 +871,24 @@ void Data_LoadShellImages()
 		}
 	}
 	SET_BANK_SEGMENT(ROM_DATA_BANK, g_CodeSeg);
+}
+
+void Data_LoadShellImages()
+{
+	LoadImages(SHELL_IMG_BIN_SEG, (const u8*)(ROM_DATA_ADDR + SHELL_IMG_BIN_REL), SHELL_IMAGES);
+}
+
+void Data_LoadJobImages(u8 job)
+{
+	if (job == 0)
+	{
+		Data_LoadShellImages();   // the game's own quarters are among them
+		return;
+	}
+	const u8* src = (const u8*)(ROM_DATA_ADDR + SHELL_JOBS_BIN_REL);
+	while (--job)
+		src += SHELL_JOB_IMG_BYTES;
+	LoadImages(SHELL_JOBS_BIN_SEG, src, SHELL_JOB_IMAGES);
 }
 
 // The text being put together: shell.bin's strings, digits, characters.
@@ -1159,6 +1177,8 @@ u8 Data_ShellKeys()
 		k |= SK_DIFF;
 	if (Key(KEY_RETURN))
 		k |= SK_ENTER;
+	if (Key(JOB_KEY))
+		k |= SK_JOB;
 	for (u8 r = 0; r < 11; r++)
 		if (KeyRow(r) != 0xFF)
 			k |= SK_ANY;

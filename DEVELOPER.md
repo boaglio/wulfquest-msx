@@ -88,8 +88,8 @@ the Java game's `Content.load` and writes `build/gen/`:
 | `ways_N.bin` | the looking glass's way out of each room, for every amulet set and state of the quarters taken (M8, `Wayfinder`) |
 | `frames.bin` | the sprite bank's frames' numbers: where each starts, its chunk, blocks and origin (read on demand: RAM is short) |
 | `panel_data.h`, `font.bin`, `panel.bin` | the panel (M9, `Panel`): the big and small fonts, the half-size quarters and a life's head, the strings (the hints as `GameSession.hint` words them), the colours |
-| `shell_data.h`, `shell.bin`, `shell_img.bin` | the shell (M10, `Shell`): every string its screens show, the hi-score table a new machine has, each room's 16x11 miniature for the map, the attract demo's input; the images it copies from video RAM (page 3, below the scenery: the menu's wolf, the map's marks, the quarters at the reveal's scale, the wordmark's stencils) |
-| `scenes_data.h`, `scenes.bin`, `scenes_img.bin`, `roll.txt` | the scenes (M12, `Scenes`): the closing scene, the tally, the credits roll and the plane's intro from `shell.json`, moved onto the MSX2's screen; the backdrops as clipped copies from the scenery atlas, the moves a tick at a time, the typed lines; the figures' images (loaded into the atlas's video RAM while a scene plays); the roll's rows as the ROM shows them, the MSXgl credit included (`msx_credits.txt`) |
+| `shell_data.h`, `shell.bin`, `shell_img.bin`, `shell_jobs.bin` | the shell (M10, `Shell`): every string its screens show, the hi-score table a new machine has, each room's 16x11 miniature for the map, the attract demo's input; the images it copies from video RAM (page 3, below the scenery: the menu's wolf, the map's marks, the quarters at the reveal's scale, the wordmark's stencils); the later jobs' quarters at the reveal's scale, loaded over the game's when a game of that job reveals (M12); each job's label, tagline and verses |
+| `scenes_data.h`, `scenes.bin`, `scenes_img.bin`, `roll.txt` | the scenes (M12, `Scenes`): the closing scene, the tally, the credits roll and the plane's intro from `shell.json`, moved onto the MSX2's screen; the backdrops as clipped copies from the scenery atlas, the moves a tick at a time, the typed lines; the figures' images (loaded into the atlas's video RAM while a scene plays: each job's amulet, the last job's horses); each job's ending, "the end" and offer (`ENDING_LINES(j)` and the like); the roll's rows as the ROM shows them, the MSXgl credit included (`msx_credits.txt`) |
 | `demo_check.txt`, `demo_map.bin` | for `test/shell.sh`: where the Java game ends given the demo's keys, and its map screen there, a byte a pixel |
 | `sound_data.h`, `sound50.bin`, `sound60.bin` | the sound (M9, `Sound`): every effect and tune as the PSG's entries a frame, for each interrupt rate; each sound's number, priority, loop |
 | `quest_data.h` | the quest and the Wulf (M7, `Quest`): the amulet's sets, the lairs, the guardians, the Keeper, the way out, the original's Wulf; their tables are in `tables.h` |
@@ -279,6 +279,16 @@ ignores it, so the submodule stays clean.
   system ROM is not free: put it (`NMS8245SystemROM1.08.bin`, or 1.06, 1.05)
   in `roms/`, which git ignores; the test links it into openMSX's
   `systemroms` and is skipped without it.
+- **`test/endings.sh`** (M12) plays the three endings from a new machine's
+  title: each job's game, its reveal, its win brought on (the escape's walk),
+  its closing scene, tally, the roll's top and Mr Jones's offer; the title
+  then has the job opened. `check_endings.py` reads the words with the ROM's
+  font, compares the reveal's and the closing scene's amulet with the job's
+  own pictures, and finds the last ending's horses where `EndingScreen` puts
+  them. A generated header's chain macros (`JOB_MASK(j, p)` and the like) are
+  read with `test/cmacro.py`.
+- **`test/game.json`** has a win in each later job (`"job": N`, M12), tick
+  for tick against the Java game's `Content.ecosystem(N, easy)`.
 - **`test/boot.sh`**, **`rooms.sh`** and **`sprites.sh`** start from the title
   (M10): boot checks it comes first, then each presses Space for a game.
 - **`test/gate.sh`** checks the binaries gate in a scratch repository: it

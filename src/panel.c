@@ -215,7 +215,7 @@ static bool Want()
 	{
 		s_Slots = g_QuestSlots;
 		for (u8 k = 0; k < QUEST_SLOTS; k++)
-			Put(C_AMULET + k, (s_Slots & (1 << k)) ? IMAGE_QUARTER + k : IMAGE_QUARTER_DIM + k);
+			Put(C_AMULET + k, (s_Slots & (1 << k)) ? IMAGE_QUARTER(g_Job) + k : IMAGE_QUARTER_DIM(g_Job) + k);
 	}
 	// The bottom line: a shrine's hint, the debug line, or the flower's bar.
 	u8 msg = 0xFF;
