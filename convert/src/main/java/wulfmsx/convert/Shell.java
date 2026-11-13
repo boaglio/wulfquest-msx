@@ -89,6 +89,9 @@ public final class Shell {
         def("MAP_ICON_SHINY", s.map().quarterIcon().shiny().size());
         def("MAP_ARCH_TICKS", s.map().exitIcon().frameTicks());
         def("MAP_ARCH_OPEN", s.map().exitIcon().open().size());
+        // The looking glass's trail (MapScreen.paintTrail): a dot every dotEveryPx pixels, marching.
+        def("MAP_TRAIL_DOT_EVERY", s.map().trail().dotEveryPx());
+        def("MAP_TRAIL_MARCH_TICKS", s.map().trail().marchTicks());
         def("CYCLE_TICKS", s.title().cycle().ticksPerStep());
         def("CYCLE_STEPS", s.title().cycle().colours().size());
         h.append("#define CYCLE_COLOURS\t").append(colours(s.title().cycle().colours())).append('\n');
@@ -119,6 +122,7 @@ public final class Shell {
         def("INK_MAP_VISITED", colour(s.map().visited()));
         def("INK_MAP_REVEALED", colour(s.map().revealed()));
         def("INK_MAP_HERE", colour(s.map().here()));
+        def("INK_MAP_TRAIL", colour(s.map().trail().colour()));
         if (colour("black") != 15) {
             throw new ConvertException("the title's colour cycle ORs a stencil over a band: black must be colour 15, "
                     + "it is " + colour("black"));
@@ -620,6 +624,9 @@ public final class Shell {
         int demoTicks = ticks;
         // And the map screen (MapScreen) for that game, opened as the demo ends, at its first tick.
         demoMap = mapOf(sim);
+        // And the looking glass's trail over it, had he one (M12): the ROM's search (Trail), and
+        // how much of the Java game's own way it shares, for test/trail.sh.
+        demoTrail = trailOf(sim, world);
         // What test/shell.sh checks the ROM's demo against: where it ends.
         demoCheck = String.format("demo ticks %d room %d x %d y %d score %d lives %d%n", demoTicks,
                 sim.room().index(), sim.player().xFp(), sim.player().yFp(), sim.score(), sim.player().lives());
@@ -631,6 +638,52 @@ public final class Shell {
     }
 
     private final byte[] demoMap;
+    private final String demoTrail;
+
+    private String trailOf(Simulation sim, WorldGrid world) {
+        wulf.data.PlayerData.Box feet = c.player().collisionBox();
+        Trail trail = new Trail(world, c.landmarks(), feet);
+        LandmarksData marks = sim.landmarks();
+        int set = marks.amuletSet();
+        int done = 0;
+        for (int i = 0; i < marks.lairs().size(); i++) {
+            done |= sim.quest().taken(i) ? 1 << i : 0;
+        }
+        int x = wulf.engine.Fixed.px(sim.player().xFp());
+        int y = wulf.engine.Fixed.px(sim.player().yFp());
+        List<Integer> mine = Trail.pixels(trail.route(set, done, sim.room().index(), x, y, 1 << 16));
+        // The Java game's (WayPainter.route: Wayfinder over the whole jungle).
+        wulf.world.Wayfinder finder = new wulf.world.Wayfinder(world);
+        List<Integer> targets = new ArrayList<>();
+        for (int i = 0; i < marks.lairs().size(); i++) {
+            if (!sim.quest().taken(i)) {
+                LandmarksData.Lair l = marks.lairs().get(i);
+                wulf.world.RoomAddress r = LandmarksData.room(l.room());
+                targets.add(finder.nearest(null, Math.floorDiv(r.col() * 256 + l.pedestal().x() + feet.x(), 8),
+                        Math.floorDiv(r.row() * 176 + l.pedestal().y() + feet.y(), 8), Trail.NEAR));
+            }
+        }
+        int[] dist = finder.distances(targets.stream().mapToInt(Integer::intValue).toArray());
+        int from = finder.nearest(dist, Math.floorDiv(x + feet.x(), 8), Math.floorDiv(y + feet.y(), 8), Trail.NEAR);
+        List<int[]> jc = new ArrayList<>();
+        for (int cell : finder.path(dist, from)) {
+            jc.add(new int[] {wulf.world.Wayfinder.gx(cell), wulf.world.Wayfinder.gy(cell)});
+        }
+        List<Integer> java = Trail.pixels(jc);
+        java.util.Set<Integer> js = new java.util.HashSet<>(java);
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format("trail set %d done %d whole %d pixels %d java %d shared %d%n", set, done,
+                trail.whole ? 1 : 0, mine.size(), java.size(), mine.stream().filter(js::contains).count()));
+        for (int px : mine) {
+            sb.append(px % 256).append(' ').append(px / 256).append('\n');
+        }
+        return sb.toString();
+    }
+
+    /** The trail over the demo's map, as the ROM finds it: for test/trail.sh. */
+    public String demoTrail() {
+        return demoTrail;
+    }
 
     /** The Java game's map screen over {@code sim}: the playfield, a byte a pixel, in colour numbers. */
     private byte[] mapOf(Simulation sim) {

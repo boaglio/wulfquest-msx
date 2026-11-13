@@ -27,6 +27,7 @@
 #include "tables.h"
 #include "save.h"
 #include "scenes.h"
+#include "trail.h"
 #include "scenes_data.h"
 
 u8  g_Shell = SH_TITLE;
@@ -39,6 +40,7 @@ u8  g_Profile = 0;
 u8  g_PageShown = 0;
 u8  g_DrawPage = 0;
 u8  g_TestMapOpen = 0;
+u8  g_TestMapHold = 0;   // test/trail.sh: the map held between its ticks
 u8  g_Booted = 0;   // A5h once the shell is up: the tests wait for it (RAM is anything before)
 
 // The hi-score table, ranked (HighScores): HISCORE_SIZE rows of a name,
@@ -456,6 +458,10 @@ static u8 SceneOf(u8 state)
 static void Go(u8 next)
 {
 	u8 from = g_Shell;
+	if (from == SH_MAP)
+		TRAIL(Trail_Stop);   // Vale's room's cells back if the trail was being found
+	if (next == SH_TITLE)
+		g_TrailKey = 0xFF;   // the scenes and the roll draw where its steps are kept
 	if (g_Scene != SCENE_NONE && SceneOf(next) != g_Scene)
 		SCENES(Scenes_Leave);   // the atlas back, the screen's scroll back
 	if (next == SH_TITLE && from != SH_TITLE)
@@ -1364,6 +1370,14 @@ static u8 s_IconStep;   // the quarters' shiny frame
 static u8 s_IconT;
 static u8 s_ArchStep;   // the arch's open frame
 static u8 s_ArchT;
+static u8 s_TrailOn;    // the glass shows the way: its trail (MapScreen.paintTrail)
+static u8 s_March;      // which pixels of it are dots: those whose number is this, modulo the dots' spacing
+static u8 s_MarchT;
+static u8 s_Shown;      // the phase its dots on screen have (held while it is being found)
+static u16 s_CurN;      // being found: the pixels drawn so far, and where the next one is
+static u8 s_CurU;
+static u8 s_CurV;
+static u8 s_CurPh;
 
 static u8 Visited(u8 room)
 {
@@ -1377,7 +1391,386 @@ static void Icon(u16 sx, u8 room, u8 w, u8 h, u8 ox, u8 oy)
 		(i16)((row << 3) + (row << 1) + row) + MINI_H - oy);
 }
 
+// A pixel of the map on the page, by the processor (the VDP idle).
+static void Px(u8 u, u8 v, u8 ink)
+{
+	u16 addr = ((u16)s_Page << 15) + ((u16)v << 7) + (u >> 1);
+	u8 b;
+	Data_VramRead(addr, &b, 1);
+	b = (u & 1) ? (u8)((b & 0xF0) | ink) : (u8)((b & 0x0F) | (ink << 4));
+	Data_VramWrite(addr, &b, 1);
+}
+
+// The rooms whose marks move or blink (the lairs', the arch's, his): drawn
+// again whole when the trail changes in them; the rest have only their ground.
+static u8 s_Special[LAIRS + 2];
+
+static u8 Special(u8 room)
+{
+	for (u8 i = 0; i < LAIRS + 2; i++)
+		if (s_Special[i] == room)
+			return TRUE;
+	return FALSE;
+}
+
+// What the map has under a trail's pixel of an ordinary room: its miniature's ink, or the ground.
+static u8 s_MiniRoom;
+static u8 Under(u8 u, u8 v, u8 room, u8 top)
+{
+	u8 visited = Visited(room);
+	if (!visited && !g_MapTaken)
+		return INK_GROUND;
+	if (s_MiniRoom != room)
+	{
+		Data_ShellBytes(MAP_MINIS + ((u16)room << 4) + ((u16)room << 2) + ((u16)room << 1), g_Scratch, MINI_BYTES);
+		s_MiniRoom = room;
+	}
+	u8 x = u & 15;
+	u8 y = v - top;
+	if (!(g_Scratch[(y << 1) + (x >> 3)] & (0x80 >> (x & 7))))
+		return INK_GROUND;
+	return visited ? INK_MAP_VISITED : INK_MAP_REVEALED;
+}
+
+// paintTrail: the trail's pixels of a phase (MAP_TRAIL_DOT_EVERY apart):
+// drawn (TRAIL_DRAW, within a rectangle), or the map under
+// them put back (TRAIL_UNDER, in ordinary rooms). Then, drawing, the cross
+// where it ends, blinking with his room.
+#define TRAIL_DRAW	0
+#define TRAIL_UNDER	1
+static u8 s_X0, s_Y0, s_X1, s_Y1;
+static void TrailDots(u8 how, u8 phase)
+{
+	Data_VdpWait();
+	u8 u = g_TrailX0;
+	u8 v = g_TrailY0;
+	u8 top = 0;   // the top of the row of rooms v is in, and the row
+	u8 row = 0;
+	while (v >= top + MINI_H)
+	{
+		top += MINI_H;
+		row++;
+	}
+	u8 ph = 0;    // the pixel's number modulo MAP_TRAIL_DOT_EVERY
+	const u8* step = g_TrailSteps;
+	u8 bits = 0;
+	for (u16 n = 0; n < g_TrailN; n++)
+	{
+		if (n)
+		{
+			if (((n - 1) & 3) == 0)
+				bits = *step++;
+			u8 d = bits & 3;
+			bits >>= 2;
+			if (d == 0)
+				u++;
+			else if (d == 1)
+				u--;
+			else if (d == 2)
+			{
+				if (++v == top + MINI_H)
+				{
+					top += MINI_H;
+					row++;
+				}
+			}
+			else if (v-- == top)
+			{
+				top -= MINI_H;
+				row--;
+			}
+		}
+		if (ph == phase)
+		{
+			if (how == TRAIL_DRAW)
+			{
+				if (u >= s_X0 && u <= s_X1 && v >= s_Y0 && v <= s_Y1)
+					Px(u, v, INK_MAP_TRAIL);
+			}
+			else
+			{
+				u8 room = (row << 4) | (u >> 4);
+				if (!Special(room))
+					Px(u, v, Under(u, v, room, top));
+			}
+		}
+		if (++ph == MAP_TRAIL_DOT_EVERY)
+			ph = 0;
+	}
+	if (how == TRAIL_DRAW && g_TrailWhole && g_TrailN && s_Blink)
+	{
+		for (i8 d = -2; d <= 2; d++)
+		{
+			i16 x = (i16)u + d;
+			i16 y = (i16)v + d;
+			if (x >= s_X0 && x <= s_X1 && v >= s_Y0 && v <= s_Y1)
+				Px((u8)x, v, INK_MAP_TRAIL);
+			if (y >= s_Y0 && y <= s_Y1 && y < PLAYFIELD_H && u >= s_X0 && u <= s_X1)
+				Px(u, (u8)y, INK_MAP_TRAIL);
+		}
+	}
+}
+
+static void Within(u8 x0, u8 y0, u8 x1, u8 y1)
+{
+	s_X0 = x0;
+	s_Y0 = y0;
+	s_X1 = x1;
+	s_Y1 = y1;
+}
+
+static u8 Touched(u8 room)
+{
+	return g_TrailRooms[room >> 3] & (1 << (room & 7));
+}
+
+// The trail found, an index of it by room (in the flood's marks, free then):
+// each stretch of it in a room, its room, first pixel's number (and its phase)
+// and place. A room drawn again then draws only its own stretches.
+#define RUN_BYTES	6
+#define RUNS_MAX	((TRAIL_CELLS + TRAIL_CELLS * 2) / RUN_BYTES)
+static __at(RAM_TRAIL_MARK) u8 s_Run[RUNS_MAX * RUN_BYTES];
+static u16 s_Runs;   // 0: no index yet
+static u8 s_EndU;    // where the trail ends: the cross
+static u8 s_EndV;
+
+static void TrailIndex()
+{
+	u8 u = g_TrailX0;
+	u8 v = g_TrailY0;
+	u8 top = 0;
+	u8 row = 0;
+	while (v >= top + MINI_H)
+	{
+		top += MINI_H;
+		row++;
+	}
+	u8 ph = 0;
+	u8 last = 0xFF;
+	const u8* step = g_TrailSteps;
+	u8 bits = 0;
+	u8* r = s_Run;
+	s_Runs = 0;
+	for (u16 n = 0; n < g_TrailN; n++)
+	{
+		if (n)
+		{
+			if (((n - 1) & 3) == 0)
+				bits = *step++;
+			u8 d = bits & 3;
+			bits >>= 2;
+			if (d == 0)
+				u++;
+			else if (d == 1)
+				u--;
+			else if (d == 2)
+			{
+				if (++v == top + MINI_H)
+				{
+					top += MINI_H;
+					row++;
+				}
+			}
+			else if (v-- == top)
+			{
+				top -= MINI_H;
+				row--;
+			}
+		}
+		u8 room = (row << 4) | (u >> 4);
+		if (room != last)
+		{
+			if (s_Runs == RUNS_MAX)
+			{
+				s_Runs = 0;   // too many: rooms drawn from the whole trail
+				return;
+			}
+			r[0] = room;
+			r[1] = (u8)n;
+			r[2] = (u8)(n >> 8);
+			r[3] = ph;
+			r[4] = u;
+			r[5] = v;
+			r += RUN_BYTES;
+			s_Runs++;
+			last = room;
+		}
+		if (++ph == MAP_TRAIL_DOT_EVERY)
+			ph = 0;
+	}
+	s_EndU = u;
+	s_EndV = v;
+}
+
+// The trail's dots in a room, and the cross's pixels there.
+static void TrailRoom(u8 room)
+{
+	u8 x = (room & 15) << 4;
+	u8 row = room >> 4;
+	u8 y = (row << 3) + (row << 1) + row;
+	Within(x, y, x + MINI_W - 1, y + MINI_H - 1);
+	if (!s_Runs)
+	{
+		TrailDots(TRAIL_DRAW, s_Shown);
+		return;
+	}
+	Data_VdpWait();
+	const u8* r = s_Run;
+	for (u16 k = 0; k < s_Runs; k++, r += RUN_BYTES)
+	{
+		if (r[0] != room)
+			continue;
+		u16 n = r[1] | ((u16)r[2] << 8);
+		u16 end = k + 1 < s_Runs ? (r[RUN_BYTES + 1] | ((u16)r[RUN_BYTES + 2] << 8)) : g_TrailN;
+		u8 ph = r[3];
+		u8 u = r[4];
+		u8 v = r[5];
+		for (;;)
+		{
+			if (ph == s_Shown)
+				Px(u, v, INK_MAP_TRAIL);
+			if (++n == end)
+				break;
+			if (++ph == MAP_TRAIL_DOT_EVERY)
+				ph = 0;
+			u16 i = n - 1;
+			u8 d = (g_TrailSteps[i >> 2] >> ((i & 3) << 1)) & 3;
+			if (d == 0)
+				u++;
+			else if (d == 1)
+				u--;
+			else if (d == 2)
+				v++;
+			else
+				v--;
+		}
+	}
+	if (g_TrailWhole && s_Blink)
+	{
+		// The cross where it ends, within the room.
+		u8 u = s_EndU;
+		u8 v = s_EndV;
+		for (i8 d = -2; d <= 2; d++)
+		{
+			i16 cx = (i16)u + d;
+			i16 cy = (i16)v + d;
+			if (cx >= s_X0 && cx <= s_X1 && v >= s_Y0 && v <= s_Y1)
+				Px((u8)cx, v, INK_MAP_TRAIL);
+			if (cy >= s_Y0 && cy <= s_Y1 && cy < PLAYFIELD_H && u >= s_X0 && u <= s_X1)
+				Px(u, (u8)cy, INK_MAP_TRAIL);
+		}
+	}
+}
+
+// Being found: the pixels found since last time, their dots drawn (the phase on screen).
+static void TrailMore()
+{
+	Data_VdpWait();
+	for (; s_CurN < g_TrailN; s_CurN++)
+	{
+		if (s_CurN == 0)
+		{
+			s_CurU = g_TrailX0;
+			s_CurV = g_TrailY0;
+			s_CurPh = 0;
+		}
+		else
+		{
+			u16 i = s_CurN - 1;
+			u8 d = (g_TrailSteps[i >> 2] >> ((i & 3) << 1)) & 3;
+			if (d == 0)
+				s_CurU++;
+			else if (d == 1)
+				s_CurU--;
+			else if (d == 2)
+				s_CurV++;
+			else
+				s_CurV--;
+			if (++s_CurPh == MAP_TRAIL_DOT_EVERY)
+				s_CurPh = 0;
+		}
+		if (s_CurPh == s_Shown)
+			Px(s_CurU, s_CurV, INK_MAP_TRAIL);
+	}
+}
+
+static void MapFrame(u8 room);
+static void MapBase(u8 room, u8 alone);
+
+// A room of the map: its ground, its marks, the trail over them, his frame over all (MapScreen.paint's order).
 static void MapCell(u8 room, u8 alone)
+{
+	MapBase(room, alone);
+	if (s_TrailOn && Touched(room))
+		TrailRoom(room);   // the dots of the phase on screen
+	MapFrame(room);
+	Data_VdpWait();
+}
+
+// The trail marched on (from phase old): its old dots off the ordinary rooms,
+// its new ones on, and the special rooms it touches drawn again whole.
+static void MapMarch(u8 old)
+{
+	s_MiniRoom = 0xFF;   // g_Scratch may have served another since
+	TrailDots(TRAIL_UNDER, old);
+	s_Shown = s_March;
+	Within(0, 0, 255, PLAYFIELD_H - 1);
+	TrailDots(TRAIL_DRAW, s_Shown);
+	for (u8 i = 0; i < LAIRS + 2; i++)
+	{
+		u8 r = s_Special[i];
+		u8 seen = FALSE;
+		for (u8 j = 0; j < i; j++)
+			seen |= s_Special[j] == r;
+		if (!seen && Touched(r))
+			MapCell(r, TRUE);
+	}
+}
+
+// The cross blinked: the rooms it lies in drawn again.
+static void MapCross()
+{
+	u8 u = g_TrailX0;
+	u8 v = g_TrailY0;
+	const u8* step = g_TrailSteps;
+	u8 bits = 0;
+	for (u16 n = 1; n < g_TrailN; n++)
+	{
+		if (((n - 1) & 3) == 0)
+			bits = *step++;
+		u8 d = bits & 3;
+		bits >>= 2;
+		u += d == 0 ? 1 : d == 1 ? 0xFF : 0;
+		v += d == 2 ? 1 : d == 3 ? 0xFF : 0;
+	}
+	u8 done[5];
+	u8 n = 0;
+	for (u8 k = 0; k < 5; k++)
+	{
+		i16 x = (i16)u + (k == 1 ? -2 : k == 2 ? 2 : 0);
+		i16 y = (i16)v + (k == 3 ? -2 : k == 4 ? 2 : 0);
+		if (x < 0 || x > 255 || y < 0 || y >= PLAYFIELD_H)
+			continue;
+		u8 row = 0;
+		u8 yy = (u8)y;
+		while (yy >= MINI_H)
+		{
+			yy -= MINI_H;
+			row++;
+		}
+		u8 room = (row << 4) | ((u8)x >> 4);
+		u8 seen = FALSE;
+		for (u8 j = 0; j < n; j++)
+			seen |= done[j] == room;
+		if (!seen)
+		{
+			MapCell(room, TRUE);
+			done[n++] = room;
+		}
+	}
+}
+
+static void MapBase(u8 room, u8 alone)
 {
 	if (alone || Visited(room) || g_MapTaken)
 	{
@@ -1426,6 +1819,11 @@ static void MapCell(u8 room, u8 alone)
 		u8 f = Quest_Quarters() >= EXIT_REQUIRES_PIECES ? 1 + s_ArchStep : 0;
 		Icon(IMG_ARCH_X + Times(f, IMG_ICON_STEP), room, IMG_ARCH_W, IMG_ARCH_H, IMG_ARCH_OX, IMG_ARCH_OY);
 	}
+}
+
+// The room he is in: its frame, blinking.
+static void MapFrame(u8 room)
+{
 	if (room == g_ValeRoom && s_Blink)
 	{
 		u8 x = (room & 15) << 4;
@@ -1436,7 +1834,6 @@ static void MapCell(u8 room, u8 alone)
 		Dot(x, y, 1, MINI_H, INK_MAP_HERE);
 		Dot(x + MINI_W - 1, y, 1, MINI_H, INK_MAP_HERE);
 	}
-	Data_VdpWait();
 }
 
 // The rooms whose marks move: the quarters' and the arch's.
@@ -1466,6 +1863,28 @@ static void DrawMap()
 	q = DivBy(s_PlayTick, MAP_ARCH_TICKS, &rem);
 	s_ArchT = rem;
 	DivBy(q, MAP_ARCH_OPEN, &s_ArchStep);
+	q = DivBy(s_PlayTick, MAP_TRAIL_MARCH_TICKS, &rem);
+	s_MarchT = rem;
+	DivBy(q, MAP_TRAIL_DOT_EVERY, &s_March);
+	// The glass shows the way (WayPainter.showing): its trail, found over the next ticks.
+	s_TrailOn = g_WayTicks > 0;
+	s_MiniRoom = 0xFF;
+	s_Runs = 0;
+	s_Shown = s_March;
+	s_CurN = 0;
+	for (u8 i = 0; i < LAIRS; i++)
+		s_Special[i] = g_LairRoom[Times(g_QuestSet, LAIRS) + i];
+	s_Special[LAIRS] = MAP_ARCH_ROOM;
+	s_Special[LAIRS + 1] = g_ValeRoom;
+	g_TrailN = 0;
+	g_TrailWhole = 0;
+	for (u8 i = 0; i < TRAIL_ROOM_BYTES; i++)
+		g_TrailRooms[i] = 0;
+	if (s_TrailOn)
+	{
+		g_TrailDone = Quest_Done();   // a later job's lairs without a piece count as taken
+		TRAIL(Trail_Start);
+	}
 
 	Begin(TRUE, FALSE);
 	Fill(0, 0, 256, PLAYFIELD_H, INK_GROUND);
@@ -1483,6 +1902,11 @@ static void DrawMap()
 
 static void Map()
 {
+	if (g_TestMapHold)
+	{
+		g_TestMapHold = 2;   // a test's dump: the map held still, its last tick done
+		return;
+	}
 	s_PlayTick++;
 	if (s_KeyPress & SK_MAP)
 	{
@@ -1512,16 +1936,53 @@ static void Map()
 			s_ArchStep = 0;
 		arch = Quest_Quarters() >= EXIT_REQUIRES_PIECES;
 	}
+	u8 blink = FALSE;
 	if (++s_BlinkT >= MAP_BLINK_TICKS)
 	{
 		s_BlinkT = 0;
 		s_Blink ^= 1;
+		blink = TRUE;
 		MapCell(g_ValeRoom, TRUE);
 	}
 	if (quarters || arch)
 		MapMarks(quarters, arch);
 	if (quarters || arch)
 		MapCell(g_ValeRoom, TRUE);   // its frame over any mark
+	if (!s_TrailOn)
+		return;
+	// The trail: found a little more each tick (its new dots drawn as they
+	// come), marching, its cross blinking.
+	u8 march = FALSE;
+	if (++s_MarchT >= MAP_TRAIL_MARCH_TICKS)
+	{
+		s_MarchT = 0;
+		if (++s_March >= MAP_TRAIL_DOT_EVERY)
+			s_March = 0;
+		march = TRUE;
+	}
+	if (g_TrailStage != TRAIL_IDLE && g_TrailStage != TRAIL_DONE)
+	{
+		// Being found: its new pixels' dots drawn, in the phase on screen; no marching yet.
+		TRAIL(Trail_Step);
+		if (g_TrailN != s_CurN)
+		{
+			TrailMore();
+			MapFrame(g_ValeRoom);
+			Data_VdpWait();
+		}
+		if (g_TrailStage != TRAIL_DONE)
+			return;
+		TrailIndex();
+		if (s_Shown != s_March)
+			MapMarch(s_Shown);   // found: in step with the ticks from now on
+		if (g_TrailWhole)
+			MapCross();
+		return;
+	}
+	if (march && g_TrailN)
+		MapMarch(s_Shown);
+	if (blink && g_TrailWhole)
+		MapCross();
 }
 
 //-----------------------------------------------------------------------------

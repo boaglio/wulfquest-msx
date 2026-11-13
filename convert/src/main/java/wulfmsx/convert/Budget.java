@@ -66,6 +66,17 @@ public final class Budget {
         return n;
     }
 
+    /** The space each data segment in use has left, in segment order (the trail's pieces fill them). */
+    public List<Integer> holes() {
+        List<Integer> out = new ArrayList<>();
+        for (int s = CODE_SEGMENTS; s < BANKED_CODE_FIRST; s++) {
+            if (used[s] > 0 && used[s] < SceneryAtlas.CHUNK_BYTES) {
+                out.add(SceneryAtlas.CHUNK_BYTES - used[s]);
+            }
+        }
+        return out;
+    }
+
     public int freeSegments() {
         int n = 0;
         for (int s = CODE_SEGMENTS; s < BANKED_CODE_FIRST; s++) {
@@ -105,6 +116,7 @@ public final class Budget {
         List<Place> scenery = new ArrayList<>();
         List<Place> sprites = new ArrayList<>();
         List<Place> inked = new ArrayList<>();
+        List<Place> trail = new ArrayList<>();
         for (Place p : places) {
             String n = Gen.cName(p.blob().file());
             sb.append("#define ").append(n).append("_SEG\t").append(p.segment()).append('\n');
@@ -118,6 +130,9 @@ public final class Budget {
             }
             if (p.blob().file().startsWith("player_inked_")) {
                 inked.add(p);
+            }
+            if (p.blob().file().startsWith("trail_")) {
+                trail.add(p);
             }
         }
         scenery.sort(Comparator.comparing(p -> p.blob().file()));
@@ -157,6 +172,19 @@ public final class Budget {
             sb.append(' ').append(p.offset()).append(',');
         }
         sb.append(" 0 };\n");
+        if (!trail.isEmpty()) {
+            trail.sort(Comparator.comparingInt(p -> Integer.parseInt(p.blob().file().replaceAll("\\D", ""))));
+            sb.append("\n// The rooms' openings for the glass's trail, piece by piece (trail_data.h).\n");
+            sb.append("static const unsigned char g_TrailPieceSeg[] = {");
+            for (Place p : trail) {
+                sb.append(' ').append(p.segment()).append(',');
+            }
+            sb.append(" };\nstatic const unsigned short g_TrailPieceRel[] = {");
+            for (Place p : trail) {
+                sb.append(' ').append(p.offset()).append(',');
+            }
+            sb.append(" };\n");
+        }
         return sb.toString();
     }
 

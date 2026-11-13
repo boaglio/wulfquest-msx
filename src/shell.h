@@ -75,3 +75,4 @@ extern u8 g_DrawPage;
 extern u16 g_DemoTicks;
 extern u8 g_Booted;
 extern u8 g_TestMapOpen;
+extern u8 g_TestMapHold;   // test/trail.sh: the map held between its ticks

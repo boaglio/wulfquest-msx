@@ -98,6 +98,7 @@ public final class Convert {
         Gen.write(out.resolve("roll.txt"), String.join("\n", scenes.rollRows()) + "\n");
         Gen.write(out.resolve("demo_check.txt"), shell.demoCheck());
         Gen.write(out.resolve("demo_map.bin"), shell.demoMap());
+        Gen.write(out.resolve("demo_trail.txt"), shell.demoTrail());
         Gen.write(out.resolve("tables.h"), tables.header());
         Gen.write(out.resolve("sprites.txt"), sprites.listing());
         Gen.write(out.resolve("sprites.png"), sprites.picture());
@@ -159,7 +160,19 @@ public final class Convert {
         blobs.add(new Budget.Blob("map_0.bin", map.first().length));
         Gen.write(out.resolve("map_1.bin"), map.rest());
         blobs.add(new Budget.Blob("map_1.bin", map.rest().length));
+        // The glass's trail's openings (M12): cut into the space the rest leaves, segments free kept free.
+        Trail trail = new Trail(new WorldGrid(c.rooms()), c.landmarks(), c.player().collisionBox());
+        Budget base = new Budget(blobs);
+        List<byte[]> pieces = trail.pieces(base.holes());
+        for (int i = 0; i < pieces.size(); i++) {
+            Gen.write(out.resolve("trail_" + i + ".bin"), pieces.get(i));
+            blobs.add(new Budget.Blob("trail_" + i + ".bin", pieces.get(i).length));
+        }
+        Gen.write(out.resolve("trail_data.h"), trail.header());
         Budget budget = new Budget(blobs);
+        if (budget.freeSegments() != base.freeSegments()) {
+            throw new ConvertException("the trail's openings took a segment of their own");
+        }
         Gen.write(out.resolve("rom.h"), budget.header());
         Gen.write(out.resolve("rawfiles.json"), budget.rawFilesJson());
 

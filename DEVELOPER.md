@@ -86,11 +86,12 @@ the Java game's `Content.load` and writes `build/gen/`:
 | `game_data.h`, `rooms_more.bin` | the rest of the game (M8, `Game`): orchids, effects, flame, treasures, items, shrines, score, Easy; and 16 bytes a room: its orchid's spot, its treasures' places, a shrine, the beasts' spot |
 | `player_inked_N.bin` | Vale in each untouchable flower's colours (M8), a segment a flower, laid out as `player_frames.bin` |
 | `ways_N.bin` | the looking glass's way out of each room, for every amulet set and state of the quarters taken (M8, `Wayfinder`) |
+| `trail_data.h`, `trail_N.bin` | the rooms' openings for the glass's trail on the map (M12, `Trail`): each room's openings' other sides and edges and the steps between them, cut into pieces that fill the space the other blobs leave (`Budget.holes`); `rom.h`'s `g_TrailPieceSeg` and `g_TrailPieceRel` say where |
 | `frames.bin` | the sprite bank's frames' numbers: where each starts, its chunk, blocks and origin (read on demand: RAM is short) |
 | `panel_data.h`, `font.bin`, `panel.bin` | the panel (M9, `Panel`): the big and small fonts, the half-size quarters and a life's head, the strings (the hints as `GameSession.hint` words them), the colours |
 | `shell_data.h`, `shell.bin`, `shell_img.bin`, `shell_jobs.bin` | the shell (M10, `Shell`): every string its screens show, the hi-score table a new machine has, each room's 16x11 miniature for the map, the attract demo's input; the images it copies from video RAM (page 3, below the scenery: the menu's wolf, the map's marks, the quarters at the reveal's scale, the wordmark's stencils); the later jobs' quarters at the reveal's scale, loaded over the game's when a game of that job reveals (M12); each job's label, tagline and verses |
 | `scenes_data.h`, `scenes.bin`, `scenes_img.bin`, `roll.txt` | the scenes (M12, `Scenes`): the closing scene, the tally, the credits roll and the plane's intro from `shell.json`, moved onto the MSX2's screen; the backdrops as clipped copies from the scenery atlas, the moves a tick at a time, the typed lines; the figures' images (loaded into the atlas's video RAM while a scene plays: each job's amulet, the last job's horses); each job's ending, "the end" and offer (`ENDING_LINES(j)` and the like); the roll's rows as the ROM shows them, the MSXgl credit included (`msx_credits.txt`) |
-| `demo_check.txt`, `demo_map.bin` | for `test/shell.sh`: where the Java game ends given the demo's keys, and its map screen there, a byte a pixel |
+| `demo_check.txt`, `demo_map.bin`, `demo_trail.txt` | for `test/shell.sh`: where the Java game ends given the demo's keys, and its map screen there, a byte a pixel; for `test/trail.sh`: the trail `Trail` finds there with the glass, and how much of the Java game's way it is |
 | `sound_data.h`, `sound50.bin`, `sound60.bin` | the sound (M9, `Sound`): every effect and tune as the PSG's entries a frame, for each interrupt rate; each sound's number, priority, loop |
 | `quest_data.h` | the quest and the Wulf (M7, `Quest`): the amulet's sets, the lairs, the guardians, the Keeper, the way out, the original's Wulf; their tables are in `tables.h` |
 | `sprites.txt`, `sprites.png` | every pixel a sprite shows in another colour than the art's, and pictures of those frames, the art beside the MSX2's; `sprites.json` accepts so many a sprite, and the converter fails past that |
@@ -287,6 +288,15 @@ ignores it, so the submodule stays clean.
   own pictures, and finds the last ending's horses where `EndingScreen` puts
   them. A generated header's chain macros (`JOB_MASK(j, p)` and the like) are
   read with `test/cmacro.py`.
+- **`test/trail.sh`** (M12) gives Vale the looking glass and opens the map:
+  in a game, left while the trail is being found (his room's cells must be
+  as they were) and opened again (the openings' steps kept); then over the
+  attract demo's game, where `check_trail.py` wants on screen, dot for dot,
+  the trail the converter's `Trail` finds (`demo_trail.txt`), and marching.
+  The ROM finds the trail over many ticks: the test waits on `g_TrailStage`,
+  holds keys for a second, and holds the map still for its dumps
+  (`g_TestMapHold`). `Trail` is `trail.c`'s reference, step for step: change
+  them together.
 - **`test/game.json`** has a win in each later job (`"job": N`, M12), tick
   for tick against the Java game's `Content.ecosystem(N, easy)`.
 - **`test/boot.sh`**, **`rooms.sh`** and **`sprites.sh`** start from the title
@@ -317,6 +327,8 @@ src/             the game: wulfquest.c (main), data.c (the ROM's data; stays in
                  hardware sprites and their turns), jungle.c (the swarm,
                  the beasts, combat, deaths), move.c (box movement against
                  the scenery or the map), spawn.c (where Vale gets up),
+                 trail.c (the glass's trail on the map: with spawn.c in
+                 segment 25, it borrows its arrays),
                  rng.c (the Java game's random numbers), quest.c and
                  wulf.c (the amulet, the guardians, the Keeper, the
                  Wulf), game.c (the score, orchids, treasures, items,

@@ -45,6 +45,7 @@
 #include "game.h"
 #include "game_data.h"
 #include "panel_data.h"
+#include "trail.h"
 #include "shell.h"
 #include "shell_data.h"
 #include "save.h"
@@ -240,6 +241,7 @@ static void RecordRun()
 {
 	if (s_Rec[0] && g_RecRuns < REC_RUNS)
 		Data_VramWrite(REC_VRAM + (g_RecRuns << 1), s_Rec, 2);
+	g_TrailKey = 0xFF;   // REC_VRAM is where the trail keeps its openings' steps
 	g_RecRuns++;
 	s_Rec[0] = 0;
 }

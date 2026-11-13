@@ -98,6 +98,8 @@ void Data_FrameOrigin(u8 frame);
 // The looking glass's way out of a room (M8): its edge (0 n, 1 e, 2 s, 3 w) << 6
 // and the cell along it, or 0xFF where it ends in the room.
 u8 Data_Way(u8 set, u8 taken, u8 room);
+// The glass's trail (trail.c): room 0..255's record of its openings (trail_data.h).
+void Data_TrailRoom(u8 room, u8* out);
 void Data_VramRead(u16 addr, u8* dst, u8 n);
 void Data_VramWrite(u16 addr, const u8* src, u8 n);
 

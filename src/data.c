@@ -136,10 +136,20 @@ void Data_LoadCells(u8 room, u8* cells)
 						*out++ = 1;
 					continue;
 				}
-				const u8* m = mask + (u16)y * MASK_ROW;
-				u8 x = cx0;
-				for (u8 wx = wx0; wx < wx1; wx++, x++)
-					*out++ = (m[x >> 3] & (0x80 >> (x & 7))) ? 1 : 0;
+				// The row's bits from cell cx0 on, shifted out of a byte at a time.
+				const u8* m = mask + (u16)y * MASK_ROW + (cx0 >> 3);
+				u8 bits = (u8)(*m++ << (cx0 & 7));
+				u8 left = 8 - (cx0 & 7);
+				for (u8 wx = wx0; wx < wx1; wx++)
+				{
+					*out++ = bits >> 7;
+					bits <<= 1;
+					if (--left == 0)
+					{
+						bits = *m++;
+						left = 8;
+					}
+				}
 			}
 		}
 	}
@@ -625,6 +635,24 @@ u8 Data_Way(u8 set, u8 taken, u8 room)
 	u8 v = *src;
 	SET_BANK_SEGMENT(ROM_DATA_BANK, g_CodeSeg);
 	return v;
+}
+
+// The glass's trail (M12; trail.c): a room's record of its openings, from the
+// piece of trail_N.bin that holds it (its rooms' offsets halved, then theirs).
+#include "trail_data.h"
+static const u8 c_TrailRoom0[TRAIL_PIECES] = { TRAIL_ROOM0 };
+
+void Data_TrailRoom(u8 room, u8* out)
+{
+	u8 p = TRAIL_PIECES - 1;
+	while (room < c_TrailRoom0[p])
+		p--;
+	SET_BANK_SEGMENT(ROM_DATA_BANK, g_TrailPieceSeg[p]);
+	const u8* piece = (const u8*)(ROM_DATA_ADDR + g_TrailPieceRel[p]);
+	const u8* src = piece + ((u16)piece[room - c_TrailRoom0[p]] << 1);
+	for (u8 n = 0; n < TRAIL_RECORD_MAX; n++)   // past its end at most into the next one's: harmless
+		*out++ = *src++;
+	SET_BANK_SEGMENT(ROM_DATA_BANK, g_CodeSeg);
 }
 
 //-----------------------------------------------------------------------------

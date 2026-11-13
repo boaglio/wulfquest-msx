@@ -100,7 +100,10 @@ binary blobs for the ROM, and does everything heavy on the PC, once:
   with the same walls.
 - **Rooms**: the scenery placements of each room, in the order they are drawn.
 - **Ways**: the looking glass's "which way next" from every room to every
-  target, precomputed. No path search runs on the Z80.
+  target, precomputed: the arrow's way runs no search on the Z80.
+- **Openings** (M12): the rooms' openings and the steps between them, for
+  the looking glass's trail on the map, which the Z80 finds from them a room
+  at a time (`Trail.java`).
 - **Art**: scenery as 4-bit bitmaps for video RAM; sprites cut into hardware
   sprite layers with per-line colours (§5). It reports every sprite it had to
   simplify, and how.
@@ -1209,6 +1212,60 @@ against the data); the plane intro plays and any key returns to the title.
 - **Room**: the horses and the later jobs' amulets took a data segment; four
   of the 22 are free (`ConvertTest` now wants four, not a quarter).
 
+**Part 3 landed (2026-11-13): the looking glass's trail on the map.**
+Specifics:
+
+- **Not the Java game's search.** `WayPainter.route` floods the whole
+  jungle (512x352 cells) and follows it down from Vale's feet; the Z80 has
+  neither the RAM nor the time. Following the arrow's table (`ways_N.bin`)
+  room by room was tried and measured: the jungle is a maze whose ways leave
+  a room and come back to it (up to 2 300 cells, 80 rooms), and that trail
+  ended where the Java game's does one time in seven.
+- **The rooms' openings** (`Trail.java`, the reference; `src/trail.c`): a
+  run of cells along a room's edge where the feet fit on both sides (468, 936
+  sides, at most six a room), and the steps between a room's sides within it.
+  The ROM works out each side's steps to the quarters still out there (D)
+  from the quarters' rooms out, a queue of rooms; then goes room by room from
+  Vale: each room flooded from its sides (one across plus the other side's
+  D) and its quarters, followed down from where he stands or came in, the
+  Java game's neighbours' order, across where it ends; the side he came in by
+  is left out (its cells share one D). Measured over every set, every state
+  of the quarters taken and three places a room (`TrailTest`): it ends where
+  the Java game's does 99.8% of the time, never fails to find one, and 95%
+  of its pixels are the Java game's. Over the demo's game (`test/trail.sh`):
+  920 pixels, 97% the Java game's.
+- **Data**: the openings are 4.5 KB, cut into 13 pieces that fill the space
+  the other blobs leave in their segments (`trail_N.bin`, `Budget.holes`; the
+  converter fails if they take a segment of their own): four of the 22 stay
+  free, the floor the user set (2026-11-12).
+- **RAM**: none of the program's. While the map is open no respawn comes, so
+  the search uses the respawn's arrays (`ram.h`'s, 4.8 KB: the flood's marks
+  and queue, D, the trail, the seeds, a room's record), and Vale's room's
+  cells' place for a room's cells (put back when it ends or the map is left).
+  D is kept in video RAM (page 1 under the screen) for the next time the map
+  is opened with the same quarters taken: it goes straight to the trail.
+- **Drawing**: the dots of one phase (`dotEveryPx`), marching every
+  `marchTicks` (the old dots given back the map's own pixel, the rooms with
+  marks, his and the lairs' and the arch's, drawn again whole), the cross
+  blinking with his room's frame, the trail over the marks and under the
+  frame (`MapScreen.paint`'s order). The trail is found over some ticks, its
+  dots drawn as they come, from Vale out; it marches once found.
+- **`Data_LoadCells`** unpacks a room's cells a byte at a time (it did a
+  shift a cell): the trail's rooms load in half the time. The game's room
+  flips measure the same (`test/rooms.sh`: slowest 400 ms, median 320 ms,
+  before and after).
+- **Tests**: `TrailTest` (above; the quarters' cells within their rooms are
+  the Java game's `cellAt`); `test/trail.sh`, both machines: a game's map
+  left while the trail is being found (Vale's room's cells as they were),
+  opened again (D kept), then the demo's game with the glass: on screen, dot
+  for dot, the trail `Trail` finds (`demo_trail.txt`), marching.
+- **Slow (M13)**: the 920-pixel trail is found in about 30 s of the MSX's
+  time (its first dots after about 6 s: 1 s for the quarters' rooms, 5 s for
+  the openings' steps; then 0.3 s a room: 0.15 s its cells, 0.1 s its
+  flood); a march step of a long trail takes a few ticks; keys need holding
+  while it is being found. The map itself takes 4 s to open, trail or not
+  (256 miniatures drawn).
+
 ### M13 — 60 Hz machines and real hardware
 
 **For:** the game as players will run it.
@@ -1225,6 +1282,10 @@ against the data); the plane intro plays and any key returns to the title.
   during a stall may be lost (M10). A crowded frame's sprites must not be
   dropped in runs because its work runs past the blank (M11, seen in
   `test/sprites.sh`'s turns).
+- The map must open at once (M10: 4 s for its 256 miniatures), and the
+  glass's trail must be found in a moment (M12: up to 30 s for the longest;
+  the rooms' floods and cells in assembly, the openings' steps faster), its
+  march must keep its pace, and no key may be missed while it is found.
 - Check every timing on a 60 Hz machine: the tick-skip keeps game speed equal
   to 50 Hz; music and effects keep their pitch and tempo.
 - Run on real MSX2 hardware (at least one European and one Japanese machine,
