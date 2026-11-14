@@ -51,7 +51,7 @@ typedef struct
 	u8  At;           // 18: its room
 	u16 MoveTicks;    // 19
 	u8  Free;         // 21: its box where it stands is known free (move.c)
-	u8  Blocked[7];   // 22: the last strip it found blocked, its key (Beast_Step, 5 bytes)
+	u8  Blocked[7];   // 22: unused (M13: a strip remembered cost more than testing it)
 } Beast;          // 29 bytes (test/moves.tcl reads them)
 #define BEAST_SIZE	29
 extern Beast g_Beast[];

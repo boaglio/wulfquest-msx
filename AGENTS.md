@@ -1306,9 +1306,12 @@ on real hardware, and what was found is written in this section.
 third of a picture within a frame less the interrupt (§6), about 63 600 Z80
 cycles at 50 Hz. Measured with the profiler (DEVELOPER.md, the tests), every
 plan still equal to the Java game's at 50 and 60 Hz:
-- Frames at 50 Hz, before → now: fencing 1 062 → 865 for 800 ticks,
-  orchids 16 938 → 11 999 for 9 000, flame 1 466 → 1 204 for 900;
-  map-scroll and shrine now at full speed.
+- Frames at 50 Hz, before → now: fencing 1 062 → 849 for 800 ticks,
+  orchids 16 938 → 11 552 for 9 000, flame 1 466 → 1 181 for 900;
+  map-scroll at full speed, standing, rhinos and game-over within 1%.
+- The pictures' pace (`test/moves.sh` reports it): fencing a picture every
+  4.0 frames (36% of them within 3), orchids 5.4, flame 5.3,
+  guardian-parry 4.6; the quiet scenes 1 to 2.
 - Fencing now: a tick 54 000 cycles (the beasts 23 500, the small creatures
   14 000, combat 6 800, Vale's move 4 700), a picture 66 500, the interrupt
   about 5 000 a frame (BIOS 3 300, sound 1 900). Orchids: a tick about
@@ -1321,13 +1324,15 @@ plan still equal to the Java game's at 50 and 60 Hz:
   the fast step when neither axis leaves its cells (`Beast_Step`, in the
   jungle's segment now: the main code had no room); the creatures' tick,
   combat's loops, the sound's frame, a random draw (5 500 → about 2 500
-  cycles), the sprites' placing and counting in assembly; the flower's bar,
+  cycles), the 64-bit multiplication of the seeding (34 000 → 23 000), a
+  creature's look when drawn, the sprites' placing and counting in assembly; the flower's bar,
   the orchid's sway and the blinks carried on without 32-bit divisions;
   SDCC's shifts by a variable out of the items' tests; Vale's speed table
   no longer counted out (490 000 cycles at a change of scale).
 - Tried and slower, taken out: a count of ticks to a beast's next cell (a
   division a crossing), a cache of 16 strips (cold, and its key cost more
-  than the bitmap); deferring far beasts is impossible (the tribesmen share
+  than the bitmap), a beast's last blocked strip remembered (its key cost
+  900 cycles a crossing, the test 1 200); deferring far beasts is impossible (the tribesmen share
   the random stream).
 - Still to do: the busiest rooms (fencing about 17% short of the target,
   orchids about 40%); then `test/check_moves.py` checks game speed and

@@ -52,11 +52,18 @@ static void XorShr(u8* a, u8 n)
 		a[i] ^= t[i];
 }
 
-// a *= m (mod 2^64): shift and add, in assembly (the C was 340 000 cycles a
-// multiplication, and a new game seeds a dozen times: M8).
-static u8 s_MA[8];     // the multiplicand, doubled each bit
-static u8 s_MB[8];     // the multiplier, shifted out a bit at a time
+// a *= m (mod 2^64), in assembly (the C was 340 000 cycles a multiplication,
+// and a new game seeds a dozen times: M8). Byte by byte (M13: bit by bit
+// through the eight bytes it was 34 000 cycles): each a_i * m_j with i + j
+// under 8, an unrolled 8 x 8 multiplication, added into the product's bytes
+// i + j and up.
+static u8 s_MA[8];     // the multiplicand
+static u8 s_MB[8];     // the multiplier
 static u8 s_MAcc[8];   // the product
+static u8 s_MI;        // i
+static u8 s_MK;        // i + j
+static u8 s_MM;        // a_i
+static const u8* s_MP; // m_j's place
 
 static void MulAsm() __naked
 {
@@ -68,40 +75,110 @@ static void MulAsm() __naked
 		ld	(hl), a
 		inc	hl
 		djnz	00001$
-		ld	c, #64
+		ld	(_s_MI), a
 	00010$:
-		; carry = the multiplier's lowest bit, shifted out
-		ld	hl, #_s_MB + 7
+		ld	a, (_s_MI)
+		ld	(_s_MK), a              ; j = 0
+		ld	e, a
+		ld	d, #0
+		ld	hl, #_s_MA
+		add	hl, de
+		ld	a, (hl)
 		or	a
-		ld	b, #8
-	00011$:
-		rr	(hl)
-		dec	hl
-		djnz	00011$
-		jr	nc, 00020$
-		; the product += the multiplicand
+		jp	z, 00040$               ; a_i = 0 adds nothing
+		ld	(_s_MM), a
+		ld	hl, #_s_MB
+		ld	(_s_MP), hl
+	00020$:
+		; hl = a_i * m_j
+		ld	hl, (_s_MP)
+		ld	e, (hl)
+		inc	hl
+		ld	(_s_MP), hl
+		ld	a, (_s_MM)
+		ld	h, a
+		ld	l, #0
+		ld	d, l
+		add	hl, hl
+		jr	nc, 00050$
+		add	hl, de
+	00050$:
+		add	hl, hl
+		jr	nc, 00051$
+		add	hl, de
+	00051$:
+		add	hl, hl
+		jr	nc, 00052$
+		add	hl, de
+	00052$:
+		add	hl, hl
+		jr	nc, 00053$
+		add	hl, de
+	00053$:
+		add	hl, hl
+		jr	nc, 00054$
+		add	hl, de
+	00054$:
+		add	hl, hl
+		jr	nc, 00055$
+		add	hl, de
+	00055$:
+		add	hl, hl
+		jr	nc, 00056$
+		add	hl, de
+	00056$:
+		add	hl, hl
+		jr	nc, 00057$
+		add	hl, de
+	00057$:
+		ex	de, hl                  ; de = the product
+		ld	a, (_s_MK)
+		ld	c, a
+		ld	b, #0
 		ld	hl, #_s_MAcc
-		ld	de, #_s_MA
-		or	a
-		ld	b, #8
-	00012$:
-		ld	a, (de)
-		adc	a, (hl)
+		add	hl, bc
+		ld	a, c
+		cp	a, #7
+		jr	nz, 00025$
+		ld	a, (hl)                 ; the top byte: its low byte only
+		add	a, e
+		ld	(hl), a
+		jr	00030$
+	00025$:
+		ld	a, #6
+		sub	a, c
+		ld	b, a                    ; the bytes above its high byte's
+		ld	a, (hl)
+		add	a, e
 		ld	(hl), a
 		inc	hl
-		inc	de
-		djnz	00012$
-	00020$:
-		; the multiplicand doubled
-		ld	hl, #_s_MA
+		ld	a, (hl)
+		adc	a, d
+		ld	(hl), a
+		jr	nc, 00030$
+		ld	a, b
 		or	a
-		ld	b, #8
-	00021$:
-		rl	(hl)
+		jr	z, 00030$
+		scf                             ; the carry, on up
+	00026$:
 		inc	hl
-		djnz	00021$
-		dec	c
-		jr	nz, 00010$
+		ld	a, (hl)
+		adc	a, #0
+		ld	(hl), a
+		jr	nc, 00030$
+		djnz	00026$
+	00030$:
+		ld	hl, #_s_MK
+		inc	(hl)
+		ld	a, (hl)
+		cp	a, #8
+		jp	c, 00020$
+	00040$:
+		ld	hl, #_s_MI
+		inc	(hl)
+		ld	a, (hl)
+		cp	a, #8
+		jp	c, 00010$
 		ret
 	__endasm;
 }

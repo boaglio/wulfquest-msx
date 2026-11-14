@@ -457,6 +457,9 @@ static u8 BoxTest() __naked
 // its cells is solid.
 static u8 s_SOff;   // a column's byte in a row
 
+#if ((ROM_DATA_ADDR + MAP_0_BIN_REL) | (ROM_DATA_ADDR + MAP_1_BIN_REL)) & 63
+#error "Data_StripTest takes the map's rows on 64 bytes"
+#endif
 u8 Data_StripTest(u8 alongX) __naked
 {
 	alongX;   // a
@@ -541,17 +544,18 @@ u8 Data_StripTest(u8 alongX) __naked
 		ld	a, (_g_BoxW)
 		call	00080$                  ; hl = the first column, b = how many
 		pop	de
-	00110$:
-		push	hl
-		push	de
+		; the first column's byte and bit, then a bit on a column: past bit 0
+		; the next byte, round the row's end (rows lie on 64 bytes: M13, the
+		; column worked out anew each time)
 		ld	a, l
 		and	a, #7
+		push	de
 		ld	e, a
 		ld	d, #0
 		push	hl
 		ld	hl, #_c_Bit
 		add	hl, de
-		ld	c, (hl)
+		ld	c, (hl)                 ; c = its bit
 		pop	hl
 		pop	de
 		ld	a, l
@@ -566,13 +570,24 @@ u8 Data_StripTest(u8 alongX) __naked
 		ld	l, a
 		adc	a, d
 		sub	a, l
-		ld	h, a
+		ld	h, a                    ; hl = its byte
+	00110$:
 		ld	a, (hl)
 		and	a, c
-		pop	hl
 		jr	nz, 00098$
-		inc	hl
-		djnz	00110$
+		dec	b
+		jr	z, 00112$
+		rrc	c
+		jr	nc, 00110$              ; the next column in the same byte
+		inc	l
+		ld	a, l
+		and	a, #63
+		jr	nz, 00110$
+		ld	a, l
+		sub	a, #64                  ; round the row's end
+		ld	l, a
+		jr	00110$
+	00112$:
 		xor	a
 		jr	00099$
 	00098$:

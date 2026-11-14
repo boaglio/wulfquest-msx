@@ -735,25 +735,189 @@ static void Border()
 	}
 }
 
+// A creature's look (CreaturePainter): its frame and tint, where on screen.
+// In assembly (M13: SDCC's C was 2 000 cycles a creature drawn). A puff
+// forming runs backwards in its tint; a puff bursting; else its walk, and
+// hurt, white on alternate ticks.
+#define LOOK_ALIVE		0
+#define LOOK_DYING		1
+#define LOOK_APPEARING	2
+typedef char c_LookModes[(CREATURE_ALIVE == LOOK_ALIVE && CREATURE_DYING == LOOK_DYING
+	&& CREATURE_APPEARING == LOOK_APPEARING) ? 1 : -1];
+static u8 s_LookI;
+static u8 s_LookS;
+static u8 s_LookF;
+static u8 s_LookTint;
+static i16 s_LookX;
+static i16 s_LookY;
+
+static void CreatureLook(u8 i) __naked
+{
+	i;   // a
+	__asm
+		ld	(_s_LookI), a
+		ld	l, a
+		ld	h, #0
+		add	hl, hl
+		add	hl, hl
+		ex	de, hl                  ; de = 4i
+		ld	hl, #_g_CX + 1
+		add	hl, de
+		ld	a, (hl)
+		inc	hl
+		ld	h, (hl)
+		ld	l, a
+		ld	bc, (_s_RoomX)
+		or	a
+		sbc	hl, bc
+		ld	(_s_LookX), hl
+		ld	hl, #_g_CY + 1
+		add	hl, de
+		ld	a, (hl)
+		inc	hl
+		ld	h, (hl)
+		ld	l, a
+		ld	bc, (_s_RoomY)
+		or	a
+		sbc	hl, bc
+		ld	(_s_LookY), hl
+		ld	a, (_s_LookI)
+		ld	e, a
+		ld	d, #0
+		xor	a
+		ld	(_s_LookTint), a
+		ld	hl, #_g_CMode
+		add	hl, de
+		ld	b, (hl)
+		ld	hl, #_g_CModeTick
+		add	hl, de
+		ld	a, (hl)
+		cp	a, #(CREATURE_PUFF_TICKS / 2)
+		sbc	a, a
+		and	a, #1
+		ld	c, a                    ; c = 1 in the puff's first half
+		ld	a, b
+		cp	a, #LOOK_APPEARING
+		jr	nz, 00020$
+		ld	a, c
+		add	a, #2                   ; forming: the puff backwards, 3 then 2
+		call	00090$
+		ld	hl, #_g_CTint
+		add	hl, de
+		ld	a, (hl)
+		ld	(_s_LookTint), a
+		ret
+	00020$:
+		cp	a, #LOOK_DYING
+		jr	nz, 00030$
+		ld	a, c
+		xor	a, #1                   ; bursting: 0 then 1
+	00090$:
+		ld	c, a
+		ld	b, #0
+		ld	hl, #g_PuffFrame_AT
+		add	hl, bc
+		ld	a, (hl)
+		ld	(_s_LookF), a
+		ret
+	00030$:
+		ld	hl, #_g_CSpecies
+		add	hl, de
+		ld	a, (hl)
+		ld	(_s_LookS), a
+		ld	c, a
+		ld	b, #0
+		ld	hl, #g_CreatureFlier_AT
+		add	hl, bc
+		ld	a, (hl)
+		or	a
+		jr	z, 00031$
+		ld	hl, (_g_SimTick)        ; a flier: its walk by the clock
+		ld	(_s_Clock), hl
+		ld	hl, (_g_SimTick + 2)
+		ld	(_s_Clock + 2), hl
+		call	_WalkPhase
+		jr	00033$
+	00031$:
+		ld	hl, #_g_CMoveTicks      ; else by its walk, still while it stands
+		add	hl, de
+		add	hl, de
+		ld	a, (hl)
+		inc	hl
+		ld	h, (hl)
+		ld	l, a
+		ld	(_s_Clock), hl
+		or	a, h
+		ld	hl, #0
+		ld	(_s_Clock + 2), hl
+		jr	z, 00033$               ; a = 0
+		call	_WalkPhase
+	00033$:
+		ld	b, a                    ; v
+		ld	a, (_s_LookI)
+		ld	e, a
+		ld	d, #0
+		ld	hl, #_g_CFace
+		add	hl, de
+		bit	7, (hl)
+		jr	z, 00034$
+		inc	b
+		inc	b                       ; facing left
+	00034$:
+		ld	a, (_s_LookS)
+		add	a, a
+		add	a, a
+		add	a, b
+		ld	c, a
+		ld	b, #0                   ; bc = species * 4 + v
+		ld	hl, #g_CreatureFrame_AT
+		add	hl, bc
+		ld	a, (hl)
+		ld	(_s_LookF), a
+		ld	a, (_g_GameOn)
+		or	a
+		ret	z
+		ld	hl, #_g_CHurt
+		add	hl, de
+		ld	a, (hl)
+		or	a
+		ret	z
+		and	a, #1
+		ret	nz
+		ld	a, (_s_LookS)
+		cp	a, #CREATURES
+		ret	nc
+		ld	hl, #g_CreatureFlash_AT
+		add	hl, bc
+		ld	a, (hl)
+		ld	(_s_LookF), a
+		ld	a, #FLASH_COLOUR
+		ld	(_s_LookTint), a
+		ret
+	__endasm;
+}
+
 static void DrawJungle()
 {
 	u8 n = g_QuestOn ? DrawQuest() : 0;
-	for (i8 b = BEASTS - 1; b >= 0 && n < SPR_BIG; b--)
+	const Beast* p = &g_Beast[BEASTS - 1];   // walked down (M13: indexed, a multiplication a beast)
+	u8 room = g_ValeRoom;
+	for (i8 b = BEASTS - 1; b >= 0 && n < SPR_BIG; b--, p--)
 	{
-		if (g_Beast[b].At != g_ValeRoom)
+		if (p->At != room)
 			continue;
 		u8 k = g_BKind[b];
 		u8 v = 4;
 		if (!g_BAsleep[b])
 		{
-			s_Clock = g_Beast[b].MoveTicks;
+			s_Clock = p->MoveTicks;
 			v = s_Clock ? WalkPhase() : 0;
 		}
 		if (g_BFace[b] < 0)
 			v += v == 4 ? 1 : 2;
 		// A tribesman level with a quarter, lit in yellow (CreaturePainter.paintBeast).
 		u8 f = g_BHint[b] && v < 4 ? g_HintFrame[v] : g_BeastFrame[k * 6 + v];
-		PutFrame(SPR_SMALL + n, f, 0, FP_PX(g_Beast[b].X) - s_RoomX, FP_PX(g_Beast[b].Y) - s_RoomY);
+		PutFrame(SPR_SMALL + n, f, 0, FP_PX(p->X) - s_RoomX, FP_PX(p->Y) - s_RoomY);
 		n++;
 	}
 	// Front to back: the creature nearest the bottom first, the later of two level.
@@ -773,31 +937,8 @@ static void DrawJungle()
 		}
 	for (u8 k = 0; k < m; k++)
 	{
-		u8 i = s_Order[k];
-		u8 f;
-		u8 tint = 0;
-		u8 half = g_CModeTick[i] < CREATURE_PUFF_TICKS / 2;
-		if (g_CMode[i] == CREATURE_APPEARING)
-		{
-			f = g_PuffFrame[half ? 3 : 2];   // the puff run backwards, in its tint
-			tint = g_CTint[i];
-		}
-		else if (g_CMode[i] == CREATURE_DYING)
-			f = g_PuffFrame[half ? 0 : 1];
-		else
-		{
-			u8 s = g_CSpecies[i];
-			bool flier = g_CreatureFlier[s];
-			s_Clock = flier ? g_SimTick : g_CMoveTicks[i];
-			u8 v = ((flier || g_CMoveTicks[i] > 0) ? WalkPhase() : 0) + (g_CFace[i] < 0 ? 2 : 0);
-			f = g_CreatureFrame[s * 4 + v];
-			if (g_GameOn && g_CHurt[i] > 0 && !(g_CHurt[i] & 1) && s < CREATURES)
-			{
-				f = g_CreatureFlash[s * 4 + v];   // hurt: white on alternate ticks
-				tint = FLASH_COLOUR;
-			}
-		}
-		PutFrame(k, f, tint, FP_PX(g_CX[i]) - s_RoomX, FP_PX(g_CY[i]) - s_RoomY);
+		CreatureLook(s_Order[k]);
+		PutFrame(k, s_LookF, s_LookTint, s_LookX, s_LookY);
 	}
 	// Under the creatures, in the slots they leave: the quarter on its
 	// pedestal, the items and treasures (loot before creatures), the orchid

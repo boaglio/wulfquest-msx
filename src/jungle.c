@@ -1262,46 +1262,54 @@ static u8 s_BsAdj = 0;    // its high word's change: 0, 1 or -1     // the axis'
 static u16 s_BsFX = 0;   // x's target's low word, till y is through
 static u8 s_BsFOn = 0;   // bit 0: x to put; bit 1: y put
 static u8 s_BsOCell = 0; // y's place into another cell
-// The strip test's key (M13): its axis (bit 7, x) and how many cells across,
-// the strip's first pixel, the first cell across. A beast's Blocked holds the
-// last it found blocked: the scenery stays, so the same key is blocked still
-// (one pushing a wall while it slides along it tests it every tick).
-#define BS_KEY	5
-static u8 s_BsKey[BS_KEY];
 
 u8 Beast_Step() __naked
 {
 	__asm
-		push	ix
-		ld	ix, (_g_BeastPtr)
-		ld	a, 21 (ix)
+		; the fast step: through hl, the beast's bytes in order (M13: through
+		; ix it was 550 cycles); the full one takes ix
+		ld	hl, (_g_BeastPtr)
+		ld	de, #21
+		add	hl, de
+		ld	a, (hl)
 		or	a
-		jp	z, 00090$
+		jp	z, 00089$               ; not known free where it stands
 		xor	a
 		ld	(_s_BsFOn), a
 		; x
-		ld	e, 4 (ix)
-		ld	d, 5 (ix)
+		ld	hl, (_g_BeastPtr)
+		ld	c, (hl)
+		inc	hl
+		ld	b, (hl)                 ; bc = its low word
+		inc	hl
+		inc	hl
+		inc	hl
+		ld	e, (hl)
+		inc	hl
+		ld	d, (hl)                 ; de = VX
 		ld	a, d
 		or	a, e
 		jr	z, 00060$
-		ld	l, 0 (ix)
-		ld	h, 1 (ix)
-		ld	b, h
+		inc	hl
+		ld	a, (hl)                 ; backwards, the near edge
+		bit	7, d
+		jr	nz, 00053$
+		inc	hl
+		inc	hl
+		ld	a, (hl)                 ; forwards, the far one
+	00053$:
+		ld	l, c
+		ld	h, b
+		ld	c, a
 		add	hl, de
 		jr	c, 00051$
 		bit	7, d
-		jp	nz, 00090$              ; backwards, no carry: round below its low byte
+		jp	nz, 00089$              ; backwards, no carry: round below its low byte
 		jr	00052$
 	00051$:
 		bit	7, d
-		jp	z, 00090$               ; forwards, a carry: round past it
+		jp	z, 00089$               ; forwards, a carry: round past it
 	00052$:
-		ld	c, 8 (ix)
-		bit	7, d
-		jr	z, 00053$
-		ld	c, 6 (ix)
-	00053$:
 		ld	a, b
 		add	a, c
 		and	a, #0xF8
@@ -1310,20 +1318,38 @@ u8 Beast_Step() __naked
 		add	a, c
 		and	a, #0xF8
 		cp	a, b
-		jp	nz, 00090$              ; its leading edge into another cell
+		jp	nz, 00089$              ; its leading edge into another cell
 		ld	(_s_BsFX), hl
 		ld	a, #1
 		ld	(_s_BsFOn), a
 	00060$:
 		; y
-		ld	e, 13 (ix)
-		ld	d, 14 (ix)
+		ld	hl, (_g_BeastPtr)
+		ld	de, #9
+		add	hl, de
+		ld	c, (hl)
+		inc	hl
+		ld	b, (hl)
+		inc	hl
+		inc	hl
+		inc	hl
+		ld	e, (hl)
+		inc	hl
+		ld	d, (hl)                 ; de = VY
 		ld	a, d
 		or	a, e
-		jr	z, 00070$
-		ld	l, 9 (ix)
-		ld	h, 10 (ix)
-		ld	b, h
+		jp	z, 00070$
+		inc	hl
+		ld	a, (hl)
+		bit	7, d
+		jr	nz, 00063$
+		inc	hl
+		inc	hl
+		ld	a, (hl)
+	00063$:
+		ld	l, c
+		ld	h, b
+		ld	c, a
 		add	hl, de
 		jr	c, 00061$
 		bit	7, d
@@ -1337,11 +1363,6 @@ u8 Beast_Step() __naked
 		xor	a, h
 		and	a, #0xF8
 		ld	(_s_BsOCell), a
-		ld	c, 17 (ix)
-		bit	7, d
-		jr	z, 00063$
-		ld	c, 15 (ix)
-	00063$:
 		ld	a, b
 		add	a, c
 		and	a, #0xF8
@@ -1356,9 +1377,14 @@ u8 Beast_Step() __naked
 		jr	z, 00065$
 		; its place into another cell: still in its row, top <= y < top + PLAYFIELD_H
 		push	hl
-		ld	e, h
-		ld	d, 11 (ix)              ; de = y's whole pixels (its high byte as it was)
-		ld	a, 18 (ix)
+		ld	e, h                    ; y's whole pixels, the low byte
+		ld	hl, (_g_BeastPtr)
+		ld	bc, #11
+		add	hl, bc
+		ld	d, (hl)                 ; and the high, as it was
+		ld	bc, #7
+		add	hl, bc
+		ld	a, (hl)                 ; At
 		rrca
 		rrca
 		rrca
@@ -1393,35 +1419,47 @@ u8 Beast_Step() __naked
 		jr	nc, 00066$              ; at or past the next row's top
 		pop	hl
 	00065$:
-		ld	9 (ix), l
-		ld	10 (ix), h
+		ex	de, hl
+		ld	hl, (_g_BeastPtr)
+		ld	bc, #9
+		add	hl, bc
+		ld	(hl), e
+		inc	hl
+		ld	(hl), d
 		ld	a, (_s_BsFOn)
 		or	a, #2
 		ld	(_s_BsFOn), a
 	00070$:
 		ld	a, (_s_BsFOn)
 		or	a
-		jr	z, 00090$               ; still: the full step's
+		jr	z, 00089$               ; still: the full step's
+		ld	hl, (_g_BeastPtr)
 		rrca
 		jr	nc, 00071$
-		ld	hl, (_s_BsFX)
-		ld	0 (ix), l
-		ld	1 (ix), h
+		ld	de, (_s_BsFX)
+		ld	(hl), e
+		inc	hl
+		ld	(hl), d
+		dec	hl
 	00071$:
-		inc	19 (ix)                 ; its walk on
+		ld	de, #19
+		add	hl, de
+		inc	(hl)                    ; its walk on
 		jr	nz, 00072$
-		inc	20 (ix)
+		inc	hl
+		inc	(hl)
 	00072$:
 		ld	a, #1
-		pop	ix
 		ret
 	00066$:
 		pop	hl
 	00094$:
-		; y takes the full step: x, if it took the fast one, put first (M13)
+		; y takes the full step: x, if it took the fast one, put first
 		ld	a, (_s_BsFOn)
 		rrca
-		jr	nc, 00090$
+		jr	nc, 00089$
+		push	ix
+		ld	ix, (_g_BeastPtr)
 		ld	hl, (_s_BsFX)
 		ld	0 (ix), l
 		ld	1 (ix), h
@@ -1431,6 +1469,9 @@ u8 Beast_Step() __naked
 		ld	(_s_BsCross), a
 		ld	bc, #0x0100             ; x moved
 		jp	00010$
+	00089$:
+		push	ix
+		ld	ix, (_g_BeastPtr)
 	00090$:
 		; the full step
 		ld	a, 21 (ix)
@@ -1889,50 +1930,6 @@ u8 Beast_Step() __naked
 		sbc	a, a
 		ld	h, a
 		add	hl, de                  ; the box's near edge across
-		; the key (s_BsKey): the axis and the cells across, the strip
-		push	hl
-		ld	a, c
-		dec	a
-		ld	e, a
-		ld	d, #0
-		push	hl
-		add	hl, de
-		call	00420$
-		ld	b, l                    ; the last cell across
-		pop	hl
-		call	00420$                  ; the first
-		ld	(_s_BsKey + 3), hl
-		ld	a, b
-		sub	a, l
-		inc	a                       ; how many
-		ld	b, a
-		ld	a, (_g_MoveAlongX)
-		or	a
-		jr	z, 00401$
-		set	7, b
-	00401$:
-		ld	a, b
-		ld	(_s_BsKey), a
-		ld	hl, (_s_BsStrip)
-		ld	(_s_BsKey + 1), hl
-		; the last strip it found blocked (its Blocked): the same, blocked still
-		ld	hl, (_g_BeastPtr)
-		ld	de, #22
-		add	hl, de
-		ld	de, #_s_BsKey
-		ld	b, #BS_KEY
-	00402$:
-		ld	a, (de)
-		cp	a, (hl)
-		jr	nz, 00405$
-		inc	hl
-		inc	de
-		djnz	00402$
-		pop	hl
-		ld	a, #1
-		ret
-	00405$:
-		pop	hl
 		ld	a, (_g_MoveAlongX)
 		or	a
 		jr	z, 00410$
@@ -1942,7 +1939,7 @@ u8 Beast_Step() __naked
 		ld	hl, (_s_BsStrip)
 		ld	(_g_BoxLeft), hl
 		ld	a, #1
-		jr	00415$
+		jp	_Data_StripTest
 	00410$:
 		ld	(_g_BoxLeft), hl
 		ld	a, c
@@ -1950,30 +1947,7 @@ u8 Beast_Step() __naked
 		ld	hl, (_s_BsStrip)
 		ld	(_g_BoxTop), hl
 		xor	a
-	00415$:
-		call	_Data_StripTest
-		or	a
-		ret	z
-		; blocked: remembered
-		ld	hl, (_g_BeastPtr)
-		ld	de, #22
-		add	hl, de
-		ex	de, hl
-		ld	hl, #_s_BsKey
-		ld	bc, #BS_KEY
-		ldir
-		ld	a, #1
-		ret
-
-	; ---- hl = hl >> 3, signed
-	00420$:
-		sra	h
-		rr	l
-		sra	h
-		rr	l
-		sra	h
-		rr	l
-		ret
+		jp	_Data_StripTest
 	__endasm;
 }
 
