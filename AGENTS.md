@@ -1383,7 +1383,11 @@ own map, only the rooms visited, less: a room's miniature in assembly in
 the shell's segment (MiniLines: a table of each four pixels' two bytes,
 straight to the VDP, 7 600 cycles a room), Visited without SDCC's shift by
 a variable, Data_ShellBytes with ldir. Measured with `test/shell.sh`'s
-SHELL_TIME (DEVELOPER.md). Left: the trail's search (up to 30 s, M12).
+SHELL_TIME (DEVELOPER.md). Then, the owner's choice: the map comes up at
+once (0.18 s: only the panel's lines copied, the playfield filled black,
+the special rooms with their marks), the other rooms filling in, six a tick
+(MapFill, about a second at worst); the trail's search starts once they are
+in. Left: the trail's search (up to 30 s, M12).
 
 ### M14 — The first release: the ROM and a disk image
 

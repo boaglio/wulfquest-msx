@@ -269,29 +269,34 @@ static void Line(u8 y, u8 chosen, u8 greyed)
 #define DIM_LINES	6
 static u8 s_BoxTop;
 static u8 s_BoxH;
-static u8 s_DimNext = PLAYFIELD_H;   // the next line to dim; PLAYFIELD_H: done
+// The screens' sweeps, one up at a time: the next line to dim (DimStep), or
+// the next map step of rooms (MapFill); SWEEP_DONE (or past the lines): none.
+#define SWEEP_DONE	0xFF
+static u8 s_Sweep = SWEEP_DONE;
 
 static void DimBegin()
 {
 	Data_DimStart();
-	s_DimNext = 0;
+	s_Sweep = 0;
 }
 
 static void DimStep()
 {
-	if (s_DimNext >= PLAYFIELD_H)
+	if (s_Sweep >= PLAYFIELD_H || g_Shell == SH_MAP)
 		return;
 	if (g_Shell == SH_PLAYING || s_On == g_PageShown)
 	{
-		s_DimNext = PLAYFIELD_H;   // the menu gone
+		s_Sweep = SWEEP_DONE;   // the menu gone
 		return;
 	}
-	u8 n = PLAYFIELD_H - s_DimNext;
+	u8 n = PLAYFIELD_H - s_Sweep;
 	if (n > DIM_LINES)
 		n = DIM_LINES;
 	Data_VdpWait();
-	Data_DimLines(g_PageShown, s_On, s_DimNext, n, s_BoxTop, s_BoxH);
-	s_DimNext += n;
+	Data_DimLines(g_PageShown, s_On, s_Sweep, n, s_BoxTop, s_BoxH);
+	s_Sweep += n;
+	if (s_Sweep >= PLAYFIELD_H)
+		s_Sweep = SWEEP_DONE;
 }
 
 // A screen of its own goes on the page not shown; one over the game on the
@@ -2051,20 +2056,20 @@ static void DrawMap()
 		TRAIL(Trail_Start);
 	}
 
-	Begin(TRUE, FALSE);
+	// Over the game: its panel's lines copied (the playfield is filled black
+	// at once: M13, the whole page's copy was a sixth of a second).
+	s_Page = 1 - g_PageShown;
+	g_VSX = 0;
+	g_VSY = ((u16)g_PageShown << 8) + PLAYFIELD_H;
+	g_VDX = 0;
+	g_VDY = ((u16)s_Page << 8) + PLAYFIELD_H;
+	g_VNX = 256;
+	g_VNY = 212 - PLAYFIELD_H;
+	g_VCmd = VCMD_HMMM;
+	Data_Vdp();
 	Fill(0, 0, 256, PLAYFIELD_H, INK_GROUND);
-	{
-		u8 visited[32];
-		u8 revealed[32];
-		MiniTable(INK_MAP_VISITED, visited);
-		MiniTable(INK_MAP_REVEALED, revealed);
-		for (u16 r = 0; r < GRID_W * GRID_H; r++)
-		{
-			u8 v = Visited((u8)r);
-			if (v || g_MapTaken)
-				MiniRoom((u8)r, v ? visited : revealed);
-		}
-	}
+	Data_VdpWait();
+	s_Sweep = 0;   // the rest of the rooms over the next ticks (MapFill)
 	MapMarks(TRUE, TRUE);
 	MapCell(g_ValeRoom, TRUE);
 	// The panel's line says how to go back (GameSession.message's, from the shell).
@@ -2074,8 +2079,32 @@ static void DrawMap()
 	Show(TRUE);
 }
 
+// The map comes up at once, its rooms filling in over the next ticks (M13,
+// the owner's choice: all 256 took about a second before it showed),
+// MAP_FILL_ROOMS a tick; the special ones are drawn first, with their marks.
+#define MAP_FILL_ROOMS	6
+static void MapFill()
+{
+	if (s_Sweep == SWEEP_DONE)
+		return;
+	u8 visited[32];
+	u8 revealed[32];
+	MiniTable(INK_MAP_VISITED, visited);
+	MiniTable(INK_MAP_REVEALED, revealed);
+	s_Page = s_On;
+	u16 r = (u16)s_Sweep * MAP_FILL_ROOMS;
+	for (u8 k = 0; k < MAP_FILL_ROOMS && r < GRID_W * GRID_H; k++, r++)
+	{
+		u8 v = Visited((u8)r);
+		if ((v || g_MapTaken) && !Special((u8)r))
+			MiniRoom((u8)r, v ? visited : revealed);
+	}
+	s_Sweep = r >= GRID_W * GRID_H ? SWEEP_DONE : s_Sweep + 1;
+}
+
 static void Map()
 {
+	MapFill();   // before a test's hold: its dumps see the whole map
 	if (g_TestMapHold)
 	{
 		g_TestMapHold = 2;   // a test's dump: the map held still, its last tick done
@@ -2122,8 +2151,8 @@ static void Map()
 		MapMarks(quarters, arch);
 	if (quarters || arch)
 		MapCell(g_ValeRoom, TRUE);   // its frame over any mark
-	if (!s_TrailOn)
-		return;
+	if (!s_TrailOn || s_Sweep != SWEEP_DONE)
+		return;   // the trail over the rooms once they are all in
 	// The trail: found a little more each tick (its new dots drawn as they
 	// come), marching, its cross blinking.
 	u8 march = FALSE;

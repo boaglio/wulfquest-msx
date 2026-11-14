@@ -18,7 +18,7 @@ mkdir -p build/test build/shots
 
 syms=""
 for n in g_Booted g_RollTick g_TallyBefore g_TallyEscape g_TallyTime g_TallyLives g_Shell g_ShellTick g_DemoTicks g_ValeRoom g_ValeX g_ValeY g_Score g_ValeLives g_TestMapOpen \
-         g_QuestSlots g_QuestPieces g_ValeMode g_ContinuesUsed g_BestScore g_Bank1Segment; do
+         g_QuestSlots g_QuestPieces g_ValeMode g_ContinuesUsed g_BestScore g_Bank1Segment g_TestMapHold; do
     a=$(awk -v s="_$n" '$2 == s { print "0x" substr($1, length($1) - 3) }' "$map")
     [[ -n "$a" ]] || { echo "shell.sh: $n is not in $map" >&2; exit 1; }
     syms+="$n $a "
@@ -46,7 +46,10 @@ plan=(
     "until {[peek g_Shell] == 1 && [peek g_DemoTicks 2] >= 100}" "dump attract"
     "until {[peek g_Shell] == 0 && [peek g_ShellTick 2] >= 2}"
     "log demo {[peek g_DemoTicks 2] [peek g_ValeRoom] [peek g_ValeX 4] [peek g_ValeY 4] [peek g_Score 4] [peek g_ValeLives]}"
-    "poke g_TestMapOpen 1" "until {[peek g_Shell] == 9 && [peek g_ShellTick 2] >= 1}" "dump map"
+    # (the map comes up at once, its rooms filling in for a second, M13: held
+    # still, and taken once they are in)
+    "poke g_TestMapOpen 1" "until {[peek g_Shell] == 9 && [peek g_ShellTick 2] >= 1}"
+    "poke g_TestMapHold 1" "pause 1.5" "dump map" "poke g_TestMapHold 0"
     # Escape: the demo's run is offered to the table; three letters (C, A, A).
     "$ESC" "wait 12" "dump entry"
     "$DOWN" "$DOWN" "$SPACE" "$SPACE" "$SPACE" "wait 2" "dump hiscores2"
