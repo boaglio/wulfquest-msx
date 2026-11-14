@@ -51,9 +51,8 @@ typedef struct
 	u8  At;           // 18: its room
 	u16 MoveTicks;    // 19
 	u8  Free;         // 21: its box where it stands is known free (move.c)
-	u8  Blocked[7];   // 22: unused (M13: a strip remembered cost more than testing it)
-} Beast;          // 29 bytes (test/moves.tcl reads them)
-#define BEAST_SIZE	29
+} Beast;          // 22 bytes (test/moves.tcl reads them)
+#define BEAST_SIZE	22
 extern Beast g_Beast[];
 extern u8  g_BKind[];       // index into the kinds (a sleeper changes kind)
 extern i8  g_BFace[];

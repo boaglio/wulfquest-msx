@@ -1196,7 +1196,6 @@ void Jungle_NewGame()
 		g_BPause[b] = 0;
 		g_BHint[b] = 0;
 		g_Beast[b].MoveTicks = 0;
-		g_Beast[b].Blocked[0] = 0xFF;   // no strip found blocked yet
 		s_Role[b] = g_BeastKind[k];
 	}
 	for (u8 i = 0; i < CREATURE_POOL; i++)

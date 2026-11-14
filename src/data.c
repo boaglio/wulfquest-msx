@@ -161,8 +161,8 @@ __at(RAM_TABLES) unsigned char g_Tables[TABLES_BYTES];   // at its place in RAM 
 __at(RAM_LOW) u8 g_RamLow;   // the big arrays' lowest byte: build.sh's check
 
 //-----------------------------------------------------------------------------
-// Flips in the blank (H.TIMI). The BIOS's interrupt routine calls the hook
-// early, before its own work (C-BIOS's can take 13 000 cycles, longer than a
+// Flips in the blank (from Data_Keyi, H.KEYI, since M13; H.TIMI before). The
+// BIOS's interrupt routine calls the hook early, before its own work (C-BIOS's can take 13 000 cycles, longer than a
 // 60 Hz blank); the main loop wakes only after it. So what must change on
 // screen at once, the page shown and the sprite tables, is changed here:
 // the main loop leaves the registers' values in g_Flip* and sets
@@ -170,6 +170,8 @@ __at(RAM_LOW) u8 g_RamLow;   // the big arrays' lowest byte: build.sh's check
 // there before (a disk ROM's, say), copied to s_OldHook. In segment 0, which
 // is always mapped: an interrupt may come with any bank switched.
 #define H_TIMI_ADDR	0xFD9F
+#define H_KEYI_ADDR	0xFD9A
+#define JIFFY_ADDR	0xFC9E
 volatile u8 g_FlipPending = 0;   // FLIP_PAGE | FLIP_SPRITES
 u8 g_FlipR2 = 0;
 u8 g_FlipR6 = 0;
@@ -178,6 +180,7 @@ volatile u8 g_SpritesShown = 0;  // the sprite set the VDP shows: written here
 u16 g_FlipDraw = 0;
 volatile u16 g_ShownDraw = 0;
 static u8 s_OldHook[5];
+static u8 s_OldKeyi[5];   // H.KEYI as it was (RET with a disk ROM set aside, as H.TIMI)
 u8  g_DiskReady = 0;     // a disk ROM, and its area set aside: Data_DiskCall works (M11)
 
 void Data_Flip() __naked
@@ -232,18 +235,43 @@ void Data_Flip() __naked
 	__endasm;
 }
 
+// The frame's interrupt taken first (M13): the BIOS calls H.KEYI before it
+// reads the VDP's status, so this reads it, and on a frame does the frame's
+// work, JIFFY too, itself: the BIOS, seeing no frame, skips its own (C-BIOS's
+// keyboard scan and the rest, 3 400 cycles a frame), which the game does not
+// use (it reads the keys and the joystick from their ports). Then the hook
+// that was there. A disk call puts the BIOS's way back (Data_DiskCall).
+void Data_Keyi() __naked
+{
+	__asm
+		in	a, (#0x99)              ; S#0: read, the frame's flag is down for the BIOS
+		and	a
+		jp	p, _s_OldKeyi           ; not the frame's
+		ld	hl, (JIFFY_ADDR)
+		inc	hl
+		ld	(JIFFY_ADDR), hl
+		call	_Data_Flip              ; a: the status, as H.TIMI would have it
+		jp	_s_OldKeyi
+	__endasm;
+}
+
 void Data_InstallFlip()
 {
-	u8* hook = (u8*)H_TIMI_ADDR;
+	u8* timi = (u8*)H_TIMI_ADDR;
+	u8* keyi = (u8*)H_KEYI_ADDR;
 	__asm__("di");
-	// A disk ROM's hook (its motor's timer) works in its area, which is the
-	// game's now (Data_DiskAside): it runs only in a disk call (M11).
+	// A disk ROM's hooks (its motor's timer) work in its area, which is the
+	// game's now (Data_DiskAside): they run only in a disk call (M11).
 	for (u8 i = 0; i < 5; i++)
-		s_OldHook[i] = g_DiskReady ? 0xC9 : hook[i];
-	hook[0] = 0xC3;   // jp Data_Flip
-	*(u16*)(hook + 1) = (u16)Data_Flip;
-	hook[3] = 0xC9;
-	hook[4] = 0xC9;
+	{
+		s_OldHook[i] = g_DiskReady ? 0xC9 : timi[i];
+		s_OldKeyi[i] = g_DiskReady ? 0xC9 : keyi[i];
+		timi[i] = 0xC9;   // never called now: Data_Keyi takes the frame first
+	}
+	keyi[0] = 0xC3;   // jp Data_Keyi
+	*(u16*)(keyi + 1) = (u16)Data_Keyi;
+	keyi[3] = 0xC9;
+	keyi[4] = 0xC9;
 	__asm__("ei");
 }
 
@@ -1475,6 +1503,7 @@ static u8  s_A8 = 0;
 static u8  s_FFFF = 0;
 static u16 s_GameSP = 0;
 static u8  s_DiskHook[5];          // H.TIMI as the disk ROM had it: for its calls only
+static u8  s_DiskKeyi[5];          // and H.KEYI
 static u8  s_DiskStack[192];       // the calls' stack, below HIMEM
 // The error handlers MSX-DOS calls (through DISKVE, BREAKV): "abort" (c = 2).
 static u8  s_Abort[3] = { 0x0E, 0x02, 0xC9 };   // ld c, 2; ret
@@ -1575,14 +1604,19 @@ void Data_DiskAside() __naked
 		push	de
 		ld	de, #_s_DiskHook
 		ldir
+		ld	hl, #0xFD9A             ; and H.KEYI
+		ld	de, #_s_DiskKeyi
+		ld	bc, #5
+		ldir
 		call	_Page0Ram
 		ld	hl, (_s_Himem)
 		ld	de, #AREA_DISK
 		ld	bc, (_s_AreaLen)
 		ldir
 		call	_Page0Bios
-		ld	a, #0xC9                ; its H.TIMI quiet from now on: its area is the game's
+		ld	a, #0xC9                ; its hooks quiet from now on: its area is the game's
 		ld	(0xFD9F), a
+		ld	(0xFD9A), a
 		pop	de
 		ld	a, #1
 		ld	(_g_DiskReady), a
@@ -1615,8 +1649,12 @@ void Data_DiskCall() __naked
 		ld	bc, (_s_AreaLen)
 		ldir
 		call	_Page0Bios
-		ld	hl, #_s_DiskHook        ; its H.TIMI
+		ld	hl, #_s_DiskHook        ; its H.TIMI and H.KEYI: the BIOS's frame its own again
 		ld	de, #0xFD9F
+		ld	bc, #5
+		ldir
+		ld	hl, #_s_DiskKeyi
+		ld	de, #0xFD9A
 		ld	bc, #5
 		ldir
 		ld	hl, #_s_Abort
@@ -1633,17 +1671,28 @@ void Data_DiskCall() __naked
 		ld	(_g_BdosA), a
 		ld	(_g_BdosHL), hl
 		di
-		ld	hl, #0xFD9F             ; its H.TIMI, kept; ours back
+		ld	hl, #0xFD9F             ; its hooks, kept; ours back
 		ld	de, #_s_DiskHook
 		ld	bc, #5
 		ldir
-		ld	a, #0xC3
-		ld	(0xFD9F), a
-		ld	hl, #_Data_Flip
-		ld	(0xFDA0), hl
+		ld	hl, #0xFD9A
+		ld	de, #_s_DiskKeyi
+		ld	bc, #5
+		ldir
 		ld	a, #0xC9
-		ld	(0xFDA2), a
-		ld	(0xFDA3), a
+		ld	hl, #0xFD9F
+		ld	b, #5
+	00095$:
+		ld	(hl), a
+		inc	hl
+		djnz	00095$
+		ld	a, #0xC3
+		ld	(0xFD9A), a
+		ld	hl, #_Data_Keyi
+		ld	(0xFD9B), hl
+		ld	a, #0xC9
+		ld	(0xFD9D), a
+		ld	(0xFD9E), a
 		call	_Page0Ram
 		ld	hl, (_s_Himem)          ; the disk ROM's area kept, as the call left it
 		ld	de, #AREA_DISK

@@ -89,8 +89,8 @@ proc jungle {} {
     }
     append s " B"
     for {set b 0} {$b < $::beasts} {incr b} {
-        # Beast (jungle.h): X 0, VX 4, Y 9, VY 13, At 18, MoveTicks 19; 29 bytes.
-        set at [expr {$::a(g_Beast) + 29 * $b}]
+        # Beast (jungle.h): X 0, VX 4, Y 9, VY 13, At 18, MoveTicks 19; 22 bytes.
+        set at [expr {$::a(g_Beast) + 22 * $b}]
         append s " [peekat g_BKind $b 1 0] [rd [expr {$at + 18}] 1 0] [rd $at 4 1] [rd [expr {$at + 9}] 4 1]"
         append s " [rd [expr {$at + 4}] 2 1] [rd [expr {$at + 13}] 2 1] [peekat g_BFace $b 1 1]"
         append s " [peekat g_BAsleep $b 1 0] [peekat g_BPause $b 1 0] [rd [expr {$at + 19}] 2 0]"

@@ -1306,9 +1306,10 @@ on real hardware, and what was found is written in this section.
 third of a picture within a frame less the interrupt (§6), about 63 600 Z80
 cycles at 50 Hz. Measured with the profiler (DEVELOPER.md, the tests), every
 plan still equal to the Java game's at 50 and 60 Hz:
-- Frames at 50 Hz, before → now: fencing 1 062 → 849 for 800 ticks,
-  orchids 16 938 → 11 552 for 9 000, flame 1 466 → 1 181 for 900;
-  map-scroll at full speed, standing, rhinos and game-over within 1%.
+- Frames at 50 Hz, before → now: fencing 1 062 → 824 for 800 ticks,
+  orchids 16 938 → 10 987 for 9 000, flame 1 466 → 1 126 for 900,
+  guardian-parry 748 → 714 for 600; map-scroll, standing and game-over at
+  full speed, rhinos within 1%.
 - The pictures' pace (`test/moves.sh` reports it): fencing a picture every
   4.0 frames (36% of them within 3), orchids 5.4, flame 5.3,
   guardian-parry 4.6; the quiet scenes 1 to 2.
@@ -1316,6 +1317,13 @@ plan still equal to the Java game's at 50 and 60 Hz:
   14 000, combat 6 800, Vale's move 4 700), a picture 66 500, the interrupt
   about 5 000 a frame (BIOS 3 300, sound 1 900). Orchids: a tick about
   70 000, a picture 100 000.
+- The frame's interrupt is the game's (the owner's choice): `Data_Keyi`, on
+  H.KEYI, reads the VDP's status before the BIOS does and does the frame's
+  work (JIFFY, the flip, the sound), so the BIOS skips its own (C-BIOS's
+  keyboard scan and the rest, 3 400 cycles a frame; the game reads the keys
+  and joystick from their ports). H.TIMI is left quiet; a disk call puts the
+  disk ROM's hooks back. On real hardware (part 5) check the BIOS calls
+  H.KEYI before it reads the status (the MSX BIOS's KEYINT does).
 - What did it: a small creature, Wulf, Vale and a free beast are free where
   they stand, so a step whose leading edge stays in its cell is taken with
   no test, and a step into a new strip of cells tests that strip alone,
