@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wulf Quest for MSX2</title>
+<meta name="description" content="Wulf Quest, a flip-screen jungle adventure, as a ROM cartridge for the MSX2. Play it in your browser with WebMSX or download the ROM.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>Wulf Quest <span>for MSX2</span></h1>
+  <p class="lead">A flip-screen jungle adventure: Ranger Vale alone in a
+  256-room jungle, looking for the four pieces of a broken amulet, with the
+  Wulf on his trail.</p>
+  <p class="note">A work in progress, built from the latest code: the whole
+  game is in, and its tuning for real machines is still going on (the
+  busiest rooms can run a little slow).</p>
+</header>
+
+<main>
+<section id="play">
+  <h2>Play it in your browser</h2>
+  <p>With <a href="https://webmsx.org/">WebMSX</a>, an MSX emulator that runs
+  in the browser. Pick a machine; the ROM loads straight from this site.</p>
+  <p class="buttons">
+    <a class="button" id="play-eu" href="https://webmsx.org/?MACHINE=MSX2E&amp;ROM_FORMAT=ASCII16&amp;ROM=https://boaglio.github.io/wulfquest-msx/wulfquest.rom">European MSX2 (50&nbsp;Hz)</a>
+    <a class="button" id="play-jp" href="https://webmsx.org/?MACHINE=MSX2J&amp;ROM_FORMAT=ASCII16&amp;ROM=https://boaglio.github.io/wulfquest-msx/wulfquest.rom">Japanese MSX2 (60&nbsp;Hz)</a>
+  </p>
+  <p class="small">The game runs at the same speed on both. If WebMSX does not
+  start it, open WebMSX, drop the downloaded ROM on its screen and choose the
+  <b>ASCII16</b> format.</p>
+</section>
+
+<section id="download">
+  <h2>Download</h2>
+  <p><a class="button" href="wulfquest.rom" download>wulfquest.rom</a></p>
+  <p>A 512&nbsp;KB <b>ASCII16</b> MegaROM. It needs an MSX2, an MSX2+ or a
+  turbo&nbsp;R (on an MSX1 it says so). Tagged versions, when there are some,
+  are on the <a href="https://github.com/boaglio/wulfquest-msx/releases">releases page</a>.</p>
+</section>
+
+<section id="local">
+  <h2>Play it on your computer</h2>
+  <h3>openMSX</h3>
+  <p><a href="https://openmsx.org/">openMSX</a> comes with C-BIOS, a free MSX
+  BIOS, so it plays without any system ROM of your own:</p>
+  <pre><code>openmsx -machine C-BIOS_MSX2_EU -carta wulfquest.rom -romtype ASCII16</code></pre>
+  <p>Use <code>C-BIOS_MSX2_JP</code> for a 60&nbsp;Hz machine, or any real
+  MSX2 openMSX knows, if you have its system ROMs.</p>
+  <h3>Other emulators</h3>
+  <p>blueMSX, fMSX and the rest: load the ROM as a cartridge on an MSX2
+  machine and, if asked, choose the <b>ASCII16</b> mapper.</p>
+  <h3>A real MSX2</h3>
+  <p>Write the ROM to a flash cartridge that can be an ASCII16 MegaROM of
+  512&nbsp;KB. Saving needs a disk drive (see below).</p>
+</section>
+
+<section id="controls">
+  <h2>Controls</h2>
+  <table>
+    <tr><th>Walk</th><td>cursor keys (or <kbd>Q</kbd> <kbd>A</kbd> <kbd>O</kbd> <kbd>P</kbd>, in the options), or a joystick</td></tr>
+    <tr><th>Swing the sabre</th><td><kbd>Space</kbd> or fire</td></tr>
+    <tr><th>Map</th><td><kbd>M</kbd> or the second button</td></tr>
+    <tr><th>Pause</th><td><kbd>STOP</kbd> or <kbd>F1</kbd></td></tr>
+    <tr><th>Back a step</th><td><kbd>ESC</kbd></td></tr>
+  </table>
+</section>
+
+<section id="saves">
+  <h2>Saves</h2>
+  <p>Three slots, saved every minute and from the pause menu, on a disk in
+  the machine's drive; the last game is offered first on the title. Without
+  a disk drive the game plays the same, without saves. In a browser emulator
+  a save lasts only as long as its disk does.</p>
+</section>
+
+<section id="about">
+  <h2>About</h2>
+  <p>This is the MSX2 version of <a href="https://github.com/boaglio/wulfquest">Wulf Quest</a>,
+  played the same way, tick for tick: SCREEN&nbsp;5, layered hardware sprites
+  with a colour a line, the PSG for sound and music. Its source, and how to
+  build it, is on <a href="https://github.com/boaglio/wulfquest-msx">GitHub</a>.</p>
+  <h3>Credits and attribution</h3>
+  <p>Wulf Quest is an independent, clean-room homage to the flip-screen jungle
+  maze genre of the early 1980s. All artwork, audio, and code are original.
+  Room layout geometry was reconstructed from publicly documented map data.
+  No assets from any commercial game are included. Not affiliated with,
+  endorsed by, or derived from the code of any prior work.</p>
+  <p>Built with <a href="https://github.com/aoineko-fr/MSXgl">MSXgl</a>, the
+  MSX game library by Guillaume "Aoineko" Blanchard (CC BY-SA 4.0).</p>
+  <h3>Licence</h3>
+  <p>Free software under the <a href="https://www.gnu.org/licenses/gpl-3.0.html">GNU
+  General Public License</a>, version 3 or (at your option) any later version.</p>
+</section>
+</main>
+
+<footer>
+  <p><a href="https://github.com/boaglio/wulfquest-msx">github.com/boaglio/wulfquest-msx</a></p>
+</footer>
+
+<script>
+// The ROM's address as this page is served (a fork's site too).
+(function () {
+  var rom = new URL("wulfquest.rom", location.href).href;
+  if (!/^https?:/.test(rom)) return;
+  [["play-eu", "MSX2E"], ["play-jp", "MSX2J"]].forEach(function (p) {
+    document.getElementById(p[0]).href = "https://webmsx.org/?MACHINE=" + p[1]
+      + "&ROM_FORMAT=ASCII16&ROM=" + encodeURIComponent(rom);
+  });
+})();
+</script>
+</body>
+</html>

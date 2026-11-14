@@ -331,6 +331,18 @@ MIDI device. It is harmless.
 waits. Its "press C to continue anyway" is MSXgl's own way past it, for
 developers; the game is not meant to run there.
 
+## The page
+
+`site/` is the project's page for players (`index.html`, `style.css`: what
+it is, play it in WebMSX, download the ROM, play it in openMSX, the
+controls). `.github/workflows/pages.yml` builds the ROM from each push to
+`main` and publishes the page with `wulfquest.rom` beside it on GitHub Pages
+(the ROM is never committed); WebMSX loads it from there
+(`webmsx.org/?MACHINE=MSX2E&ROM_FORMAT=ASCII16&ROM=...`). Turn it on once in
+the repository's Settings > Pages, Source "GitHub Actions"; it can also be
+run by hand from the Actions tab. To look at it locally:
+`mkdir -p /tmp/site && cp site/* build/wulfquest.rom /tmp/site/ && python3 -m http.server -d /tmp/site`.
+
 ## Layout
 
 ```
