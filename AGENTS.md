@@ -61,6 +61,8 @@ wulfquest-msx/
   AGENTS.md          this file
   README.md          for players: what it is, how to get it and play it
   DEVELOPER.md       for developers: toolchain, build, test, release
+  HARDWARE.md        the real-hardware checklist (M13 part 5) and what was found
+  site/              the project's page for players (GitHub Pages, .github/workflows/pages.yml)
   wulfquest/         git submodule: the Java game, pinned to a release tag (§10, M1)
   msxgl/             git submodule: MSXgl, pinned to a release
   build.sh           build the ROM; `./build.sh test` runs every test
@@ -1401,6 +1403,19 @@ cells unpacked a row at a time in assembly (CellRow, Data_LoadCells 347 000
 (FloodLevel, 397 000 → 262 000 a room), a room's sides found from Marks's
 fits, the openings' records copied with ldir. Left: the rest of it (a room
 of the trail about 0.7 M cycles: its cells, marks, sides, flood).
+
+**Part 4 (60 Hz; checked in the emulator):** every plan equal to the Java
+game's, tick for tick, on the 60 Hz machine as on the 50 Hz one, and the
+sound frame for frame from its 60 Hz tables (`test/sound.sh`). The same
+pace: a scenario's frames over the machine's rate, 50 Hz against 60 Hz:
+fencing 16.24 s / 16.23 s for 800 ticks, flame 21.74 / 21.80, orchids
+213.5 / 214.0 for 9 000, the `continue` route 187.28 / 187.32 s for 9 301
+ticks (two ticks apart), the busy rooms slow the same on both.
+
+**Part 5 (real hardware; to do, by the owner):** `HARDWARE.md` is the list:
+the machines and media, then starting, speed and pictures, the interrupt
+the game takes, the screens, the disk saves, the joysticks and keyboards,
+the MSX2+ and turbo R; what is found goes under its **Found**, then here.
 
 ### M14 — The first release: the ROM and a disk image
 
