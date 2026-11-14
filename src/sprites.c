@@ -61,7 +61,7 @@ static u16 s_SatBase = 0xF600;
 #define COLOURS_0	0x7400
 #define SAT_0		0x7600
 #define PATTERNS_0	0x7800
-#define SET_1		0x8000   // set 1 is set 0 plus this
+#define SET_1		SPR_SET_1   // set 1 is set 0 plus this (sprites.h)
 
 // What each set's colour table holds at each place in its attribute table.
 // Three bytes a place: its sprite, its look (EC bit, and the lines shown),

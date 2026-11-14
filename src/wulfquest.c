@@ -428,12 +428,37 @@ static u16 s_ValeBuf = 0xFFFF;
 
 // Show bank frame f, in tint (0: its own colours; a silhouette takes the
 // tint), its feet at (x, y) on the screen, in slot SLOT_SMALL + n.
+static bool s_Copied = FALSE;   // a slot's patterns copied by the VDP in this picture
 static void PutFrame(u8 n, u8 f, u8 tint, i16 x, i16 y)
 {
 	u8 slot = SLOT_SMALL + n;
 	u8 set = Sprites_Back();
+	u8 other = set ^ 1;
 	if (f != s_SlotFrame[set][n] || tint != s_SlotTint[set][n] || f != s_BufFrame[n] || tint != s_BufTint[n])
 	{
+		if (f == s_SlotFrame[other][n] && tint == s_SlotTint[other][n] && f == s_BufFrame[n] && tint == s_BufTint[n])
+		{
+			// The other set has its patterns, the colours' buffer its colours
+			// (M13: loaded again, it was a frame's 5 000 cycles): its patterns
+			// copied by the VDP, the slot's whole place (a small slot's half a
+			// line, a big one's two), from the set shown to this one.
+			u16 at = Sprites_PatternAddress(slot);
+			g_VSX = g_VDX = (at & 127) << 1;
+			g_VSY = (at ^ SPR_SET_1) >> 7;
+			g_VDY = at >> 7;
+			g_VNX = n < SPR_SMALL ? 128 : 256;
+			g_VNY = n < SPR_SMALL ? 1 : 2;
+			g_VCmd = VCMD_HMMM;
+			Data_Vdp();
+			s_Copied = TRUE;
+			Sprites_Changed(slot);
+			s_SlotFrame[set][n] = f;
+			s_SlotTint[set][n] = tint;
+			s_SlotOX[set][n] = s_SlotOX[other][n];
+			s_SlotOY[set][n] = s_SlotOY[other][n];
+			Sprites_Put(slot, x - s_SlotOX[set][n], y - s_SlotOY[set][n]);
+			return;
+		}
 		s_Loaded = TRUE;
 		u8* c = Sprites_Colours(slot);
 		u8 blocks = Data_LoadSpriteFrame(f, g_SpritePatternHigh, Sprites_PatternAddress(slot), c);
@@ -620,26 +645,86 @@ static TickDiv s_BlinkDiv = { 0, 0, 0, 0 };
 
 static TickDiv s_SwayDiv = { 0, 0, 0, 0 };
 
+// RunQuotient's arguments, and its start again after a jump or a new k: in
+// C, with SDCC's division (rare). The running case in assembly (M13: SDCC's
+// 32-bit sums through the pointer were 1 700 cycles a call).
+static u32 s_RqT;
+static u16 s_RqK;
+static u8 RunStart(TickDiv* d)
+{
+	d->K = s_RqK;
+	d->Q = (u8)(s_RqT / s_RqK);
+	d->Rem = (u16)(s_RqT % s_RqK);
+	d->Tick = s_RqT;
+	return d->Q;
+}
+typedef char c_TickDivBytes[sizeof(TickDiv) == 9 ? 1 : -1];   // Tick 0, K 4, Rem 6, Q 8
+static u8 RunOn(TickDiv* d) __naked
+{
+	d;   // hl
+	__asm
+		push	ix
+		push	hl
+		pop	ix
+		ld	a, 4 (ix)               ; the same k?
+		ld	hl, #_s_RqK
+		cp	a, (hl)
+		jr	nz, 00090$
+		ld	a, 5 (ix)
+		inc	hl
+		cp	a, (hl)
+		jr	nz, 00090$
+		ld	a, (_s_RqT)             ; t - Tick: under 256 (on, not back)?
+		sub	a, 0 (ix)
+		ld	e, a
+		ld	a, (_s_RqT + 1)
+		sbc	a, 1 (ix)
+		ld	d, a
+		ld	a, (_s_RqT + 2)
+		sbc	a, 2 (ix)
+		ld	c, a
+		ld	a, (_s_RqT + 3)
+		sbc	a, 3 (ix)
+		or	a, c
+		or	a, d
+		jr	nz, 00090$
+		ld	l, 6 (ix)
+		ld	h, 7 (ix)
+		add	hl, de                  ; Rem + (t - Tick)
+		ld	de, (_s_RqK)
+		ld	b, 8 (ix)
+	00010$:
+		or	a
+		sbc	hl, de
+		jr	c, 00020$
+		inc	b                       ; another k
+		jr	00010$
+	00020$:
+		add	hl, de
+		ld	6 (ix), l
+		ld	7 (ix), h
+		ld	8 (ix), b
+		ld	hl, (_s_RqT)
+		ld	0 (ix), l
+		ld	1 (ix), h
+		ld	hl, (_s_RqT + 2)
+		ld	2 (ix), l
+		ld	3 (ix), h
+		ld	a, b
+		pop	ix
+		ret
+	00090$:
+		push	ix
+		pop	hl
+		pop	ix
+		jp	_RunStart
+	__endasm;
+}
 static u8 RunQuotient(TickDiv* d, u32 t, u16 k)
 {
-	if (d->K == k && t >= d->Tick && t - d->Tick < 256)
-	{
-		u16 r = d->Rem + (u8)(t - d->Tick);
-		while (r >= k)
-		{
-			r -= k;
-			d->Q++;
-		}
-		d->Rem = r;
-	}
-	else
-	{
-		d->K = k;
-		d->Q = (u8)(t / k);
-		d->Rem = (u16)(t % k);
-	}
-	d->Tick = t;
-	return d->Q;
+	s_RqT = t;
+	s_RqK = k;
+	return RunOn(d);
 }
 
 static u8 DrawLoot(u8 m)
@@ -1034,6 +1119,11 @@ static void DrawSprites()
 	}
 	else if (g_JungleOn)
 		DrawJungle();
+	if (s_Copied)
+	{
+		s_Copied = FALSE;
+		Data_VdpWait();   // the copies done before the set is shown
+	}
 	Sprites_End();
 }
 

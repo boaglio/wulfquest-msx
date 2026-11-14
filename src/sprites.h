@@ -34,6 +34,9 @@ u8 Sprites_Back();
 
 // The slot's first sprite in the back set: its patterns are 32 bytes a
 // sprite from there.
+// Set 1's tables are set 0's plus this (video RAM; PutFrame copies a slot's
+// patterns from one set to the other with it).
+#define SPR_SET_1	0x8000
 u16 Sprites_PatternAddress(u8 slot);
 
 // Its colour tables in RAM, 16 bytes a sprite, as the frame has them (no
