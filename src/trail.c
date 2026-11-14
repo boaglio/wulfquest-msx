@@ -219,7 +219,8 @@ static void Load(u8 room)
 				i8 y = edge == 1 || edge == 3 ? (i8)a : edge == 2 ? CELL_ROWS - 1 : 0;
 				i8 ox = x + (edge == 1 ? 1 : edge == 3 ? -1 : 0);
 				i8 oy = y + (edge == 2 ? 1 : edge == 0 ? -1 : 0);
-				open = TFits(x, y) && TFits(ox, oy);
+				// In the room, Marks's: bit 2 where the feet fit (M13: TFits's four cells)
+				open = (s_Mark[((u16)(u8)y << 5) + (u8)x] & 4) && TFits(ox, oy);
 			}
 			if (open && start < 0)
 				start = (i8)a;
@@ -321,6 +322,125 @@ static void Try(u16 n, u8 nm)
 	}
 }
 
+// One step of the flood, in assembly (M13: 560 cycles a cell in C): the
+// queue's cells Head..End-1, each one's neighbours (right, left, down, up,
+// within the room) that fit and are not reached yet marked with the next
+// steps modulo 3 (Nm) and put on the queue (s_Tail16 on).
+#if CELL_COLS != 32 || CELL_ROWS != 22
+#error "FloodLevel takes a room of 32 x 22 cells, a cell's row its index >> 5"
+#endif
+typedef struct
+{
+	u16 Head;
+	u16 End;
+	u8  Nm;
+} FloodArgs;
+static void FloodLevel(FloodArgs* a) __naked
+{
+	a;   // hl
+	__asm
+		push	ix
+		push	hl
+		pop	ix
+		ld	e, 0 (ix)
+		ld	d, 1 (ix)               ; de = the head
+	00010$:
+		ld	a, e
+		cp	a, 2 (ix)
+		jr	nz, 00011$
+		ld	a, d
+		cp	a, 3 (ix)
+		jr	nz, 00011$
+		pop	ix
+		ret
+	00011$:
+		ld	h, d
+		ld	l, e
+		add	hl, hl
+		ld	bc, #_s_Q
+		add	hl, bc
+		ld	a, (hl)
+		inc	hl
+		ld	h, (hl)
+		ld	l, a                    ; hl = the cell
+		inc	de
+		push	de
+		ld	a, l
+		and	a, #31
+		cp	a, #31
+		jr	z, 00020$
+		push	hl
+		inc	hl
+		call	00050$                  ; right
+		pop	hl
+	00020$:
+		ld	a, l
+		and	a, #31
+		jr	z, 00030$
+		push	hl
+		dec	hl
+		call	00050$                  ; left
+		pop	hl
+	00030$:
+		ld	a, h                    ; not the last row: the cell under 704
+		cp	a, #2
+		jr	c, 00031$
+		ld	a, l
+		cp	a, #0xA0                ; 672: row 21's first
+		jr	nc, 00040$
+	00031$:
+		push	hl
+		ld	bc, #32
+		add	hl, bc
+		call	00050$                  ; down
+		pop	hl
+	00040$:
+		ld	a, h                    ; not the first row: 32 or more
+		or	a
+		jr	nz, 00041$
+		ld	a, l
+		cp	a, #32
+		jr	c, 00045$
+	00041$:
+		ld	bc, #-32
+		add	hl, bc
+		call	00050$                  ; up
+	00045$:
+		pop	de
+		jr	00010$
+
+	; ---- cell hl: fits, not reached (mark & 7 == 7): marked, queued
+	00050$:
+		push	hl
+		ld	bc, #_s_Mark
+		add	hl, bc
+		ld	a, (hl)
+		and	a, #7
+		cp	a, #7
+		jr	nz, 00055$
+		ld	a, (hl)
+		and	a, #0xFC
+		or	a, 4 (ix)
+		ld	(hl), a
+		ld	hl, (_s_Tail16)
+		ld	d, h
+		ld	e, l
+		inc	de
+		ld	(_s_Tail16), de
+		add	hl, hl
+		ld	bc, #_s_Q
+		add	hl, bc
+		pop	de                      ; the cell
+		ld	(hl), e
+		inc	hl
+		ld	(hl), d
+		ret
+	00055$:
+		pop	hl
+		ret
+	__endasm;
+}
+
 // Trail.flood: from the seeds in their steps' order (stable), each joining as the flood comes to it.
 static void Flood()
 {
@@ -370,22 +490,13 @@ static void Flood()
 			vm = Mod3(val);
 			continue;
 		}
-		u16 end = s_Tail16;
-		u8 nm = vm == 2 ? 0 : vm + 1;
-		while (head < end)
-		{
-			u16 c = s_Q[head++];
-			u8 x = (u8)c & 31;
-			u8 y = (u8)(c >> 5);
-			if (x < CELL_COLS - 1)
-				Try(c + 1, nm);
-			if (x > 0)
-				Try(c - 1, nm);
-			if (y < CELL_ROWS - 1)
-				Try(c + CELL_COLS, nm);
-			if (y > 0)
-				Try(c - CELL_COLS, nm);
-		}
+		FloodArgs a;
+		a.Head = head;
+		a.End = s_Tail16;
+		a.Nm = vm == 2 ? 0 : vm + 1;
+		FloodLevel(&a);
+		head = a.End;
+		u8 nm = a.Nm;
 		val++;
 		vm = nm;
 	}

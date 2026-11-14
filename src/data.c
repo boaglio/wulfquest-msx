@@ -110,6 +110,59 @@ void Data_LoadRoom(u8 room, RoomData* out)
 // around this one, the rectangle of it that falls in the window.
 #define MASK_ROW	(CELL_COLS / 8)
 
+// A row of a room's cells from its mask's bits: N cells, a byte each (0 or
+// 1), to Out; Bits the byte being shifted (its next cell in bit 7), Left how
+// many of its cells are still in it, Next the byte after.
+typedef struct
+{
+	u8* Out;
+	const u8* Next;
+	u8 Bits;
+	u8 Left;
+	u8 N;
+} CellRowArgs;
+static void CellRow(CellRowArgs* a) __naked
+{
+	a;   // hl
+	__asm
+		ld	e, (hl)
+		inc	hl
+		ld	d, (hl)                 ; de = Out
+		inc	hl
+		ld	c, (hl)
+		inc	hl
+		ld	b, (hl)                 ; bc = Next
+		inc	hl
+		push	bc
+		ld	c, (hl)                 ; c = Bits
+		inc	hl
+		ld	b, (hl)                 ; b = Left
+		inc	hl
+		ld	a, (hl)                 ; a = N
+		pop	hl                      ; hl = Next
+		or	a
+		ret	z
+		ex	af, af'                 ; the count in the other a
+	00010$:
+		xor	a
+		sla	c
+		rla                             ; the cell's bit
+		ld	(de), a
+		inc	de
+		dec	b
+		jr	nz, 00020$
+		ld	c, (hl)                 ; the next byte's eight
+		inc	hl
+		ld	b, #8
+	00020$:
+		ex	af, af'
+		dec	a
+		ret	z
+		ex	af, af'
+		jr	00010$
+	__endasm;
+}
+
 void Data_LoadCells(u8 room, u8* cells)
 {
 	const u8* blob = (const u8*)(ROM_DATA_ADDR + ROOMS_BIN_REL);
@@ -132,30 +185,30 @@ void Data_LoadCells(u8 room, u8* cells)
 				|| (dc < 0 && col == 0) || (dc > 0 && col == GRID_W - 1);
 			const u8* mask = outside ? 0
 				: blob + ROOMS_MASKS + (u16)blob[ROOMS_TEMPLATE_OF + room + dr * GRID_W + dc] * ROOM_MASK_BYTES;
-			u8 y = cy;
-			for (u8 wy = wy0; wy < wy1; wy++, y++)
+			// Its rows, the pointers carried on from row to row (M13).
+			u8* out = cells + (u16)wy0 * CELLS_W + wx0;
+			u8 n = wx1 - wx0;
+			const u8* m = outside ? 0 : mask + (u16)cy * MASK_ROW + (cx0 >> 3);
+			u8 sh = cx0 & 7;
+			for (u8 wy = wy0; wy < wy1; wy++, out += CELLS_W)
 			{
-				u8* out = cells + (u16)wy * CELLS_W + wx0;
 				if (outside)
 				{
-					for (u8 wx = wx0; wx < wx1; wx++)
-						*out++ = 1;
+					u8* o = out;
+					for (u8 k = n; k; k--)
+						*o++ = 1;
 					continue;
 				}
-				// The row's bits from cell cx0 on, shifted out of a byte at a time.
-				const u8* m = mask + (u16)y * MASK_ROW + (cx0 >> 3);
-				u8 bits = (u8)(*m++ << (cx0 & 7));
-				u8 left = 8 - (cx0 & 7);
-				for (u8 wx = wx0; wx < wx1; wx++)
-				{
-					*out++ = bits >> 7;
-					bits <<= 1;
-					if (--left == 0)
-					{
-						bits = *m++;
-						left = 8;
-					}
-				}
+				// The row's bits from cell cx0 on, shifted out of a byte at a
+				// time (CellRow, in assembly: M13, 350 cycles a cell in C).
+				CellRowArgs a;
+				a.Out = out;
+				a.Bits = (u8)(*m << sh);
+				a.Next = m + 1;
+				a.Left = 8 - sh;
+				a.N = n;
+				CellRow(&a);
+				m += MASK_ROW;
 			}
 		}
 	}
@@ -958,9 +1011,20 @@ void Data_TrailRoom(u8 room, u8* out)
 		p--;
 	SET_BANK_SEGMENT(ROM_DATA_BANK, g_TrailPieceSeg[p]);
 	const u8* piece = (const u8*)(ROM_DATA_ADDR + g_TrailPieceRel[p]);
-	const u8* src = piece + ((u16)piece[room - c_TrailRoom0[p]] << 1);
-	for (u8 n = 0; n < TRAIL_RECORD_MAX; n++)   // past its end at most into the next one's: harmless
-		*out++ = *src++;
+	s_MoreSrc = piece + ((u16)piece[room - c_TrailRoom0[p]] << 1);
+	s_MoreOut = out;
+	__asm   // TRAIL_RECORD_MAX bytes (past its end at most into the next one's: harmless); M13: ldir
+		push	bc
+		push	de
+		push	hl
+		ld	hl, (_s_MoreSrc)
+		ld	de, (_s_MoreOut)
+		ld	bc, #TRAIL_RECORD_MAX
+		ldir
+		pop	hl
+		pop	de
+		pop	bc
+	__endasm;
 	SET_BANK_SEGMENT(ROM_DATA_BANK, g_CodeSeg);
 }
 

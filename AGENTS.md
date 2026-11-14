@@ -1387,7 +1387,13 @@ SHELL_TIME (DEVELOPER.md). Then, the owner's choice: the map comes up at
 once (0.18 s: only the panel's lines copied, the playfield filled black,
 the special rooms with their marks), the other rooms filling in, six a tick
 (MapFill, about a second at worst); the trail's search starts once they are
-in. Left: the trail's search (up to 30 s, M12).
+in. The trail's search: 102 M cycles (28.5 s, the 920-pixel trail of
+`test/trail.sh`; its steps up to 21 frames each) → 77 M (21.6 s): a room's
+cells unpacked a row at a time in assembly (CellRow, Data_LoadCells 347 000
+→ 164 000 cycles, every room flip too), the flood's steps in assembly
+(FloodLevel, 397 000 → 262 000 a room), a room's sides found from Marks's
+fits, the openings' records copied with ldir. Left: the rest of it (a room
+of the trail about 0.7 M cycles: its cells, marks, sides, flood).
 
 ### M14 — The first release: the ROM and a disk image
 

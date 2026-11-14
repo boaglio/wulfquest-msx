@@ -18,7 +18,7 @@ command -v openmsx >/dev/null || { echo "trail.sh: openMSX is needed" >&2; exit 
 mkdir -p build/test build/shots
 
 syms=""
-for n in g_Booted g_Shell g_ShellTick g_DemoTicks g_TestMapOpen g_WayTicks g_TrailStage g_TrailN g_TrailWhole g_TestMapHold; do
+for n in g_Booted g_Shell g_ShellTick g_DemoTicks g_TestMapOpen g_WayTicks g_TrailStage g_TrailN g_TrailWhole g_TestMapHold g_Bank1Segment; do
     a=$(awk -v s="_$n" '$2 == s { print "0x" substr($1, length($1) - 3) }' "$map")
     [[ -n "$a" ]] || { echo "trail.sh: $n is not in $map" >&2; exit 1; }
     syms+="$n $a "
