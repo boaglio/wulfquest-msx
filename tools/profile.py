@@ -168,8 +168,8 @@ def main():
             calls.append(line.split()[1:])
             continue
         if line.startswith("time "):
-            _, name, k, cyc = line.split()
-            times.append((name, int(k), int(cyc)))
+            f = line.split()
+            times.append((f[1], int(f[2]), int(f[3]), int(f[4]) if len(f) > 4 else 0))
             continue
         n, seg, pc = map(int, line.split())
         total += n
@@ -179,8 +179,9 @@ def main():
         print(f"calls {name}: {n}")
     for name, n, fn, pc in sorted(froms, key=lambda t: -t[1]):
         print(f"  from {fn} at {pc:04X}: {n}")
-    for name, k, cyc in sorted(times, key=lambda t: -t[2]):
-        print(f"time {name}: {k} calls, {cyc} cycles, {cyc // max(k, 1)} a call")
+    for name, k, cyc, top in sorted(times, key=lambda t: -t[2]):
+        print(f"time {name}: {k} calls, {cyc} cycles, {cyc // max(k, 1)} a call, the longest {top}"
+              f" ({top / (CYCLES_PER_S / 50):.1f} frames at 50 Hz)")
     by_module = collections.Counter()
     for name, n in by_fn.items():
         by_module[name.split("(")[-1].rstrip(")")] += n

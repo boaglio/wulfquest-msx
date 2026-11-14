@@ -327,12 +327,13 @@ if {$::profile ne "" && [info exists env(MOVES_COUNT)]} {
     }
 }
 # MOVES_TIME: functions timed exactly, callees in, as "time NAME CALLS
-# CYCLES" lines: at the entry the return address is read off the stack, and a
+# CYCLES LONGEST" lines (the longest call, for the stalls): at the entry the return address is read off the stack, and a
 # breakpoint there (with the stack back above where it was) ends the call.
 array set ::prof_time {}
 array set ::prof_ncall {}
 proc profile_enter {name seg} {
-    if {!($::running && $::name eq $::profile && $::tick > 0)} { return }
+    # From the scenario's start, its set-up too (a new game's time, M13 part 2).
+    if {!($::running && $::name eq $::profile)} { return }
     if {$seg ne "" && [peek g_Bank1Segment] != $seg} { return }
     if {[info exists ::prof_bp($name)]} { return }   ;# already in it (the interrupt's own call)
     set sp [reg sp]
@@ -347,7 +348,9 @@ proc profile_leave {name} {
     if {![info exists ::prof_bp($name)] || [reg sp] < $::prof_sp($name)} { return }
     catch {debug breakpoint remove $::prof_bp($name)}
     unset ::prof_bp($name)
-    set ::prof_time($name) [expr {$::prof_time($name) + [machine_info time] - $::prof_at($name)}]
+    set took [expr {[machine_info time] - $::prof_at($name)}]
+    set ::prof_time($name) [expr {$::prof_time($name) + $took}]
+    if {$took > $::prof_max($name)} { set ::prof_max($name) $took }
     incr ::prof_ncall($name)
 }
 if {$::profile ne "" && [info exists env(MOVES_TIME)]} {
@@ -355,6 +358,7 @@ if {$::profile ne "" && [info exists env(MOVES_TIME)]} {
         set seg [lindex [split $n @] 1]
         set n [lindex [split $n =] 0]
         set ::prof_time($n) 0
+        set ::prof_max($n) 0
         set ::prof_ncall($n) 0
         debug breakpoint create -address $::a($n) -command [list profile_enter $n $seg]
     }
@@ -368,7 +372,7 @@ proc profile_write {} {
         puts $f "from $n $::prof_from($k) [expr {$at >> 16}] [expr {$at & 0xFFFF}]"
     }
     foreach n [array names ::prof_time] {
-        puts $f "time $n $::prof_ncall($n) [expr {round($::prof_time($n) * 3579545)}]"
+        puts $f "time $n $::prof_ncall($n) [expr {round($::prof_time($n) * 3579545)}] [expr {round($::prof_max($n) * 3579545)}]"
     }
     foreach k [array names ::prof_counts] {
         puts $f "$::prof_counts($k) [expr {$k >> 16}] [expr {$k & 0xFFFF}]"
