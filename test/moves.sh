@@ -36,7 +36,7 @@ names="g_ValeX g_ValeY g_ValeFacing g_ValeSwing g_ValeWalk g_SabreX g_SabreY g_S
        g_KeeperHere g_KeeperState g_KeeperX g_KeeperMoveTicks g_GuardX g_GuardY g_GuardPhase g_GuardTimer
        g_GuardAux g_GuardFace g_GuardHurt g_GuardMoveTicks g_WulfState g_WulfStateTick g_WulfAt g_WulfHeading
        g_WulfSpeed g_WulfLatch g_WulfHere g_WulfX g_WulfY g_WulfMoveTicks
-       g_FlipPending g_Bank1Segment Data_Flip Test_BeforeTick Test_FrameStart Test_FrameEnd Test_Shown"
+       g_FlipPending g_ShownDraw g_Bank1Segment Data_Flip Test_BeforeTick Test_FrameStart Test_FrameEnd Test_Shown"
 syms=""
 for n in $names ${MOVES_COUNT:-} ${MOVES_TIME:-}; do
     [[ $n == *=* ]] && { syms+="${n%@*} "; continue; }   # an address (tools/profile.py --addr): label=0xADDR[@SEGMENT]

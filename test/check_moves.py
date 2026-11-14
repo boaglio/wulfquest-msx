@@ -53,6 +53,8 @@ def read(path):
             scenarios[name] = [[], None, [], [], [], []]
         elif f[0] == "busiest":
             busiest[f[1]] = (int(f[2]), int(f[3]))
+        elif f[0] == "pictures":
+            pass   # the pictures' pace: main's report
         elif f[0] == "flip":
             scenarios[name][2].append(tuple(map(int, f[1:])))
         elif f[0] == "J":
@@ -285,6 +287,20 @@ def main(dump, expected_path, plan_path, constants_h, hz, rooms_expected, gen):
         ms = 1000 // hz
         notes.append(f"{len(f)} flips, each the whole new room swapped in while the screen was blank, "
                      f"Vale on it; the hitch {f[len(f) // 2] * ms} ms median, {f[-1] * ms} ms worst")
+    # The pictures' pace (AGENTS.md §6, M13): the frames between new pictures
+    # shown, as a report (the ticks come first; pictures may come every
+    # second or third frame in the busiest rooms).
+    paces = []
+    for line in open(dump, encoding="utf-8"):
+        f = line.split()
+        if len(f) > 2 and f[0] == "pictures":
+            gaps = {int(k): int(v) for k, v in (g.split(":") for g in f[2:])}
+            n = sum(gaps.values())
+            frames = sum(k * v for k, v in gaps.items())
+            within = sum(v for k, v in gaps.items() if k <= 3)
+            paces.append(f"{f[1]} {frames / n:.1f} frames a picture, {100 * within // n}% within 3, longest {max(gaps)}")
+    if paces:
+        notes.append("pictures: " + "; ".join(paces))
     if busiest:
         worst = max(busiest, key=lambda n: busiest[n][0])
         cycles, tick = busiest[worst]

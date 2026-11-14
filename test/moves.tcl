@@ -199,6 +199,12 @@ proc on_tick {} {
             set flipframes [expr {([peek g_FlipFrames 2] - $::flipframes0) & 0xFFFF}]
             puts $::out "end $::name [peek g_LateFrames 2] $ticks $frames $flips $flipframes $::unblanked"
             puts $::out "busiest $::name [expr {round($::busiest * 3579545)}] $::busiest_tick"
+            set g {}
+            foreach k [lsort -integer [array names ::gaps]] { lappend g "$k:$::gaps($k)" }
+            puts $::out "pictures $::name $g"
+            array unset ::gaps
+            set ::shown -1
+            set ::gap 0
             set ::busiest 0
             set ::running 0
             if {$::name eq $::profile} { finish "profiled $::name" }   ;# the rest of the plan is not wanted
@@ -242,9 +248,23 @@ debug breakpoint create -address $::a(Test_Shown) -command on_shown
 # A flip (the page, the sprite tables) is made in the blank's hook, data.c's
 # Data_Flip: when one is waiting there, the screen must be blank (the VDP's
 # status register 2, bit 6).
+# And the pictures' pace (M13, AGENTS.md §6): each frame (the hook runs a
+# frame), how many frames since the last new picture was shown (g_ShownDraw,
+# which the hook sets); at the end "pictures NAME GAP:COUNT ...".
+array set ::gaps {}
+set ::gap 0
+set ::shown -1
 proc on_flip {} {
     if {$::running && [peek g_FlipPending] != 0 && !([debug read {VDP status regs} 2] & 0x40)} {
         incr ::unblanked
+    }
+    if {!$::running || $::tick == 0} { return }
+    set shown [peek g_ShownDraw 2]
+    incr ::gap
+    if {$shown != $::shown} {
+        if {$::shown >= 0} { incr ::gaps($::gap) }
+        set ::shown $shown
+        set ::gap 0
     }
 }
 debug breakpoint create -address $::a(Data_Flip) -command on_flip
