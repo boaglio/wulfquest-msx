@@ -225,6 +225,18 @@ ignores it, so the submodule stays clean.
   timing slipped (AGENTS.md M6): plans named in `MOVES_TIMING_SLIPPED`
   (default `moves jungle quest game`) print late frames as `SLIP` lines instead of
   failing; set it empty to see them fail.
+- **Profiling** (M13): `test/moves.sh` takes, for one scenario
+  (`MOVES_PROFILE=fencing`, with `MOVES_PLANS` and `MOVES_MACHINES`, e.g.
+  `C-BIOS_MSX2_EU:50`; `MOVES_TIMEOUT` in seconds, default 600), a sample of
+  the program counter every `MOVES_PROFILE_US` µs (default 137: 20 kept in
+  step with the code), into `build/test/PLAN-MACHINE.txt.prof`, and stops
+  after it. `python3 tools/profile.py FILE.prof` names the functions, static
+  ones and the banked segments' too; `--lines FILE.prof [module:]FUNCTION
+  CALLS` gives its C lines' (and its assembly's local labels') cycles a call.
+  `MOVES_COUNT` and `MOVES_TIME` take `NAME=0xADDR[@SEGMENT]` words, which
+  `tools/profile.py --addr NAME module:NAME FUNCTION/00072 ...` prints (a
+  local label too): calls counted, with who called, and calls timed exactly,
+  callees in.
 - **`test/boot.sh`** also checks Vale is on screen where a new game starts
   him, in his first frame, in his colours; its pictures draw the sprites from
   the sprite tables. It takes them as the ROM shows each room (`Test_Shown`,

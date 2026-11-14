@@ -36,9 +36,10 @@ names="g_ValeX g_ValeY g_ValeFacing g_ValeSwing g_ValeWalk g_SabreX g_SabreY g_S
        g_KeeperHere g_KeeperState g_KeeperX g_KeeperMoveTicks g_GuardX g_GuardY g_GuardPhase g_GuardTimer
        g_GuardAux g_GuardFace g_GuardHurt g_GuardMoveTicks g_WulfState g_WulfStateTick g_WulfAt g_WulfHeading
        g_WulfSpeed g_WulfLatch g_WulfHere g_WulfX g_WulfY g_WulfMoveTicks
-       g_FlipPending Data_Flip Test_BeforeTick Test_FrameStart Test_FrameEnd Test_Shown"
+       g_FlipPending g_Bank1Segment Data_Flip Test_BeforeTick Test_FrameStart Test_FrameEnd Test_Shown"
 syms=""
-for n in $names; do
+for n in $names ${MOVES_COUNT:-} ${MOVES_TIME:-}; do
+    [[ $n == *=* ]] && { syms+="${n%@*} "; continue; }   # an address (tools/profile.py --addr): label=0xADDR[@SEGMENT]
     a=$(awk -v s="_$n" '$2 == s { print "0x" substr($1, length($1) - 3) }' "$map")
     [[ -n "$a" ]] || { echo "moves.sh: $n is not in $map" >&2; exit 1; }
     syms+="$n=$a "
@@ -54,11 +55,11 @@ fail=0
 beasts=$(awk '$2 == "BEASTS" { print $3 }' build/gen/jungle_data.h)
 flame=$(awk '$2 == "FLAME_SPECIES" { print $3 }' build/gen/jungle_data.h)
 for plan in ${MOVES_PLANS:-moves flips jungle quest game}; do
-    for m in C-BIOS_MSX2_EU:50 C-BIOS_MSX2_JP:60; do
+    for m in ${MOVES_MACHINES:-C-BIOS_MSX2_EU:50 C-BIOS_MSX2_JP:60}; do
         machine=${m%%:*} hz=${m##*:}
         out=build/test/$plan-$machine.txt
         MOVES_OUT="$PWD/$out" MOVES_PLAN="$PWD/build/test/${plan}_plan.txt" MOVES_SYMS="$syms" MOVES_BEASTS="$beasts" MOVES_FLAME="$flame" \
-            MOVES_FIELD="$field" timeout 600 \
+            MOVES_FIELD="$field" timeout ${MOVES_TIMEOUT:-600} \
             env SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy \
             openmsx -machine "$machine" -carta "$rom" -script test/moves.tcl >"$out.log" 2>&1 \
             || { echo "moves.sh: openMSX failed on $machine (see $out.log)" >&2; fail=1; continue; }

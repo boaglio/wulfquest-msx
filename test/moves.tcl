@@ -68,6 +68,7 @@ proc poke {name value {n 1}} {
 }
 
 proc finish {msg} {
+    profile_write
     puts $::out "end $msg"
     close $::out
     close $::bin
@@ -200,6 +201,7 @@ proc on_tick {} {
             puts $::out "busiest $::name [expr {round($::busiest * 3579545)}] $::busiest_tick"
             set ::busiest 0
             set ::running 0
+            if {$::name eq $::profile} { finish "profiled $::name" }   ;# the rest of the plan is not wanted
             next_scenario
             return
         }
@@ -264,6 +266,96 @@ proc on_frame_end {} {
 }
 debug breakpoint create -address $::a(Test_FrameStart) -command on_frame_start
 debug breakpoint create -address $::a(Test_FrameEnd) -command on_frame_end
+
+# A sampling profiler, for the tuning (M13, tools/profile.py): with
+# MOVES_PROFILE naming a scenario, every MOVES_PROFILE_US microseconds of
+# that scenario (default 137; 20 kept in step with the code and credited a
+# few functions far beyond their share) the program counter is counted, with
+# bank 1's segment when it is in 8000h-BFFFh (the banked code), into
+# $env(MOVES_OUT).prof as "COUNT SEGMENT PC" lines.
+set ::profile [expr {[info exists env(MOVES_PROFILE)] ? $env(MOVES_PROFILE) : ""}]
+set ::profile_dt [expr {([info exists env(MOVES_PROFILE_US)] ? $env(MOVES_PROFILE_US) : 137) / 1e6}]
+array set ::prof_counts {}
+proc profile_sample {} {
+    if {$::running && $::name eq $::profile && $::tick > 0} {
+        set pc [reg pc]
+        set seg [expr {$pc >= 0x8000 && $pc < 0xC000 ? [peek g_Bank1Segment] : 0}]
+        incr ::prof_counts([expr {$seg << 16 | $pc}])
+    }
+    after time $::profile_dt profile_sample
+}
+# MOVES_COUNT: functions (symbols in MOVES_SYMS) whose calls in that
+# scenario are counted, as "calls NAME COUNT" lines, and their return
+# addresses as "from NAME COUNT SEG PC" lines (tools/profile.py names them).
+array set ::prof_calls {}
+array set ::prof_from {}
+proc profile_call {name seg} {
+    if {!($::running && $::name eq $::profile && $::tick > 0)} { return }
+    if {$seg ne "" && [peek g_Bank1Segment] != $seg} { return }
+    incr ::prof_calls($name)
+    set sp [reg sp]
+    set ret [expr {[debug read memory $sp] | [debug read memory [expr {$sp + 1}]] << 8}]
+    set seg [expr {$ret >= 0x8000 && $ret < 0xC000 ? [peek g_Bank1Segment] : 0}]
+    incr ::prof_from($name,[expr {$seg << 16 | $ret}])
+}
+if {$::profile ne "" && [info exists env(MOVES_COUNT)]} {
+    foreach n $env(MOVES_COUNT) {
+        set seg [lindex [split $n @] 1]
+        set n [lindex [split $n =] 0]
+        set ::prof_calls($n) 0
+        debug breakpoint create -address $::a($n) -command [list profile_call $n $seg]
+    }
+}
+# MOVES_TIME: functions timed exactly, callees in, as "time NAME CALLS
+# CYCLES" lines: at the entry the return address is read off the stack, and a
+# breakpoint there (with the stack back above where it was) ends the call.
+array set ::prof_time {}
+array set ::prof_ncall {}
+proc profile_enter {name seg} {
+    if {!($::running && $::name eq $::profile && $::tick > 0)} { return }
+    if {$seg ne "" && [peek g_Bank1Segment] != $seg} { return }
+    if {[info exists ::prof_bp($name)]} { return }   ;# already in it (the interrupt's own call)
+    set sp [reg sp]
+    set ret [expr {[debug read memory $sp] | [debug read memory [expr {$sp + 1}]] << 8}]
+    set ::prof_at($name) [machine_info time]
+    set ::prof_sp($name) [expr {$sp + 2}]
+    set ::prof_bp($name) [debug breakpoint create -address $ret -command [list profile_leave $name]]
+}
+proc profile_leave {name} {
+    # Back in the caller: the stack above where it was at the entry (SDCC's
+    # callee may pop its stack arguments as it returns).
+    if {![info exists ::prof_bp($name)] || [reg sp] < $::prof_sp($name)} { return }
+    catch {debug breakpoint remove $::prof_bp($name)}
+    unset ::prof_bp($name)
+    set ::prof_time($name) [expr {$::prof_time($name) + [machine_info time] - $::prof_at($name)}]
+    incr ::prof_ncall($name)
+}
+if {$::profile ne "" && [info exists env(MOVES_TIME)]} {
+    foreach n $env(MOVES_TIME) {
+        set seg [lindex [split $n @] 1]
+        set n [lindex [split $n =] 0]
+        set ::prof_time($n) 0
+        set ::prof_ncall($n) 0
+        debug breakpoint create -address $::a($n) -command [list profile_enter $n $seg]
+    }
+}
+proc profile_write {} {
+    if {$::profile eq ""} { return }
+    set f [open $::env(MOVES_OUT).prof w]
+    foreach n [array names ::prof_calls] { puts $f "calls $n $::prof_calls($n)" }
+    foreach k [array names ::prof_from] {
+        lassign [split $k ,] n at
+        puts $f "from $n $::prof_from($k) [expr {$at >> 16}] [expr {$at & 0xFFFF}]"
+    }
+    foreach n [array names ::prof_time] {
+        puts $f "time $n $::prof_ncall($n) [expr {round($::prof_time($n) * 3579545)}]"
+    }
+    foreach k [array names ::prof_counts] {
+        puts $f "$::prof_counts($k) [expr {$k >> 16}] [expr {$k & 0xFFFF}]"
+    }
+    close $f
+}
+if {$::profile ne ""} { after time 10 profile_sample }
 
 # C-BIOS shows its logo for a few seconds before it starts the cartridge.
 after time 10 {
