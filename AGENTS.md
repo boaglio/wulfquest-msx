@@ -1306,10 +1306,11 @@ on real hardware, and what was found is written in this section.
 third of a picture within a frame less the interrupt (§6), about 63 600 Z80
 cycles at 50 Hz. Measured with the profiler (DEVELOPER.md, the tests), every
 plan still equal to the Java game's at 50 and 60 Hz:
-- Frames at 50 Hz, before → now: fencing 1 062 → 824 for 800 ticks,
-  orchids 16 938 → 10 987 for 9 000, flame 1 466 → 1 126 for 900,
-  guardian-parry 748 → 714 for 600; map-scroll, standing and game-over at
-  full speed, rhinos within 1%.
+- Frames at 50 Hz, before → now: fencing 1 062 → 811 for 800 ticks,
+  orchids 16 938 → 10 816 for 9 000, flame 1 466 → 1 095 for 900,
+  guardian-parry 748 → 695 for 600; map-scroll, standing and game-over at
+  full speed, rhinos within 1%. Orchids: a tick 61 000 cycles (79 000
+  before), a picture 80 000 (105 000).
 - The pictures' pace (`test/moves.sh` reports it): fencing a picture every
   4.0 frames (36% of them within 3), orchids 5.4, flame 5.3,
   guardian-parry 4.6; the quiet scenes 1 to 2.
@@ -1333,7 +1334,9 @@ plan still equal to the Java game's at 50 and 60 Hz:
   jungle's segment now: the main code had no room); the creatures' tick,
   combat's loops, the sound's frame, a random draw (5 500 → about 2 500
   cycles), the 64-bit multiplication of the seeding (34 000 → 23 000), a
-  creature's look when drawn, the sprites' placing and counting in assembly; the flower's bar,
+  creature's look when drawn, the sprites' placing and counting in assembly
+  (a block's overlay takes its base's place), combat's boxes in registers,
+  a small creature's step in its cell without Move_Axis; the flower's bar,
   the orchid's sway and the blinks carried on without 32-bit divisions;
   SDCC's shifts by a variable out of the items' tests; Vale's speed table
   no longer counted out (490 000 cycles at a change of scale).

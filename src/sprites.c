@@ -243,6 +243,7 @@ static i16 s_TY = 0;
 static u16 s_ColAt = 0;     // the colour table's address for the next place
 static u8* s_OrderAt = 0;
 static u8 s_Full = 0;       // PlaceAll ran out of places
+static u8 s_PrevA, s_PrevE, s_PrevC, s_PrevOff;   // a block's base's place: Y, X, look, off the screen
 
 #if PLAYFIELD_H + 15 > 255
 #error "PlaceAll keeps y + 15 in a byte"
@@ -335,6 +336,23 @@ static void PlaceAll() __naked
 		ld	a, (_s_Placed)          ; the table full: the rest wait their turn
 		cp	a, #SPR_PLACES
 		jp	nc, 00095$
+		; a block's second sprite (the overlay, at its base's offset; not the
+		; blade's, whose two have their own): the base's place again (M13)
+		bit	0, b
+		jr	z, 00021$
+		ld	a, (_s_Slot)
+		or	a
+		jr	z, 00021$
+		ld	a, (_s_PrevOff)
+		or	a
+		jp	nz, 00060$
+		ld	a, (_s_PrevE)
+		ld	e, a
+		ld	a, (_s_PrevC)
+		ld	c, a
+		ld	a, (_s_PrevA)
+		jp	00037$
+	00021$:
 		; on the screen: (x + 15) < 271 and (y + 15) < PLAYFIELD_H + 15, unsigned
 		ld	e, b
 		ld	d, #0
@@ -391,6 +409,15 @@ static void PlaceAll() __naked
 	00035$:
 		ld	a, (_s_TY)
 	00036$:
+		ld	(_s_PrevA), a           ; kept for the block's overlay
+		ld	a, e
+		ld	(_s_PrevE), a
+		ld	a, c
+		ld	(_s_PrevC), a
+		xor	a
+		ld	(_s_PrevOff), a
+		ld	a, (_s_PrevA)
+	00037$:
 		; the attribute: Y (a line above), X, pattern
 		dec	a
 		ld	0 (ix), a
@@ -484,6 +511,8 @@ static void PlaceAll() __naked
 		inc	b
 		jp	00020$
 	00060$:                         ; not on the screen: left out, or held below it
+		ld	a, #1
+		ld	(_s_PrevOff), a
 		ld	a, (_s_Slot)
 		cp	a, #SLOT_SMALL
 		jr	nc, 00080$

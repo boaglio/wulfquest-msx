@@ -494,31 +494,57 @@ u8 Data_StripTest(u8 alongX) __naked
 	__asm
 		or	a
 		jp	z, 00100$
-		; ---- a column: its byte in a row, and its bit
+		; ---- a column: its byte in a row, and its bit (M13: inline, the
+		; column's bits straight from the pixel's)
 		ld	hl, (_g_BoxLeft)
-		call	00090$                  ; the column (signed: its low bits are the map's)
 		ld	a, l
-		and	a, #7
+		rrca
+		rrca
+		rrca
+		and	a, #7                   ; (left >> 3) & 7: its bit's place
+		add	a, #<(_c_Bit)
 		ld	e, a
-		ld	d, #0
-		push	hl
-		ld	hl, #_c_Bit
-		add	hl, de
-		ld	c, (hl)                 ; c = its bit
-		pop	hl
+		adc	a, #>(_c_Bit)
+		sub	a, e
+		ld	d, a
+		ld	a, (de)
+		ld	c, a                    ; c = its bit
 		ld	a, l
-		srl	h
-		rra
-		srl	h
-		rra
-		srl	h
-		rra
-		and	a, #63
+		rlca
+		rlca
+		and	a, #3
+		ld	e, a
+		ld	a, h
+		add	a, a
+		add	a, a
+		or	a, e
+		and	a, #63                  ; (left >> 6) & 63: its byte, round the map's ends
 		ld	(_s_SOff), a
-		; its rows
+		; its rows: the first, top >> 3, and how many to (top + h - 1) >> 3
 		ld	hl, (_g_BoxTop)
 		ld	a, (_g_BoxH)
-		call	00080$                  ; hl = the first, b = how many
+		dec	a
+		ld	e, a
+		ld	d, #0
+		add	hl, de
+		sra	h
+		rr	l
+		sra	h
+		rr	l
+		sra	h
+		rr	l
+		ld	b, l
+		ld	hl, (_g_BoxTop)
+		sra	h
+		rr	l
+		sra	h
+		rr	l
+		sra	h
+		rr	l
+		ld	a, b
+		sub	a, l
+		inc	a
+		ld	b, a                    ; b = how many
 		call	00085$
 		ex	de, hl                  ; de = the row, 0..MAP_ROWS - 1
 		; its byte's address once, then 64 on a row (M13: worked out a row,

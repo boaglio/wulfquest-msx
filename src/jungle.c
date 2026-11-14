@@ -452,28 +452,31 @@ static void Store() __naked
 #if FLAME_SPEED_FP >= CELL * 256 || FLAME_DIAG_FP >= CELL * 256
 #error "the flame steps a cell or more a tick; Move_Axis takes a creature's step as under one"
 #endif
+static u8 s_MCT[4];   // MoveCreature's target
 static void MoveCreature() __naked
 {
 	__asm
-		ld	a, #MOVE_ROOM
-		ld	(_g_MoveWorld), a
-		ld	a, (_s_S)
-		ld	e, a
-		ld	d, #0
-		ld	hl, #g_CreatureFlier_AT
-		add	hl, de
-		ld	a, (hl)
-		or	a
-		ld	a, #0
-		jr	nz, 00001$
-		inc	a
-	00001$:
-		ld	(_g_MoveScenery), a     ; !flier
-		; x, if it moves along x
+		; x, if it moves along x: its leading edge in its cell, the target
+		; (M13: Move_Axis takes only a step into another cell)
 		ld	hl, (_s_Ph)
 		ld	a, h
 		or	a, l
 		jr	z, 00010$
+		ex	de, hl
+		ld	a, (_s_BoxX)
+		bit	7, d
+		jr	nz, 00002$
+		ld	c, a
+		ld	a, (_s_BoxW)
+		dec	a
+		add	a, c                    ; forwards, the far edge
+	00002$:
+		ld	c, a
+		ld	hl, #_s_CX
+		call	00060$
+		jr	z, 00010$
+		call	00070$
+		ld	hl, (_s_Ph)
 		ld	(_g_MoveDelta), hl
 		ld	hl, (_s_CX)
 		ld	(_g_MovePos), hl
@@ -501,6 +504,21 @@ static void MoveCreature() __naked
 		ld	a, h
 		or	a, l
 		ret	z
+		ex	de, hl
+		ld	a, (_s_BoxY)
+		bit	7, d
+		jr	nz, 00012$
+		ld	c, a
+		ld	a, (_s_BoxH)
+		dec	a
+		add	a, c
+	00012$:
+		ld	c, a
+		ld	hl, #_s_CY
+		call	00060$
+		ret	z
+		call	00070$
+		ld	hl, (_s_Aux)
 		ld	(_g_MoveDelta), hl
 		ld	hl, (_s_CY)
 		ld	(_g_MovePos), hl
@@ -545,6 +563,67 @@ static void MoveCreature() __naked
 		ldi
 		ld	a, #1
 		ld	(_s_Moved), a
+		ret
+	; ---- hl = the position (8.8, 4 bytes), de = the delta, c = the leading
+	; edge's offset: z (and the position the target, moved) if the edge stays
+	; in its cell; nz, untouched, if not
+	00060$:
+		ld	a, d
+		rla
+		sbc	a, a
+		ld	b, a                    ; the delta's sign
+		ld	a, (hl)
+		add	a, e
+		ld	(_s_MCT), a
+		inc	hl
+		ld	a, (hl)
+		adc	a, d
+		ld	(_s_MCT + 1), a
+		inc	hl
+		ld	a, (hl)
+		adc	a, b
+		ld	(_s_MCT + 2), a
+		inc	hl
+		ld	a, (hl)
+		adc	a, b
+		ld	(_s_MCT + 3), a
+		dec	hl
+		dec	hl                      ; its pixel's low byte
+		ld	a, (hl)
+		add	a, c
+		and	a, #0xF8
+		ld	b, a
+		ld	a, (_s_MCT + 1)
+		add	a, c
+		and	a, #0xF8
+		dec	hl
+		cp	a, b
+		ret	nz
+		ex	de, hl
+		ld	hl, #_s_MCT
+		ld	bc, #4
+		ldir
+		ld	a, #1
+		ld	(_s_Moved), a
+		xor	a
+		ret
+
+	; ---- Move_Axis's world: the room, its scenery unless a flier
+	00070$:
+		ld	a, #MOVE_ROOM
+		ld	(_g_MoveWorld), a
+		ld	a, (_s_S)
+		ld	e, a
+		ld	d, #0
+		ld	hl, #g_CreatureFlier_AT
+		add	hl, de
+		ld	a, (hl)
+		or	a
+		ld	a, #0
+		jr	nz, 00071$
+		inc	a
+	00071$:
+		ld	(_g_MoveScenery), a     ; !flier
 		ret
 	__endasm;
 }
@@ -2326,6 +2405,7 @@ void Jungle_TickBeasts() __naked
 // the blade's (alive or forming, not hit by this swing yet, one it can hurt);
 // else his (alive). Its index, or 0xFF.
 static u8 s_HitSabre;
+static u16 s_HitAt;   // 4i
 static u8 NextHit(u8 sabre) __naked
 {
 	sabre;   // in a
@@ -2381,12 +2461,106 @@ static u8 NextHit(u8 sabre) __naked
 		or	a
 		jr	nz, 00010$              ; not alive
 	00030$:
+		; its box, against s_AX..: as CreatureBox and Overlaps, in registers
+		; (M13: the two calls and their statics were half of combat), x first
 		ld	a, (_s_TcI)
-		call	_CreatureBox
-		call	_Overlaps
+		ld	e, a
+		ld	d, #0
+		ld	hl, #_g_CSpecies
+		add	hl, de
+		ld	c, (hl)
+		ld	b, #0                   ; bc = its species
+		ex	de, hl
+		add	hl, hl
+		add	hl, hl
+		ld	(_s_HitAt), hl          ; 4i
+		ld	de, #_g_CX + 1
+		add	hl, de
+		ld	e, (hl)
+		inc	hl
+		ld	d, (hl)                 ; FP_PX(x)
+		ld	hl, #g_CreatureBoxX_AT
+		add	hl, bc
+		ld	a, (hl)
+		ld	l, a
+		rla
+		sbc	a, a
+		ld	h, a
+		add	hl, de
+		ld	(_s_BX), hl             ; its box's left
+		; its left < s_AX + s_AW
+		ex	de, hl
+		ld	hl, (_s_AX)
+		ld	a, (_s_AW)
+		add	a, l
+		ld	l, a
+		adc	a, h
+		sub	a, l
+		ld	h, a
+		ex	de, hl
 		or	a
-		jp	z, 00010$
-		ld	a, (_s_TcI)
+		sbc	hl, de
+		jp	p, 00010$
+		; s_AX < its left + its width
+		ld	hl, #g_CreatureBoxW_AT
+		add	hl, bc
+		ld	a, (hl)
+		ld	(_s_BW), a
+		ld	hl, (_s_BX)
+		add	a, l
+		ld	l, a
+		adc	a, h
+		sub	a, l
+		ld	h, a
+		ex	de, hl
+		ld	hl, (_s_AX)
+		or	a
+		sbc	hl, de
+		jp	p, 00010$
+		; y the same
+		ld	hl, (_s_HitAt)
+		ld	de, #_g_CY + 1
+		add	hl, de
+		ld	e, (hl)
+		inc	hl
+		ld	d, (hl)
+		ld	hl, #g_CreatureBoxY_AT
+		add	hl, bc
+		ld	a, (hl)
+		ld	l, a
+		rla
+		sbc	a, a
+		ld	h, a
+		add	hl, de
+		ld	(_s_BY), hl
+		ex	de, hl
+		ld	hl, (_s_AY)
+		ld	a, (_s_AH)
+		add	a, l
+		ld	l, a
+		adc	a, h
+		sub	a, l
+		ld	h, a
+		ex	de, hl
+		or	a
+		sbc	hl, de
+		jp	p, 00010$
+		ld	hl, #g_CreatureBoxH_AT
+		add	hl, bc
+		ld	a, (hl)
+		ld	(_s_BH), a
+		ld	hl, (_s_BY)
+		add	a, l
+		ld	l, a
+		adc	a, h
+		sub	a, l
+		ld	h, a
+		ex	de, hl
+		ld	hl, (_s_AY)
+		or	a
+		sbc	hl, de
+		jp	p, 00010$
+		ld	a, (_s_TcI)             ; touched: its box in s_BX.. (InFront reads it)
 		ret
 	00090$:
 		ld	a, #0xFF
