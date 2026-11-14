@@ -244,6 +244,9 @@ ignores it, so the submodule stays clean.
   each scenario, how many frames a new picture took on average, how many
   came within 3 frames and the longest wait (`pictures` lines, counted each
   frame in the blank's hook from `g_ShownDraw`). A report, not a check.
+- **`test/stalls.sh`** (M13): on both C-BIOS machines, F1 tapped while a
+  new game's first room is drawn must pause the game: a key pressed during
+  a stall is not lost (`test/stalls.tcl`).
 - **`test/boot.sh`** also checks Vale is on screen where a new game starts
   him, in his first frame, in his colours; its pictures draw the sprites from
   the sprite tables. It takes them as the ROM shows each room (`Test_Shown`,

@@ -242,6 +242,7 @@ static u8 s_OldHook[5];
 static u8 s_OldKeyi[5];   // H.KEYI as it was (RET with a disk ROM set aside, as H.TIMI)
 u8  g_DiskReady = 0;     // a disk ROM, and its area set aside: Data_DiskCall works (M11)
 
+void Data_LatchKeys();
 void Data_Flip() __naked
 {
 	__asm
@@ -282,6 +283,7 @@ void Data_Flip() __naked
 		push	hl
 		push	ix
 		push	iy
+		call	_Data_LatchKeys         ; keys held while the game does not read them (M13)
 		call	_Sound_Frame            ; the sound's frame (sound.c, segment 0 too)
 		pop	iy
 		pop	ix
@@ -1571,6 +1573,196 @@ u8 Data_Joystick() __naked
 	__endasm;
 }
 
+// Keys pressed while the game does not read them (M13: none may be lost in a
+// stall): the frame's hook samples the keyboard and joystick when the main
+// loop has not read them since the last frame (bit 7 of g_GameLatch: it
+// has), and keeps what it saw held: the game's keys (VALE_*) and the
+// shell's (SK_*), until the next read takes them. The keys' places are
+// written out in the assembly: checked here against MSXgl's.
+u8 g_GameLatch = 0;
+u8 g_ShellLatch = 0;
+#define LATCH_READ	0x80
+typedef char c_LatchKeys[(KEY_UP == MAKE_KEY(8, 5) && KEY_DOWN == MAKE_KEY(8, 6) && KEY_LEFT == MAKE_KEY(8, 4)
+	&& KEY_RIGHT == MAKE_KEY(8, 7) && KEY_SPACE == MAKE_KEY(8, 0) && KEY_Q == MAKE_KEY(4, 6)
+	&& KEY_A == MAKE_KEY(2, 6) && KEY_O == MAKE_KEY(4, 4) && KEY_P == MAKE_KEY(4, 5)
+	&& KEY_ESC == MAKE_KEY(7, 2) && KEY_STOP == MAKE_KEY(7, 4) && KEY_F1 == MAKE_KEY(6, 5)
+	&& KEY_M == MAKE_KEY(4, 2) && KEY_D == MAKE_KEY(3, 1) && KEY_RETURN == MAKE_KEY(7, 7)
+	&& JOB_KEY == MAKE_KEY(4, 3)
+	&& VALE_UP == 1 && VALE_DOWN == 2 && VALE_LEFT == 4 && VALE_RIGHT == 8 && VALE_FIRE == 16
+	&& SK_ESC == 1 && SK_PAUSE == 2 && SK_MAP == 4 && SK_DIFF == 8 && SK_ENTER == 16 && SK_JOB == 32
+	&& SK_ANY == 0x80) ? 1 : -1];
+
+void Data_LatchKeys() __naked
+{
+	__asm
+		ld	a, (_g_TestMode)
+		or	a
+		ret	nz                      ; a test's keys are its own
+		ld	hl, #_g_GameLatch
+		bit	7, (hl)
+		jr	z, 00001$
+		res	7, (hl)                 ; read since the last frame: nothing to keep
+		ret
+	00001$:
+		; the joystick: port A, bits 0-5 (up, down, left, right, A, B) 0 when held
+		ld	a, #15
+		out	(#0xA0), a
+		ld	a, #0x0F
+		out	(#0xA1), a
+		ld	a, #14
+		out	(#0xA0), a
+		in	a, (#0xA2)
+		cpl
+		ld	e, a                    ; e = the joystick, 1 when held
+		and	a, #0x1F                ; up, down, left, right, fire: VALE_*'s order
+		ld	c, a                    ; c = the game's keys
+		ld	b, #0                   ; b = the shell's
+		bit	5, e
+		jr	z, 00002$
+		set	2, b                    ; the second button: SK_MAP
+	00002$:
+		; the rows: any key at all, and the ones wanted
+		ld	d, #0xFF                ; every row ANDed
+		ld	l, #0
+	00010$:
+		in	a, (#0xAA)
+		and	a, #0xF0
+		or	a, l
+		out	(#0xAA), a
+		in	a, (#0xA9)
+		ld	h, a
+		and	a, d
+		ld	d, a
+		ld	a, h
+		cpl                             ; the row, 1 when held
+		ld	h, a
+		ld	a, l
+		cp	a, #2
+		jp	nz, 00012$
+		bit	6, h                    ; A: down, the other profile
+		call	00080$
+		jp	z, 00019$
+		set	1, c
+		jp	00019$
+	00012$:
+		cp	a, #3
+		jp	nz, 00013$
+		bit	1, h                    ; D
+		jp	z, 00019$
+		set	3, b
+		jp	00019$
+	00013$:
+		cp	a, #4
+		jp	nz, 00014$
+		bit	2, h                    ; M
+		jr	z, 00041$
+		set	2, b
+	00041$:
+		bit	3, h                    ; N: the jobs
+		jr	z, 00042$
+		set	5, b
+	00042$:
+		bit	6, h                    ; Q: up
+		call	00080$
+		jr	z, 00043$
+		set	0, c
+	00043$:
+		bit	4, h                    ; O: left
+		call	00080$
+		jr	z, 00044$
+		set	2, c
+	00044$:
+		bit	5, h                    ; P: right
+		call	00080$
+		jp	z, 00019$
+		set	3, c
+		jp	00019$
+	00014$:
+		cp	a, #6
+		jp	nz, 00016$
+		bit	5, h                    ; F1: pause
+		jp	z, 00019$
+		set	1, b
+		jp	00019$
+	00016$:
+		cp	a, #7
+		jp	nz, 00017$
+		bit	2, h                    ; ESC
+		jr	z, 00071$
+		set	0, b
+	00071$:
+		bit	4, h                    ; STOP: pause
+		jr	z, 00072$
+		set	1, b
+	00072$:
+		bit	7, h                    ; RETURN
+		jp	z, 00019$
+		set	4, b
+		jp	00019$
+	00017$:
+		cp	a, #8
+		jp	nz, 00019$
+		bit	0, h                    ; Space: fire
+		jr	z, 00081$
+		set	4, c
+	00081$:
+		ld	a, h
+		rrca
+		rrca
+		rrca
+		rrca
+		and	a, #0x0F                ; left, up, down, right in bits 0-3
+		ld	h, a
+		ld	a, (_g_Profile)
+		or	a
+		jp	nz, 00019$              ; the cursors only in their profile
+		bit	1, h
+		jr	z, 00082$
+		set	0, c                    ; up
+	00082$:
+		bit	2, h
+		jr	z, 00083$
+		set	1, c                    ; down
+	00083$:
+		bit	0, h
+		jr	z, 00084$
+		set	2, c                    ; left
+	00084$:
+		bit	3, h
+		jp	z, 00019$
+		set	3, c                    ; right
+	00019$:
+		inc	l
+		ld	a, l
+		cp	a, #11
+		jp	c, 00010$
+		ld	a, d
+		inc	a
+		jr	z, 00020$               ; every row 0FFh: none held
+		set	7, b                    ; SK_ANY
+	00020$:
+		ld	a, (_g_GameLatch)
+		or	a, c
+		ld	(_g_GameLatch), a
+		ld	a, (_g_ShellLatch)
+		or	a, b
+		ld	(_g_ShellLatch), a
+		ret
+	; ---- nz kept only in the Q A O P profile (z then): a bit test's z, kept or forced
+	00080$:
+		push	af
+		ld	a, (_g_Profile)
+		or	a
+		jr	z, 00085$
+		pop	af                      ; that profile: the bit's z as it was
+		ret
+	00085$:
+		pop	af
+		cp	a, a                    ; the cursors' profile: z
+		ret
+	__endasm;
+}
+
 u8 Data_ReadKeys(u8 profile)
 {
 	u8 joy = ~Data_Joystick();
@@ -1587,6 +1779,10 @@ u8 Data_ReadKeys(u8 profile)
 		k |= VALE_RIGHT;
 	if (Key(KEY_SPACE))
 		k |= VALE_FIRE;
+	__asm__("di");
+	k |= g_GameLatch & ~LATCH_READ;   // what the hook saw held since the last read
+	g_GameLatch = LATCH_READ;
+	__asm__("ei");
 	return k;
 }
 
@@ -1608,6 +1804,11 @@ u8 Data_ShellKeys()
 	for (u8 r = 0; r < 11; r++)
 		if (KeyRow(r) != 0xFF)
 			k |= SK_ANY;
+	__asm__("di");
+	k |= g_ShellLatch;
+	g_ShellLatch = 0;
+	g_GameLatch |= LATCH_READ;
+	__asm__("ei");
 	return k;
 }
 

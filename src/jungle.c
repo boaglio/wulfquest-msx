@@ -2404,13 +2404,13 @@ void Jungle_TickBeasts() __naked
 // assembly (M13: the C indexed each array a creature at a time): with a set,
 // the blade's (alive or forming, not hit by this swing yet, one it can hurt);
 // else his (alive). Its index, or 0xFF.
-static u8 s_HitSabre;
+#define s_HitSabre	s_TcDown   // TickHere's: never at once (RAM, M13)
 static u16 s_HitAt;   // 4i
 static u8 NextHit(u8 sabre) __naked
 {
 	sabre;   // in a
 	__asm
-		ld	(_s_HitSabre), a
+		ld	(_s_TcDown), a
 	00010$:
 		ld	a, (_s_TcK)
 		ld	hl, #_g_HereN
@@ -2429,7 +2429,7 @@ static u8 NextHit(u8 sabre) __naked
 		ld	hl, #_g_CMode
 		add	hl, de
 		ld	c, (hl)
-		ld	a, (_s_HitSabre)
+		ld	a, (_s_TcDown)
 		or	a
 		jr	z, 00020$
 		ld	a, c

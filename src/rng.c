@@ -124,7 +124,7 @@ static void XorShrAsm(u8* a) __naked
 // multiplication, added into the product's bytes i + j up; the row's places
 // in the other registers (exx). The product has two bytes spare, past the
 // eight kept, so its top products need no case of their own.
-static u8 s_MI;        // i
+#define s_MI	s_XN   // i: XorShr's n, never at once (RAM, M13)
 
 static void MulAsm() __naked
 {
@@ -136,9 +136,9 @@ static void MulAsm() __naked
 		ld	(hl), a
 		inc	hl
 		djnz	00001$
-		ld	(_s_MI), a
+		ld	(_s_XN), a
 	00010$:
-		ld	a, (_s_MI)
+		ld	a, (_s_XN)
 		ld	e, a
 		ld	d, #0
 		ld	hl, #_s_MA
@@ -222,7 +222,7 @@ static void MulAsm() __naked
 		djnz	00020$
 		exx
 	00045$:
-		ld	hl, #_s_MI
+		ld	hl, #_s_XN
 		inc	(hl)
 		ld	a, (hl)
 		cp	a, #8

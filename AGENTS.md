@@ -1375,7 +1375,14 @@ exact timing (its longest call):
   hash step and a room's first three kept); its room's first visit 5.8
   frames; the busiest tick now 3.4 frames.
 - A respawn: 10 000 cycles, no stall.
-- Left: keys pressed during a stall, the first room's showing.
+- Keys pressed during a stall: the frame's hook samples the keyboard and
+  joystick when the main loop has not read them since the last frame, and
+  keeps what it saw held (Data_LatchKeys: g_GameLatch, g_ShellLatch) till
+  the next read takes it; in a test's run, off (its keys are its own).
+  `test/stalls.sh`: F1 pressed and let go within two frames while a new
+  game's first room is drawn pauses the game, on both machines (without the
+  latch, lost).
+- Left: the first room's showing (0.7 s).
 
 **Progress, part 3 (the map; in progress):** opening it took 4 s (M10).
 Now, at worst (all 256 rooms revealed), 3.5 M cycles, about 1 s; a game's
