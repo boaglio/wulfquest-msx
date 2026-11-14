@@ -13,7 +13,6 @@ u8 g_RngState[16] = { 0 };   // s0, then s1
 #define S1	(g_RngState + 8)
 
 static u8 s_X[8];     // xorshift's x; the draw's result
-static u8 s_T[8];
 static u16 s_Bound = 0;
 
 //-----------------------------------------------------------------------------
@@ -148,139 +147,257 @@ void Rng_Seed(const u8* seed)
 //-----------------------------------------------------------------------------
 // A draw: xorshift128+, then (x >>> 1) % bound.
 
-// s_X = the next long; the state moves on.
+// s_X = the next long; the state moves on. Unrolled, each byte of a shifted
+// word from two of the word's own (M13: shifted a bit at a time through
+// memory, 5 500 cycles a draw).
 static void NextLong() __naked
 {
 	__asm
-		push	ix
-		; x = s0; s0 = s1 (y)
+		; x = s0, s0 = s1 (y)
 		ld	hl, #_g_RngState
 		ld	de, #_s_X
 		ld	bc, #8
-		ldir                        ; hl = s1
+		ldir
 		ld	de, #_g_RngState
 		ld	bc, #8
 		ldir
-		; t = x << 23: x << 24 (3 bytes up), then right 1, bit 63 from x bit 40
-		ld	hl, #_s_T
-		xor	a
-		ld	(hl), a
-		inc	hl
-		ld	(hl), a
-		inc	hl
-		ld	(hl), a
-		inc	hl
-		ex	de, hl
-		ld	hl, #_s_X
-		ld	bc, #5
-		ldir                        ; t[3..7] = x[0..4]
+		; x ^= x << 23, from the top byte down: byte i of it is
+		; (x[i - 3] >> 1) | (x[i - 2] << 7)
 		ld	a, (_s_X + 5)
-		rra                         ; carry = x bit 40
-		ld	hl, #_s_T + 7
-		ld	b, #8
-	00001$:
-		rr	(hl)
-		dec	hl
-		djnz	00001$
-		; x ^= t
-		ld	hl, #_s_X
-		ld	de, #_s_T
-		ld	b, #8
-	00002$:
-		ld	a, (de)
-		xor	a, (hl)
-		ld	(hl), a
-		inc	hl
-		inc	de
-		djnz	00002$
-		; s1 = x ^ y: y is s0 now
-		ld	hl, #_s_X
-		ld	de, #_g_RngState
-		ld	ix, #_g_RngState + 8
-		ld	b, #8
-	00003$:
-		ld	a, (de)
-		xor	a, (hl)
-		ld	0 (ix), a
-		inc	hl
-		inc	de
-		inc	ix
-		djnz	00003$
-		; t = x >> 17: 2 bytes down, then right 1
-		ld	hl, #_s_X + 2
-		ld	de, #_s_T
-		ld	bc, #6
-		ldir
-		xor	a
-		ld	(de), a
-		inc	de
-		ld	(de), a
-		ld	hl, #_s_T + 7
-		ld	b, #8
-		or	a
-	00004$:
-		rr	(hl)
-		dec	hl
-		djnz	00004$
-		; s1 ^= t
-		ld	hl, #_g_RngState + 8
-		ld	de, #_s_T
-		ld	b, #8
-	00005$:
-		ld	a, (de)
-		xor	a, (hl)
-		ld	(hl), a
-		inc	hl
-		inc	de
-		djnz	00005$
-		; t = y >> 26: 3 bytes down, then right 2
-		ld	hl, #_g_RngState + 3
-		ld	de, #_s_T
-		ld	bc, #5
-		ldir
-		xor	a
-		ld	(de), a
-		inc	de
-		ld	(de), a
-		inc	de
-		ld	(de), a
-		ld	c, #2
-	00006$:
-		ld	hl, #_s_T + 7
-		ld	b, #8
-		or	a
-	00007$:
-		rr	(hl)
-		dec	hl
-		djnz	00007$
-		dec	c
-		jr	nz, 00006$
-		; s1 ^= t
-		ld	hl, #_g_RngState + 8
-		ld	de, #_s_T
-		ld	b, #8
-	00008$:
-		ld	a, (de)
-		xor	a, (hl)
-		ld	(hl), a
-		inc	hl
-		inc	de
-		djnz	00008$
+		rra
+		ld	a, (_s_X + 4)
+		rra
+		ld	b, a
+		ld	a, (_s_X + 7)
+		xor	a, b
+		ld	(_s_X + 7), a
+		ld	a, (_s_X + 4)
+		rra
+		ld	a, (_s_X + 3)
+		rra
+		ld	b, a
+		ld	a, (_s_X + 6)
+		xor	a, b
+		ld	(_s_X + 6), a
+		ld	a, (_s_X + 3)
+		rra
+		ld	a, (_s_X + 2)
+		rra
+		ld	b, a
+		ld	a, (_s_X + 5)
+		xor	a, b
+		ld	(_s_X + 5), a
+		ld	a, (_s_X + 2)
+		rra
+		ld	a, (_s_X + 1)
+		rra
+		ld	b, a
+		ld	a, (_s_X + 4)
+		xor	a, b
+		ld	(_s_X + 4), a
+		ld	a, (_s_X + 1)
+		rra
+		ld	a, (_s_X)
+		rra
+		ld	b, a
+		ld	a, (_s_X + 3)
+		xor	a, b
+		ld	(_s_X + 3), a
+		ld	a, (_s_X)
+		rrca
+		and	a, #0x80
+		ld	b, a
+		ld	a, (_s_X + 2)
+		xor	a, b
+		ld	(_s_X + 2), a
+		; s1 = x ^ y ^ (x >>> 17) ^ (y >>> 26), a byte at a time: (x >>> 17)'s
+		; byte i is (x[i + 2] >> 1) | (x[i + 3] << 7), (y >>> 26)'s
+		; (y[i + 3] >> 2) | (y[i + 4] << 6)
+		ld	a, (_s_X)
+		ld	c, a
+		ld	a, (_g_RngState)
+		xor	a, c
+		ld	c, a
+		ld	a, (_s_X + 3)
+		rra
+		ld	a, (_s_X + 2)
+		rra
+		xor	a, c
+		ld	c, a
+		ld	a, (_g_RngState + 4)
+		rrca
+		rrca
+		and	a, #0xC0
+		ld	b, a
+		ld	a, (_g_RngState + 3)
+		rrca
+		rrca
+		and	a, #0x3F
+		or	a, b
+		xor	a, c
+		ld	c, a
+		ld	a, c
+		ld	(_g_RngState + 8), a
+		ld	a, (_s_X + 1)
+		ld	c, a
+		ld	a, (_g_RngState + 1)
+		xor	a, c
+		ld	c, a
+		ld	a, (_s_X + 4)
+		rra
+		ld	a, (_s_X + 3)
+		rra
+		xor	a, c
+		ld	c, a
+		ld	a, (_g_RngState + 5)
+		rrca
+		rrca
+		and	a, #0xC0
+		ld	b, a
+		ld	a, (_g_RngState + 4)
+		rrca
+		rrca
+		and	a, #0x3F
+		or	a, b
+		xor	a, c
+		ld	c, a
+		ld	a, c
+		ld	(_g_RngState + 9), a
+		ld	a, (_s_X + 2)
+		ld	c, a
+		ld	a, (_g_RngState + 2)
+		xor	a, c
+		ld	c, a
+		ld	a, (_s_X + 5)
+		rra
+		ld	a, (_s_X + 4)
+		rra
+		xor	a, c
+		ld	c, a
+		ld	a, (_g_RngState + 6)
+		rrca
+		rrca
+		and	a, #0xC0
+		ld	b, a
+		ld	a, (_g_RngState + 5)
+		rrca
+		rrca
+		and	a, #0x3F
+		or	a, b
+		xor	a, c
+		ld	c, a
+		ld	a, c
+		ld	(_g_RngState + 10), a
+		ld	a, (_s_X + 3)
+		ld	c, a
+		ld	a, (_g_RngState + 3)
+		xor	a, c
+		ld	c, a
+		ld	a, (_s_X + 6)
+		rra
+		ld	a, (_s_X + 5)
+		rra
+		xor	a, c
+		ld	c, a
+		ld	a, (_g_RngState + 7)
+		rrca
+		rrca
+		and	a, #0xC0
+		ld	b, a
+		ld	a, (_g_RngState + 6)
+		rrca
+		rrca
+		and	a, #0x3F
+		or	a, b
+		xor	a, c
+		ld	c, a
+		ld	a, c
+		ld	(_g_RngState + 11), a
+		ld	a, (_s_X + 4)
+		ld	c, a
+		ld	a, (_g_RngState + 4)
+		xor	a, c
+		ld	c, a
+		ld	a, (_s_X + 7)
+		rra
+		ld	a, (_s_X + 6)
+		rra
+		xor	a, c
+		ld	c, a
+		ld	a, (_g_RngState + 7)
+		rrca
+		rrca
+		and	a, #0x3F
+		xor	a, c
+		ld	c, a
+		ld	a, c
+		ld	(_g_RngState + 12), a
+		ld	a, (_s_X + 5)
+		ld	c, a
+		ld	a, (_g_RngState + 5)
+		xor	a, c
+		ld	c, a
+		ld	a, (_s_X + 7)
+		srl	a
+		xor	a, c
+		ld	c, a
+		ld	a, c
+		ld	(_g_RngState + 13), a
+		ld	a, (_s_X + 6)
+		ld	c, a
+		ld	a, (_g_RngState + 6)
+		xor	a, c
+		ld	c, a
+		ld	a, c
+		ld	(_g_RngState + 14), a
+		ld	a, (_s_X + 7)
+		ld	c, a
+		ld	a, (_g_RngState + 7)
+		xor	a, c
+		ld	c, a
+		ld	a, c
+		ld	(_g_RngState + 15), a
 		; the result, s_X = s1 + y
-		ld	hl, #_g_RngState + 8
-		ld	de, #_g_RngState
-		ld	ix, #_s_X
-		ld	b, #8
-		or	a
-	00009$:
-		ld	a, (de)
-		adc	a, (hl)
-		ld	0 (ix), a
-		inc	hl
-		inc	de
-		inc	ix
-		djnz	00009$
-		pop	ix
+		ld	a, (_g_RngState + 8)
+		ld	b, a
+		ld	a, (_g_RngState)
+		add	a, b
+		ld	(_s_X), a
+		ld	a, (_g_RngState + 9)
+		ld	b, a
+		ld	a, (_g_RngState + 1)
+		adc	a, b
+		ld	(_s_X + 1), a
+		ld	a, (_g_RngState + 10)
+		ld	b, a
+		ld	a, (_g_RngState + 2)
+		adc	a, b
+		ld	(_s_X + 2), a
+		ld	a, (_g_RngState + 11)
+		ld	b, a
+		ld	a, (_g_RngState + 3)
+		adc	a, b
+		ld	(_s_X + 3), a
+		ld	a, (_g_RngState + 12)
+		ld	b, a
+		ld	a, (_g_RngState + 4)
+		adc	a, b
+		ld	(_s_X + 4), a
+		ld	a, (_g_RngState + 13)
+		ld	b, a
+		ld	a, (_g_RngState + 5)
+		adc	a, b
+		ld	(_s_X + 5), a
+		ld	a, (_g_RngState + 14)
+		ld	b, a
+		ld	a, (_g_RngState + 6)
+		adc	a, b
+		ld	(_s_X + 6), a
+		ld	a, (_g_RngState + 15)
+		ld	b, a
+		ld	a, (_g_RngState + 7)
+		adc	a, b
+		ld	(_s_X + 7), a
 		ret
 	__endasm;
 }

@@ -450,6 +450,9 @@ static void ItemTaken()
 	Sound_Play(SFX_ORCHID_PICK);
 }
 
+#if EYES > 8 || GLASSES > 8
+#error "TakeItems takes the eyes and the glasses a byte of bits each"
+#endif
 static void TakeItems()
 {
 	if (!g_MapTaken && g_ValeRoom == MAP_ROOM)
@@ -461,26 +464,29 @@ static void TakeItems()
 			ItemTaken();
 		}
 	}
-	for (u8 i = 0; i < EYES; i++)
-		if (!(g_EyesTaken & (1 << i)) && g_ItemRoom[i] == g_ValeRoom)
+	// The room first, the taken bit after, a running one (M13: SDCC's shift by
+	// i was 2 000 cycles a tick).
+	u8 bit = 1;
+	for (u8 i = 0; i < EYES; i++, bit <<= 1)
+		if (g_ItemRoom[i] == g_ValeRoom && !(g_EyesTaken & bit))
 		{
 			ItemBox(g_ItemX[i], g_ItemY[i]);
 			if (Overlaps())
 			{
-				g_EyesTaken |= 1 << i;
+				g_EyesTaken |= bit;
 				ItemTaken();
 			}
 		}
 	// A looking glass shows the way afresh; the amulet whole, more lie about.
-	bool whole = Quest_Quarters() >= EXIT_REQUIRES_PIECES;
-	for (u8 i = 0; i < GLASSES; i++)
-		if (!(g_GlassesTaken & (1 << i)) && (i < GLASSES_BEFORE_WHOLE || whole)
-			&& g_ItemRoom[EYES + i] == g_ValeRoom)
+	bit = 1;
+	for (u8 i = 0; i < GLASSES; i++, bit <<= 1)
+		if (g_ItemRoom[EYES + i] == g_ValeRoom && !(g_GlassesTaken & bit)
+			&& (i < GLASSES_BEFORE_WHOLE || Quest_Quarters() >= EXIT_REQUIRES_PIECES))
 		{
 			ItemBox(g_ItemX[EYES + i], g_ItemY[EYES + i]);
 			if (Overlaps())
 			{
-				g_GlassesTaken |= 1 << i;
+				g_GlassesTaken |= bit;
 				g_WayTicks = g_Easy ? EASY_WAY_TICKS : GLASS_WAY_TICKS;
 				ItemTaken();
 			}

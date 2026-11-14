@@ -161,6 +161,137 @@ static void Step()
 	s_V.frames--;
 }
 
+// Each voice in use a frame on (Step), through s_V. In assembly, as PsgOut
+// (M13: SDCC indexed the voices and shifted by i, 2 600 cycles a frame).
+static void Step();
+static void StepAll() __naked
+{
+	__asm
+		ld	hl, #_s_Voice
+		ld	b, #VOICES
+	00001$:
+		push	bc
+		push	hl
+		ld	a, (hl)
+		inc	a
+		jr	z, 00002$               ; NONE
+		ld	de, #_s_V
+		ld	bc, #VOICE_BYTES
+		ldir
+		call	_Step
+		pop	de
+		push	de
+		ld	hl, #_s_V
+		ld	bc, #VOICE_BYTES
+		ldir
+	00002$:
+		pop	hl
+		ld	de, #VOICE_BYTES
+		add	hl, de
+		pop	bc
+		djnz	00001$
+		ret
+	__endasm;
+}
+
+// To the PSG: each channel's period (tone) or the noise's, its volume, then
+// the mixer. b: the channel's tone bit (its noise bit 8 times it), c: its
+// period's register, d: the mixer, e: its volume's register.
+#if VOICES != 3 || NONE != 0xFF
+#error "PsgOut takes three voices, NONE as 0xFF"
+#endif
+static void PsgOut() __naked
+{
+	__asm
+		ld	hl, #_s_Voice
+		ld	bc, #0x0100
+		ld	de, #0xBF08             ; all off, port B an output; volume register 8
+	00010$:
+		push	hl
+		ld	a, (hl)
+		inc	a
+		jr	z, 00030$               ; NONE: silent (a = 0)
+		ld	a, e
+		cp	a, #10
+		jr	nz, 00011$
+		ld	a, (_s_Voice)
+		inc	a
+		ld	a, #0
+		jr	nz, 00030$              ; a stolen channel silences the tune while it holds it
+	00011$:
+		ld	a, #7
+		add	a, l
+		ld	l, a
+		adc	a, h
+		sub	a, l
+		ld	h, a                    ; hl = its lo
+		inc	hl
+		inc	hl
+		ld	a, (hl)                 ; vol
+		or	a
+		jr	z, 00030$
+		push	af
+		dec	hl                      ; hi
+		bit	7, (hl)
+		jr	z, 00015$
+		dec	hl                      ; noise: its period, and the noise bit off
+		ld	a, #6
+		out	(#0xA0), a
+		ld	a, (hl)
+		and	a, #0x1F
+		out	(#0xA1), a
+		ld	a, b
+		add	a, a
+		add	a, a
+		add	a, a
+		jr	00016$
+	00015$:
+		ld	a, c                    ; tone: its period, and the tone bit off
+		out	(#0xA0), a
+		dec	hl
+		ld	a, (hl)
+		out	(#0xA1), a
+		inc	hl
+		ld	a, c
+		inc	a
+		out	(#0xA0), a
+		ld	a, (hl)
+		and	a, #0x0F
+		out	(#0xA1), a
+		ld	a, b
+	00016$:
+		cpl
+		and	a, d
+		ld	d, a
+		pop	af
+	00030$:
+		ld	h, a                    ; its volume
+		ld	a, e
+		out	(#0xA0), a
+		ld	a, h
+		out	(#0xA1), a
+		pop	hl
+		ld	a, #VOICE_BYTES
+		add	a, l
+		ld	l, a
+		adc	a, h
+		sub	a, l
+		ld	h, a
+		sla	b
+		inc	c
+		inc	c
+		inc	e
+		ld	a, e
+		cp	a, #11
+		jr	nz, 00010$
+		ld	a, #7
+		out	(#0xA0), a
+		ld	a, d
+		out	(#0xA1), a
+		ret
+	__endasm;
+}
+
 void Sound_Frame()
 {
 	u8 keep = g_Bank0Segment[1];
@@ -205,38 +336,7 @@ void Sound_Frame()
 			Copy(&s_Voice[2], &s_V);
 		}
 	}
-	for (u8 i = 0; i < VOICES; i++)
-	{
-		if (s_Voice[i].id == NONE)
-			continue;
-		Copy(&s_V, &s_Voice[i]);
-		Step();
-		Copy(&s_Voice[i], &s_V);
-	}
+	StepAll();
 	*(volatile u8*)ADDR_BANK_1 = keep;
-	// To the PSG: periods, volumes, the mixer (tone or noise each channel).
-	u8 mixer = 0x80 | 0x3F;   // all off; port B an output
-	for (u8 i = 0; i < VOICES; i++)
-	{
-		Voice* v = &s_Voice[i];
-		u8 vol = v->id == NONE ? 0 : v->vol;
-		if (i == 2 && s_Voice[0].id != NONE)
-			vol = 0;   // a stolen channel silences the tune while it holds it
-		if (vol)
-		{
-			if (v->hi & 0x80)
-			{
-				Psg(6, v->lo & 0x1F);
-				mixer &= ~(8 << i);
-			}
-			else
-			{
-				Psg(i * 2, v->lo);
-				Psg(i * 2 + 1, v->hi & 0x0F);
-				mixer &= ~(1 << i);
-			}
-		}
-		Psg(8 + i, vol);
-	}
-	Psg(7, mixer);
+	PsgOut();
 }

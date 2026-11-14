@@ -13,7 +13,9 @@ import wulf.engine.SinTable;
 import wulf.sim.QuestRules;
 import wulf.sim.Simulation;
 import wulf.sim.WulfRules;
+import wulf.world.CollisionMask;
 import wulf.world.RoomAddress;
+import wulf.world.WorldGrid;
 
 /**
  * The quest and the original's Wulf as tables for the ROM (AGENTS.md §10, M7;
@@ -137,6 +139,20 @@ public final class Quest {
         }
         if (wb.w() > 41 || wb.h() > 41) {
             throw new ConvertException("data/entities/wulf.json: its box is too big for the ROM's map test");
+        }
+        // Its step (M13) takes it as free where it stands, as a step ends free or
+        // stays put: so where it is placed must be.
+        WorldGrid grid = new WorldGrid(c.rooms());
+        int cell = 256 / CollisionMask.COLS;
+        int left = w.patrolRoom().col() * 256 + p.xPx() + wb.x();
+        int top = w.patrolRoom().row() * CollisionMask.ROWS * cell + p.yPx() + wb.y();
+        for (int gy = Math.floorDiv(top, cell); gy <= Math.floorDiv(top + wb.h() - 1, cell); gy++) {
+            for (int gx = Math.floorDiv(left, cell); gx <= Math.floorDiv(left + wb.w() - 1, cell); gx++) {
+                if (grid.isSolid(Math.floorMod(gx, WorldGrid.COLS), Math.floorMod(gy, WorldGrid.ROWS))) {
+                    throw new ConvertException("data/entities/wulf.json: its patrol starts in scenery; "
+                            + "the ROM's Wulf steps as one free where it stands");
+                }
+            }
         }
 
         // Each set's lairs, in landmarks.lairs() order: room, pedestal, the guardian's circle.

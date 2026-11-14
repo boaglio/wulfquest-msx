@@ -98,6 +98,10 @@ public final class Game {
             weight[i] = o.weight();
             ticks[i] = o.ticks();
             scale[i] = o.speedScaleFp();
+            // vale.c's Speeds carries its levels' quotients on (M13): a positive scale.
+            if (scale[i] <= 0) {
+                throw new ConvertException("an orchid's speedScaleFp is " + scale[i] + "; the ROM's are positive");
+            }
             score[i] = o.score();
             untouchable[i] = o.untouchable() ? 1 : 0;
             total += o.weight();

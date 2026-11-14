@@ -64,9 +64,10 @@ static u16 s_SatBase = 0xF600;
 #define SET_1		0x8000   // set 1 is set 0 plus this
 
 // What each set's colour table holds at each place in its attribute table.
-static u8 s_PlaceSprite[2 * SPR_PLACES];
-static u8 s_PlaceSerial[2 * SPR_PLACES];
-static u8 s_PlaceLook[2 * SPR_PLACES];     // EC bit, and the first clipped line
+// Three bytes a place: its sprite, its look (EC bit, and the lines shown),
+// its slot's serial (PlaceAll walks them with iy).
+#define PLACE_BYTES	3
+static u8 s_Place[2 * SPR_PLACES * PLACE_BYTES];
 
 // This frame's slots, in the order put.
 static u8 s_Puts = 0;
@@ -94,9 +95,9 @@ void Sprites_Init()
 		s_Serial[i] = 0;
 	for (u8 i = 0; i < 2 * SPR_PLACES; i++)
 	{
-		s_PlaceSprite[i] = NONE;
-		s_PlaceSerial[i] = 0;
-		s_PlaceLook[i] = 0;
+		s_Place[i * PLACE_BYTES] = NONE;
+		s_Place[i * PLACE_BYTES + 1] = 0;
+		s_Place[i * PLACE_BYTES + 2] = 0;
 	}
 	s_Sat[0] = TERMINATOR;
 	VDP_WriteVRAM(s_Sat, SAT_0, 0, 1);
@@ -149,19 +150,67 @@ void Sprites_SetOffset(u8 slot, u8 i, i8 dx, i8 dy)
 	s_DY[s] = dy;
 }
 
-void Sprites_SetBlocks(u8 slot, u8 blocks)
+// Assembly (M13: 1 700 cycles in C, a frame loaded).
+void Sprites_SetBlocks(u8 slot, u8 blocks) __naked
 {
-	u8 s = c_First[slot];
-	for (u8 by = 0; by < (blocks & 15); by++)
-		for (u8 bx = 0; bx < (blocks >> 4); bx++)
-		{
-			s_DX[s] = (i8)(bx << 4);
-			s_DY[s] = (i8)(by << 4);
-			s_DX[s + 1] = (i8)(bx << 4);
-			s_DY[s + 1] = (i8)(by << 4);
-			s += 2;
-		}
-	s_SlotEnd[slot] = s;
+	slot;     // a
+	blocks;   // l
+	__asm
+		push	ix
+		ld	e, a
+		ld	d, #0
+		push	de                      ; the slot
+		ld	ix, #_c_First
+		add	ix, de
+		ld	e, 0 (ix)               ; its first sprite
+		ld	a, l
+		and	a, #15
+		ld	c, a                    ; c = rows of blocks
+		ld	a, l
+		rrca
+		rrca
+		rrca
+		rrca
+		and	a, #15
+		ld	b, a                    ; b = columns
+		ld	ix, #_s_DX
+		add	ix, de
+		ld	hl, #_s_DY
+		add	hl, de                  ; ix on s_DX[s], hl on s_DY[s]
+		ld	d, #0                   ; d = by << 4
+		ld	a, c
+		or	a
+		jr	z, 00030$
+	00010$:
+		push	bc
+		xor	a                       ; a = bx << 4
+	00020$:
+		ld	0 (ix), a
+		ld	1 (ix), a
+		ld	(hl), d
+		inc	hl
+		ld	(hl), d
+		inc	hl
+		inc	ix
+		inc	ix
+		inc	e
+		inc	e
+		add	a, #16
+		djnz	00020$
+		pop	bc
+		ld	a, d
+		add	a, #16
+		ld	d, a
+		dec	c
+		jr	nz, 00010$
+	00030$:
+		pop	hl                      ; the slot
+		ld	bc, #_s_SlotEnd
+		add	hl, bc
+		ld	(hl), e
+		pop	ix
+		ret
+	__endasm;
 }
 
 void Sprites_Begin()
@@ -183,14 +232,16 @@ void Sprites_Put(u8 slot, i16 x, i16 y)
 // This frame's order: indices into the puts. And PlaceAll's working values.
 static u8 s_Order[SPR_SLOTS];
 static u8 s_Placed = 0;     // sprites written to the attribute table
-static u8 s_K = 0;
+static u8 s_K = 0;          // slots left
 static u8 s_Slot = 0;
+static u8 s_SlotSerial = 0;
 static u8 s_End = 0;
 static i16 s_BX = 0;
 static i16 s_BY = 0;
 static i16 s_TX = 0;
 static i16 s_TY = 0;
-static u8 s_LookNow = 0;
+static u16 s_ColAt = 0;     // the colour table's address for the next place
+static u8* s_OrderAt = 0;
 static u8 s_Full = 0;       // PlaceAll ran out of places
 
 #if PLAYFIELD_H + 15 > 255
@@ -205,33 +256,48 @@ static u8 s_Full = 0;       // PlaceAll ran out of places
 // the screen if its slot keeps its place; its look is the
 // lines above the panel (16 when all), and the early clock when x < 0.
 // Assembly: in C (SDCC keeps locals on the stack) this was 10 000 cycles a
-// sprite (AGENTS.md §10, M5).
+// sprite (AGENTS.md §10, M5); M13 took its bookkeeping down by half (the
+// places' records walked, the colour table's address carried on).
 static void PlaceAll() __naked
 {
 	__asm
 		push	ix
+		push	iy
 		xor	a
 		ld	(_s_Placed), a
-		ld	(_s_K), a
 		ld	(_s_Full), a
 		ld	ix, #_s_Sat
+		ld	a, (_s_SetOff)          ; this set's first place record
+		ld	l, a
+		ld	h, #0
+		ld	e, l
+		ld	d, h
+		add	hl, hl
+		add	hl, de
+		ld	de, #_s_Place
+		add	hl, de
+		push	hl
+		pop	iy
+		ld	hl, (_s_ColourBase)
+		ld	(_s_ColAt), hl
+		ld	hl, #_s_Order
+		ld	(_s_OrderAt), hl
+		ld	a, (_s_Puts)
+		ld	(_s_K), a
 	00010$:                         ; the next slot put
 		ld	a, (_s_K)
-		ld	hl, #_s_Puts
-		cp	(hl)
-		jp	nc, 00090$
-		inc	a
-		ld	(_s_K), a
+		or	a
+		jp	z, 00090$
 		dec	a
-		ld	e, a
-		ld	d, #0
-		ld	hl, #_s_Order
-		add	hl, de
-		ld	e, (hl)                 ; e = n
+		ld	(_s_K), a
+		ld	hl, (_s_OrderAt)
+		ld	e, (hl)
+		inc	hl
+		ld	(_s_OrderAt), hl
+		ld	d, #0                   ; de = n
 		ld	hl, #_s_PutSlot
 		add	hl, de
-		ld	a, (hl)
-		ld	(_s_Slot), a
+		ld	c, (hl)
 		ld	hl, #_s_PutX
 		add	hl, de
 		add	hl, de
@@ -248,26 +314,28 @@ static void PlaceAll() __naked
 		ld	h, (hl)
 		ld	l, a
 		ld	(_s_BY), hl
-		ld	a, (_s_Slot)
-		ld	e, a
-		ld	hl, #_c_First
-		add	hl, de
-		ld	b, (hl)                 ; b = its first sprite
+		ld	a, c
+		ld	(_s_Slot), a
+		ld	b, #0
+		ld	hl, #_s_Serial
+		add	hl, bc
+		ld	a, (hl)
+		ld	(_s_SlotSerial), a
 		ld	hl, #_s_SlotEnd
-		add	hl, de
+		add	hl, bc
 		ld	a, (hl)
 		ld	(_s_End), a
+		ld	hl, #_c_First
+		add	hl, bc
+		ld	b, (hl)                 ; b = its first sprite
 	00020$:                         ; sprite b
 		ld	a, (_s_End)
 		cp	b
-		jp	z, 00010$
+		jr	z, 00010$
 		ld	a, (_s_Placed)          ; the table full: the rest wait their turn
 		cp	a, #SPR_PLACES
-		jr	c, 00025$
-		ld	a, #1
-		ld	(_s_Full), a
-		jp	00090$
-	00025$:
+		jp	nc, 00095$
+		; on the screen: (x + 15) < 271 and (y + 15) < PLAYFIELD_H + 15, unsigned
 		ld	e, b
 		ld	d, #0
 		ld	hl, #_s_DX
@@ -280,6 +348,11 @@ static void PlaceAll() __naked
 		ld	hl, (_s_BX)
 		add	hl, de
 		ld	(_s_TX), hl
+		ld	de, #15
+		add	hl, de
+		ld	de, #-271
+		add	hl, de
+		jp	c, 00060$
 		ld	e, b
 		ld	d, #0
 		ld	hl, #_s_DY
@@ -292,50 +365,29 @@ static void PlaceAll() __naked
 		ld	hl, (_s_BY)
 		add	hl, de
 		ld	(_s_TY), hl
-		; on the screen: (x + 15) < 271 and (y + 15) < PLAYFIELD_H + 15, unsigned
-		ld	hl, (_s_TX)
 		ld	de, #15
 		add	hl, de
-		ld	de, #271
-		or	a
-		sbc	hl, de
-		jr	nc, 00060$
-		ld	hl, (_s_TY)
-		ld	de, #15
+		ld	de, #-(PLAYFIELD_H + 15)
 		add	hl, de
-		ld	de, #(PLAYFIELD_H + 15)
-		or	a
-		sbc	hl, de
-		jr	nc, 00060$
+		jp	c, 00060$
 		; c = look: the lines above the panel, and EC
 		ld	c, #16
 		ld	a, (_s_TY)
 		add	a, #15                  ; y + 15, 0..PLAYFIELD_H + 14
 		cp	a, #PLAYFIELD_H
 		jr	c, 00030$
-		ld	d, a
-		ld	a, #(PLAYFIELD_H + 15)
-		sub	a, d
-		ld	c, a
+		cpl
+		add	a, #(PLAYFIELD_H + 15 + 1)
+		ld	c, a                    ; PLAYFIELD_H + 15 - (y + 15)
 	00030$:
-		ld	a, (_s_TX)
-		ld	e, a
-		ld	a, (_s_TX + 1)
-		bit	7, a
+		ld	hl, (_s_TX)
+		ld	e, l
+		bit	7, h
 		jr	z, 00035$
 		set	7, c
-		ld	a, e
+		ld	a, l
 		add	a, #32
 		ld	e, a
-		jr	00035$
-	00060$:                         ; not on the screen: left out, or held below it
-		ld	a, (_s_Slot)
-		cp	a, #SLOT_SMALL
-		jp	nc, 00080$
-		ld	c, #0                   ; no line shown
-		ld	e, #0
-		ld	a, #(HIDDEN_Y + 1)
-		jr	00036$
 	00035$:
 		ld	a, (_s_TY)
 	00036$:
@@ -348,70 +400,25 @@ static void PlaceAll() __naked
 		add	a, a
 		ld	2 (ix), a
 		ld	3 (ix), #0
-		inc	ix
-		inc	ix
-		inc	ix
-		inc	ix
-		; the colours at this place: the same sprite, frame and look?
-		ld	a, (_s_SetOff)
-		ld	e, a
-		ld	a, (_s_Placed)
-		add	a, e
-		ld	e, a
-		ld	d, #0
-		ld	hl, #_s_PlaceSprite
-		add	hl, de
-		ld	a, (hl)
+		ld	de, #4
+		add	ix, de
+		; the colours at this place: the same sprite, look and serial?
+		ld	a, 0 (iy)
 		cp	b
 		jr	nz, 00040$
-		ld	hl, #_s_PlaceLook
-		add	hl, de
-		ld	a, (hl)
+		ld	a, 1 (iy)
 		cp	c
 		jr	nz, 00040$
-		push	de
-		ld	a, (_s_Slot)
-		ld	e, a
-		ld	hl, #_s_Serial
-		add	hl, de
-		ld	a, (hl)
-		pop	de
-		ld	hl, #_s_PlaceSerial
-		add	hl, de
-		cp	(hl)
+		ld	a, (_s_SlotSerial)
+		cp	a, 2 (iy)
 		jr	z, 00070$
-	00040$:                         ; no: write them, e = the place
-		ld	hl, #_s_PlaceSprite
-		add	hl, de
-		ld	(hl), b
-		ld	hl, #_s_PlaceLook
-		add	hl, de
-		ld	(hl), c
-		push	de
-		ld	a, (_s_Slot)
-		ld	e, a
-		ld	hl, #_s_Serial
-		add	hl, de
-		ld	a, (hl)
-		pop	de
-		ld	hl, #_s_PlaceSerial
-		add	hl, de
-		ld	(hl), a
+	00040$:                         ; no: written
+		ld	0 (iy), b
+		ld	1 (iy), c
+		ld	a, (_s_SlotSerial)
+		ld	2 (iy), a
 		push	bc
-		ld	a, c
-		ld	(_s_LookNow), a
-		; video RAM address: the colour table + place * 16 (the set's offset off)
-		ld	a, (_s_SetOff)
-		neg
-		add	a, e
-		ld	e, a
-		ex	de, hl
-		add	hl, hl
-		add	hl, hl
-		add	hl, hl
-		add	hl, hl
-		ld	de, (_s_ColourBase)
-		add	hl, de
+		ld	hl, (_s_ColAt)
 		ld	a, h
 		rlca
 		rlca
@@ -436,8 +443,7 @@ static void PlaceAll() __naked
 		ld	de, #_s_Colour
 		add	hl, de
 		ld	a, c
-		ld	b, #16
-		ld	c, #0x98
+		ld	bc, #0x1098             ; 16 bytes, to the VDP's data port
 		cp	a, #16                  ; all lines, no EC: as they are
 		jr	nz, 00045$
 	00042$:
@@ -445,18 +451,19 @@ static void PlaceAll() __naked
 		jr	nz, 00042$
 		jr	00058$
 	00045$:
+		ld	e, a
 		and	a, #0x80
-		ld	e, a                    ; e = EC
-		ld	a, (_s_LookNow)
+		ld	d, a                    ; d = EC
+		ld	a, e
 		and	a, #0x1F
-		ld	d, a                    ; d = lines shown
+		ld	e, a                    ; e = lines shown
 	00050$:
-		ld	a, d
+		ld	a, e
 		or	a
 		jr	z, 00055$
-		dec	d
+		dec	e
 		ld	a, (hl)
-		or	a, e
+		or	a, d
 	00055$:
 		out	(c), a
 		inc	hl
@@ -465,13 +472,31 @@ static void PlaceAll() __naked
 		ei
 		pop	bc
 	00070$:
+		ld	de, #PLACE_BYTES
+		add	iy, de
+		ld	hl, (_s_ColAt)
+		ld	de, #16
+		add	hl, de
+		ld	(_s_ColAt), hl
 		ld	hl, #_s_Placed
 		inc	(hl)
 	00080$:
 		inc	b
 		jp	00020$
+	00060$:                         ; not on the screen: left out, or held below it
+		ld	a, (_s_Slot)
+		cp	a, #SLOT_SMALL
+		jr	nc, 00080$
+		ld	c, #0                   ; no line shown
+		ld	e, #0
+		ld	a, #(HIDDEN_Y + 1)
+		jp	00036$
+	00095$:
+		ld	a, #1
+		ld	(_s_Full), a
 	00090$:
 		ld	0 (ix), #TERMINATOR
+		pop	iy
 		pop	ix
 		ret
 	__endasm;
@@ -487,25 +512,22 @@ static void PlaceAll() __naked
 static u8 CountBands() __naked
 {
 	__asm
-		ld	hl, #_s_Band
-		ld	b, #BANDS
-		xor	a
-	00001$:
-		ld	(hl), a
-		inc	hl
-		djnz	00001$
+		ld	hl, #_s_Band            ; M13: cleared by ldir, and a band past
+		ld	(hl), #0                ; PER_LINE ends it at once (no scan after)
+		ld	de, #_s_Band + 1
+		ld	bc, #(BANDS - 1)
+		ldir
 		ld	a, (_s_Placed)
 		or	a
 		ret	z
+		push	ix
 		ld	b, a
-		ld	hl, #_s_Sat
+		ld	ix, #_s_Sat
 	00010$:
-		ld	a, (hl)
+		ld	a, 0 (ix)
 		inc	a                       ; the top, a byte
-		inc	hl
-		inc	hl
-		inc	hl
-		inc	hl
+		ld	de, #4
+		add	ix, de
 		cp	a, #240
 		jr	nc, 00020$
 		cp	a, #PLAYFIELD_H
@@ -528,35 +550,31 @@ static u8 CountBands() __naked
 		ld	c, #0
 	00030$:
 		sub	a, c
-		inc	a                       ; the bands it covers
-		push	hl
-		push	bc
-		ld	b, a
-		ld	l, c
-		ld	h, #0
-		ld	de, #_s_Band
-		add	hl, de
+		inc	a
+		ld	e, a                    ; the bands it covers
+		ld	a, c
+		ld	hl, #_s_Band
+		add	a, l
+		ld	l, a
+		adc	a, h
+		sub	a, l
+		ld	h, a
 	00040$:
 		inc	(hl)
+		ld	a, (hl)
+		cp	a, #(PER_LINE + 1)
+		jr	nc, 00070$              ; over PER_LINE: crowded
 		inc	hl
-		djnz	00040$
-		pop	bc
-		pop	hl
+		dec	e
+		jr	nz, 00040$
 	00050$:
 		djnz	00010$
-		; any band over PER_LINE?
-		ld	hl, #_s_Band
-		ld	b, #BANDS
-		ld	a, #PER_LINE
-	00060$:
-		cp	a, (hl)
-		jr	c, 00070$
-		inc	hl
-		djnz	00060$
 		xor	a
+		pop	ix
 		ret
 	00070$:
 		ld	a, #1
+		pop	ix
 		ret
 	__endasm;
 }

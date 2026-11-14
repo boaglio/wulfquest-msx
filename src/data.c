@@ -450,6 +450,211 @@ static u8 BoxTest() __naked
 	__endasm;
 }
 
+// A strip one cell across, round the map's ends (M13: Beast_Step's step
+// into a new strip of cells; BoxTest's columns and rows were 2 000 cycles a
+// strip). Along x: the column of g_BoxLeft, the rows g_BoxTop..+g_BoxH;
+// along y: the row of g_BoxTop, the columns g_BoxLeft..+g_BoxW. 1 if any of
+// its cells is solid.
+static u8 s_SOff;   // a column's byte in a row
+
+u8 Data_StripTest(u8 alongX) __naked
+{
+	alongX;   // a
+	__asm
+		or	a
+		jp	z, 00100$
+		; ---- a column: its byte in a row, and its bit
+		ld	hl, (_g_BoxLeft)
+		call	00090$                  ; the column (signed: its low bits are the map's)
+		ld	a, l
+		and	a, #7
+		ld	e, a
+		ld	d, #0
+		push	hl
+		ld	hl, #_c_Bit
+		add	hl, de
+		ld	c, (hl)                 ; c = its bit
+		pop	hl
+		ld	a, l
+		srl	h
+		rra
+		srl	h
+		rra
+		srl	h
+		rra
+		and	a, #63
+		ld	(_s_SOff), a
+		; its rows
+		ld	hl, (_g_BoxTop)
+		ld	a, (_g_BoxH)
+		call	00080$                  ; hl = the first, b = how many
+		call	00085$
+		ex	de, hl                  ; de = the row, 0..MAP_ROWS - 1
+		; its byte's address once, then 64 on a row (M13: worked out a row,
+		; the segment mapped each time); again at row 256 (map_1) and round
+		; the map's foot
+	00050$:
+		ld	h, d
+		ld	l, e
+		call	00070$
+		ld	a, (_s_SOff)
+		add	a, l
+		ld	l, a
+		adc	a, h
+		sub	a, l
+		ld	h, a
+	00051$:
+		ld	a, (hl)
+		and	a, c
+		jr	nz, 00098$
+		dec	b
+		jr	z, 00053$
+		inc	de
+		ld	a, e
+		or	a
+		jr	z, 00050$               ; row 256: the next segment's
+		cp	a, #(MAP_ROWS & 0xFF)
+		jr	nz, 00052$
+		ld	a, d
+		cp	a, #(MAP_ROWS >> 8)
+		jr	nz, 00052$
+		ld	de, #0                  ; round the map's foot
+		jr	00050$
+	00052$:
+		ld	a, l
+		add	a, #64
+		ld	l, a
+		jr	nc, 00051$
+		inc	h
+		jr	00051$
+	00053$:
+		xor	a
+		jr	00099$
+	00100$:
+		; ---- a row, and its columns
+		ld	hl, (_g_BoxTop)
+		call	00090$
+		call	00085$
+		call	00070$
+		push	hl                      ; the row's bytes
+		ld	hl, (_g_BoxLeft)
+		ld	a, (_g_BoxW)
+		call	00080$                  ; hl = the first column, b = how many
+		pop	de
+	00110$:
+		push	hl
+		push	de
+		ld	a, l
+		and	a, #7
+		ld	e, a
+		ld	d, #0
+		push	hl
+		ld	hl, #_c_Bit
+		add	hl, de
+		ld	c, (hl)
+		pop	hl
+		pop	de
+		ld	a, l
+		srl	h
+		rra
+		srl	h
+		rra
+		srl	h
+		rra
+		and	a, #63                  ; (column mod 512) >> 3, round the map's ends
+		add	a, e
+		ld	l, a
+		adc	a, d
+		sub	a, l
+		ld	h, a
+		ld	a, (hl)
+		and	a, c
+		pop	hl
+		jr	nz, 00098$
+		inc	hl
+		djnz	00110$
+		xor	a
+		jr	00099$
+	00098$:
+		ld	a, #1
+	00099$:
+		ld	c, a
+		ld	a, (_g_CodeSeg)
+		ld	(_g_Bank1Segment), a
+		ld	(ADDR_BANK_1), a
+		ld	a, c
+		ret
+
+	; ---- hl = row 0..MAP_ROWS - 1: hl = its bytes, its segment mapped (de kept)
+	00070$:
+		push	de
+		ld	a, h
+		or	a
+		jr	nz, 00072$
+		ld	a, #MAP_0_BIN_SEG
+		ld	de, #(ROM_DATA_ADDR + MAP_0_BIN_REL)
+		jr	00073$
+	00072$:
+		ld	h, #0                   ; row - 256
+		ld	a, #MAP_1_BIN_SEG
+		ld	de, #(ROM_DATA_ADDR + MAP_1_BIN_REL)
+	00073$:
+		ld	(_g_Bank1Segment), a    ; recorded first: the interrupt's sound puts back what this says
+		ld	(ADDR_BANK_1), a
+		add	hl, hl
+		add	hl, hl
+		add	hl, hl
+		add	hl, hl
+		add	hl, hl
+		add	hl, hl                  ; * 64
+		add	hl, de
+		pop	de
+		ret
+
+	; ---- hl = start (pixels), a = length: hl = start >> 3, b = cells covered
+	00080$:
+		dec	a
+		ld	e, a
+		ld	d, #0
+		push	hl
+		add	hl, de
+		call	00090$
+		ld	b, l
+		pop	hl
+		call	00090$
+		ld	a, b
+		sub	a, l
+		inc	a
+		ld	b, a
+		ret
+
+	; ---- hl = hl >> 3, signed
+	00090$:
+		sra	h
+		rr	l
+		sra	h
+		rr	l
+		sra	h
+		rr	l
+		ret
+
+	; ---- a row, hl, round the map's ends once: 0..MAP_ROWS - 1
+	00085$:
+		bit	7, h
+		jr	z, 00086$
+		ld	de, #MAP_ROWS
+		add	hl, de
+		ret
+	00086$:
+		ld	de, #-MAP_ROWS
+		add	hl, de
+		ret	c                       ; MAP_ROWS or more: less MAP_ROWS
+		ld	de, #MAP_ROWS
+		add	hl, de
+		ret
+	__endasm;
+}
+
 u8 Data_BoxTest()
 {
 	u8 solid = BoxTest();
@@ -536,15 +741,33 @@ u8 g_FrameOX = 0;
 u8 g_FrameOY = 0;
 static u8 s_Info[FRAME_INFO_BYTES];
 
-void Data_FrameOrigin(u8 frame)
+// Assembly (M13: 1 700 cycles in C, a frame loaded).
+void Data_FrameOrigin(u8 frame) __naked
 {
-	SET_BANK_SEGMENT(ROM_DATA_BANK, FRAMES_BIN_SEG);
-	const u8* src = (const u8*)(ROM_DATA_ADDR + FRAMES_BIN_REL) + ((u16)frame << 3);
-	for (u8 i = 0; i < FRAME_INFO_BYTES; i++)
-		s_Info[i] = src[i];
-	SET_BANK_SEGMENT(ROM_DATA_BANK, g_CodeSeg);
-	g_FrameOX = s_Info[4];
-	g_FrameOY = s_Info[5];
+	frame;   // a
+	__asm
+		ld	l, a
+		ld	h, #0
+		add	hl, hl
+		add	hl, hl
+		add	hl, hl                  ; frame * 8
+		ld	de, #(ROM_DATA_ADDR + FRAMES_BIN_REL)
+		add	hl, de
+		ld	a, #FRAMES_BIN_SEG
+		ld	(_g_Bank1Segment), a    ; recorded first: the interrupt's sound puts back what this says
+		ld	(ADDR_BANK_1), a
+		ld	de, #_s_Info
+		ld	bc, #FRAME_INFO_BYTES
+		ldir
+		ld	a, (_g_CodeSeg)
+		ld	(_g_Bank1Segment), a
+		ld	(ADDR_BANK_1), a
+		ld	a, (_s_Info + 4)
+		ld	(_g_FrameOX), a
+		ld	a, (_s_Info + 5)
+		ld	(_g_FrameOY), a
+		ret
+	__endasm;
 }
 
 #if FRAME_INFO_BYTES != 8

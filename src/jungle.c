@@ -129,9 +129,50 @@ static i8 Sign(i16 v)
 static i16 s_AX, s_AY, s_BX, s_BY;
 static u8 s_AW, s_AH, s_BW, s_BH;
 
-static bool Overlaps()
+// Assembly (M13: 236 cycles in C, several a tick). The differences are
+// taken by their sign: world pixels, far from overflowing 16 bits.
+#if GRID_W * PLAYFIELD_W > 16000 || GRID_H * PLAYFIELD_H > 16000
+#error "Overlaps compares world pixels by the sign of their difference"
+#endif
+static bool Overlaps() __naked
 {
-	return s_AX < s_BX + s_BW && s_BX < s_AX + s_AW && s_AY < s_BY + s_BH && s_BY < s_AY + s_AH;
+	__asm
+		ld	hl, (_s_BX)
+		ld	a, (_s_BW)
+		ld	de, (_s_AX)
+		call	00050$                  ; s_AX < s_BX + s_BW
+		or	a
+		ret	z
+		ld	hl, (_s_AX)
+		ld	a, (_s_AW)
+		ld	de, (_s_BX)
+		call	00050$                  ; s_BX < s_AX + s_AW
+		or	a
+		ret	z
+		ld	hl, (_s_BY)
+		ld	a, (_s_BH)
+		ld	de, (_s_AY)
+		call	00050$                  ; s_AY < s_BY + s_BH
+		or	a
+		ret	z
+		ld	hl, (_s_AY)
+		ld	a, (_s_AH)
+		ld	de, (_s_BY)
+	; ---- a = 1 if de < hl + a, else 0
+	00050$:
+		add	a, l
+		ld	l, a
+		adc	a, h
+		sub	a, l
+		ld	h, a
+		ex	de, hl
+		or	a
+		sbc	hl, de
+		ld	a, #0
+		ret	p
+		inc	a
+		ret
+	__endasm;
 }
 
 // Box A: Vale's.
@@ -143,14 +184,61 @@ static void ValeBox()
 	s_AH = PLAYER_BOX_H;
 }
 
-// Box B: small creature i's.
-static void CreatureBox(u8 i)
+// Box B: small creature i's. Assembly (M13: 735 cycles a call in C, and
+// combat makes one a creature a tick, twice fencing).
+static void CreatureBox(u8 i) __naked
 {
-	u8 s = g_CSpecies[i];
-	s_BX = FP_PX(g_CX[i]) + g_CreatureBoxX[s];
-	s_BY = FP_PX(g_CY[i]) + g_CreatureBoxY[s];
-	s_BW = g_CreatureBoxW[s];
-	s_BH = g_CreatureBoxH[s];
+	i;   // in a
+	__asm
+		ld	e, a
+		ld	d, #0
+		ld	hl, #_g_CSpecies
+		add	hl, de
+		ld	c, (hl)
+		ld	b, #0                   ; bc = its species
+		ex	de, hl
+		add	hl, hl
+		add	hl, hl                  ; 4i
+		push	hl
+		ld	de, #_g_CX + 1
+		add	hl, de
+		ld	e, (hl)
+		inc	hl
+		ld	d, (hl)                 ; FP_PX(x)
+		ld	hl, #g_CreatureBoxX_AT
+		add	hl, bc
+		ld	a, (hl)
+		ld	l, a
+		rla
+		sbc	a, a
+		ld	h, a
+		add	hl, de
+		ld	(_s_BX), hl
+		pop	hl
+		ld	de, #_g_CY + 1
+		add	hl, de
+		ld	e, (hl)
+		inc	hl
+		ld	d, (hl)
+		ld	hl, #g_CreatureBoxY_AT
+		add	hl, bc
+		ld	a, (hl)
+		ld	l, a
+		rla
+		sbc	a, a
+		ld	h, a
+		add	hl, de
+		ld	(_s_BY), hl
+		ld	hl, #g_CreatureBoxW_AT
+		add	hl, bc
+		ld	a, (hl)
+		ld	(_s_BW), a
+		ld	hl, #g_CreatureBoxH_AT
+		add	hl, bc
+		ld	a, (hl)
+		ld	(_s_BH), a
+		ret
+	__endasm;
 }
 
 static i16 ValeCentreX()
@@ -213,76 +301,252 @@ static i16 s_Aux;
 static i16 s_Timer;
 static i8 s_Face;
 static bool s_Moved;
-static i32 s_T;
 
-static void Load(u8 i)
+// Assembly (M13: in C, 1 250 and 850 cycles, and a tick makes a pair a creature).
+static void Load(u8 i) __naked
 {
-	u8 s = g_CSpecies[i];
-	s_I = i;
-	s_S = s;
-	s_CX = g_CX[i];
-	s_CY = g_CY[i];
-	s_Ph = g_CPhase[i];
-	s_Aux = g_CAux[i];
-	s_Timer = g_CTimer[i];
-	s_Face = g_CFace[i];
-	s_BoxX = g_CreatureBoxX[s];
-	s_BoxY = g_CreatureBoxY[s];
-	s_BoxW = g_CreatureBoxW[s];
-	s_BoxH = g_CreatureBoxH[s];
-	s_Moved = FALSE;
+	i;   // in a
+	__asm
+		ld	(_s_I), a
+		ld	e, a
+		ld	d, #0
+		ld	hl, #_g_CSpecies
+		add	hl, de
+		ld	c, (hl)
+		ld	a, c
+		ld	(_s_S), a
+		ld	b, #0                   ; bc = its species
+		ld	hl, #_g_CFace
+		add	hl, de
+		ld	a, (hl)
+		ld	(_s_Face), a
+		ex	de, hl
+		add	hl, hl                  ; 2i
+		push	hl
+		ld	de, #_g_CPhase
+		add	hl, de
+		ld	de, #_s_Ph
+		ldi
+		ldi
+		pop	hl
+		push	hl
+		ld	de, #_g_CAux
+		add	hl, de
+		ld	de, #_s_Aux
+		ldi
+		ldi
+		pop	hl
+		push	hl
+		ld	de, #_g_CTimer
+		add	hl, de
+		ld	de, #_s_Timer
+		ldi
+		ldi
+		pop	hl
+		add	hl, hl                  ; 4i
+		push	hl
+		ld	de, #_g_CX
+		add	hl, de
+		ld	de, #_s_CX
+		ldi
+		ldi
+		ldi
+		ldi
+		pop	hl
+		ld	de, #_g_CY
+		add	hl, de
+		ld	de, #_s_CY
+		ldi
+		ldi
+		ldi
+		ldi
+		ld	hl, #g_CreatureBoxX_AT  ; (ldi counted bc down 16: the species again)
+		ld	a, (_s_S)
+		ld	c, a
+		ld	b, #0
+		add	hl, bc
+		ld	a, (hl)
+		ld	(_s_BoxX), a
+		ld	hl, #g_CreatureBoxY_AT
+		add	hl, bc
+		ld	a, (hl)
+		ld	(_s_BoxY), a
+		ld	hl, #g_CreatureBoxW_AT
+		add	hl, bc
+		ld	a, (hl)
+		ld	(_s_BoxW), a
+		ld	hl, #g_CreatureBoxH_AT
+		add	hl, bc
+		ld	a, (hl)
+		ld	(_s_BoxH), a
+		xor	a
+		ld	(_s_Moved), a
+		ret
+	__endasm;
 }
 
-static void Store()
+static void Store() __naked
 {
-	u8 i = s_I;
-	g_CX[i] = s_CX;
-	g_CY[i] = s_CY;
-	g_CPhase[i] = s_Ph;
-	g_CAux[i] = s_Aux;
-	g_CTimer[i] = s_Timer;
-	g_CFace[i] = s_Face;
+	__asm
+		ld	a, (_s_I)
+		ld	e, a
+		ld	d, #0
+		ld	hl, #_g_CFace
+		add	hl, de
+		ld	a, (_s_Face)
+		ld	(hl), a
+		ex	de, hl
+		add	hl, hl                  ; 2i
+		push	hl
+		ld	de, #_g_CPhase
+		add	hl, de
+		ex	de, hl
+		ld	hl, #_s_Ph
+		ldi
+		ldi
+		pop	hl
+		push	hl
+		ld	de, #_g_CAux
+		add	hl, de
+		ex	de, hl
+		ld	hl, #_s_Aux
+		ldi
+		ldi
+		pop	hl
+		push	hl
+		ld	de, #_g_CTimer
+		add	hl, de
+		ex	de, hl
+		ld	hl, #_s_Timer
+		ldi
+		ldi
+		pop	hl
+		add	hl, hl                  ; 4i
+		push	hl
+		ld	de, #_g_CX
+		add	hl, de
+		ex	de, hl
+		ld	hl, #_s_CX
+		ldi
+		ldi
+		ldi
+		ldi
+		pop	hl
+		ld	de, #_g_CY
+		add	hl, de
+		ex	de, hl
+		ld	hl, #_s_CY
+		ldi
+		ldi
+		ldi
+		ldi
+		ret
+	__endasm;
 }
 
-// SimContext.move: x then y, each resolved on its own (move.c).
-static void MoveCreature()
+// SimContext.move: x then y, each resolved on its own (move.c). A small
+// creature is always free where it stands: it comes where its box is free of
+// the scenery and in the room (the swarm's and the flame's BoxBlocked), and a
+// move ends where it is free or stays. Its steps are under a cell (the
+// converter checks), so Move_Axis may take that (g_MoveFree).
+#if FLAME_SPEED_FP >= CELL * 256 || FLAME_DIAG_FP >= CELL * 256
+#error "the flame steps a cell or more a tick; Move_Axis takes a creature's step as under one"
+#endif
+static void MoveCreature() __naked
 {
-	g_MoveWorld = MOVE_ROOM;
-	g_MoveScenery = !g_CreatureFlier[s_S];
-	if (s_Ph != 0)
-	{
-		g_MovePos = s_CX;
-		g_MoveDelta = s_Ph;
-		g_MoveOther = FP_PX(s_CY);
-		g_MoveOff = s_BoxX;
-		g_MoveSize = s_BoxW;
-		g_MoveOffO = s_BoxY;
-		g_MoveSizeO = s_BoxH;
-		g_MoveAlongX = 1;
-		Move_Axis();
-		if (g_MovePos != s_CX)
-		{
-			s_CX = g_MovePos;
-			s_Moved = TRUE;
-		}
-	}
-	if (s_Aux != 0)
-	{
-		g_MovePos = s_CY;
-		g_MoveDelta = s_Aux;
-		g_MoveOther = FP_PX(s_CX);
-		g_MoveOff = s_BoxY;
-		g_MoveSize = s_BoxH;
-		g_MoveOffO = s_BoxX;
-		g_MoveSizeO = s_BoxW;
-		g_MoveAlongX = 0;
-		Move_Axis();
-		if (g_MovePos != s_CY)
-		{
-			s_CY = g_MovePos;
-			s_Moved = TRUE;
-		}
-	}
+	__asm
+		ld	a, #MOVE_ROOM
+		ld	(_g_MoveWorld), a
+		ld	a, (_s_S)
+		ld	e, a
+		ld	d, #0
+		ld	hl, #g_CreatureFlier_AT
+		add	hl, de
+		ld	a, (hl)
+		or	a
+		ld	a, #0
+		jr	nz, 00001$
+		inc	a
+	00001$:
+		ld	(_g_MoveScenery), a     ; !flier
+		; x, if it moves along x
+		ld	hl, (_s_Ph)
+		ld	a, h
+		or	a, l
+		jr	z, 00010$
+		ld	(_g_MoveDelta), hl
+		ld	hl, (_s_CX)
+		ld	(_g_MovePos), hl
+		ld	hl, (_s_CX + 2)
+		ld	(_g_MovePos + 2), hl
+		ld	hl, (_s_CY + 1)
+		ld	(_g_MoveOther), hl      ; FP_PX(s_CY)
+		ld	a, (_s_BoxX)
+		ld	(_g_MoveOff), a
+		ld	a, (_s_BoxW)
+		ld	(_g_MoveSize), a
+		ld	a, (_s_BoxY)
+		ld	(_g_MoveOffO), a
+		ld	a, (_s_BoxH)
+		ld	(_g_MoveSizeO), a
+		ld	a, #1
+		ld	(_g_MoveAlongX), a
+		ld	(_g_MoveFree), a
+		call	_Move_Axis
+		ld	de, #_s_CX
+		call	00050$
+	00010$:
+		; y, if it moves along y
+		ld	hl, (_s_Aux)
+		ld	a, h
+		or	a, l
+		ret	z
+		ld	(_g_MoveDelta), hl
+		ld	hl, (_s_CY)
+		ld	(_g_MovePos), hl
+		ld	hl, (_s_CY + 2)
+		ld	(_g_MovePos + 2), hl
+		ld	hl, (_s_CX + 1)
+		ld	(_g_MoveOther), hl      ; FP_PX(s_CX)
+		ld	a, (_s_BoxY)
+		ld	(_g_MoveOff), a
+		ld	a, (_s_BoxH)
+		ld	(_g_MoveSize), a
+		ld	a, (_s_BoxX)
+		ld	(_g_MoveOffO), a
+		ld	a, (_s_BoxW)
+		ld	(_g_MoveSizeO), a
+		xor	a
+		ld	(_g_MoveAlongX), a
+		inc	a
+		ld	(_g_MoveFree), a
+		call	_Move_Axis
+		ld	de, #_s_CY
+	; ---- g_MovePos into the position at de if it is another: moved
+	00050$:
+		ld	hl, #_g_MovePos
+		ld	b, #4
+		push	de
+	00051$:
+		ld	a, (de)
+		cp	a, (hl)
+		jr	nz, 00052$
+		inc	hl
+		inc	de
+		djnz	00051$
+		pop	de
+		ret
+	00052$:
+		pop	de
+		ld	hl, #_g_MovePos
+		ldi
+		ldi
+		ldi
+		ldi
+		ld	a, #1
+		ld	(_s_Moved), a
+		ret
+	__endasm;
 }
 
 //-----------------------------------------------------------------------------
@@ -327,21 +591,101 @@ static void Stand()
 }
 
 // Dart.glance: a step that would leave the room turns that axis about.
-static void Glance()
+// Assembly (M13: 1 100 cycles in C, a creature a tick).
+static void Glance() __naked
 {
-	s_T = s_CX + s_Ph;
-	i16 left = FP_PX(s_T) + s_BoxX - g_RoomX;
-	if (left < 0 || left + s_BoxW > PLAYFIELD_W)
-	{
-		s_Ph = -s_Ph;
-		i8 f = Sign(s_Ph);
-		if (f != 0)
-			s_Face = f;
-	}
-	s_T = s_CY + s_Aux;
-	i16 top = FP_PX(s_T) + s_BoxY - g_RoomY;
-	if (top < 0 || top + s_BoxH > PLAYFIELD_H)
-		s_Aux = -s_Aux;
+	__asm
+		; along x: the box's left at s_CX + s_Ph, from the room's
+		ld	de, (_s_Ph)
+		ld	hl, (_s_CX + 1)
+		ld	a, (_s_CX)
+		call	00050$
+		ld	a, (_s_BoxX)
+		ld	e, a
+		rla
+		sbc	a, a
+		ld	d, a
+		add	hl, de
+		ld	de, (_g_RoomX)
+		or	a
+		sbc	hl, de
+		ex	de, hl                  ; de = left
+		ld	a, (_s_BoxW)
+		ld	c, a
+		ld	b, #0
+		ld	hl, #PLAYFIELD_W
+		or	a
+		sbc	hl, bc                  ; the most the left may be
+		or	a
+		sbc	hl, de                  ; unsigned: a left past it, or below 0, is off the room
+		jr	nc, 00010$
+		ld	hl, (_s_Ph)             ; turned about
+		xor	a
+		sub	a, l
+		ld	l, a
+		sbc	a, a
+		sub	a, h
+		ld	h, a
+		ld	(_s_Ph), hl
+		or	a, l
+		jr	z, 00010$               ; Sign 0: the face as it was
+		ld	a, h
+		rla
+		sbc	a, a
+		or	a, #1                   ; -1 or 1
+		ld	(_s_Face), a
+	00010$:
+		; along y: the box's top at s_CY + s_Aux
+		ld	de, (_s_Aux)
+		ld	hl, (_s_CY + 1)
+		ld	a, (_s_CY)
+		call	00050$
+		ld	a, (_s_BoxY)
+		ld	e, a
+		rla
+		sbc	a, a
+		ld	d, a
+		add	hl, de
+		ld	de, (_g_RoomY)
+		or	a
+		sbc	hl, de
+		ex	de, hl
+		ld	a, (_s_BoxH)
+		ld	c, a
+		ld	b, #0
+		ld	hl, #PLAYFIELD_H
+		or	a
+		sbc	hl, bc
+		or	a
+		sbc	hl, de
+		ret	nc
+		ld	hl, (_s_Aux)
+		xor	a
+		sub	a, l
+		ld	l, a
+		sbc	a, a
+		sub	a, h
+		ld	h, a
+		ld	(_s_Aux), hl
+		ret
+
+	; ---- hl = FP_PX(the position + de): a = its fraction byte, hl its pixels
+	00050$:
+		add	a, e                    ; the fraction's carry
+		ld	a, d
+		adc	a, l
+		ld	l, a
+		bit	7, d
+		ld	a, h
+		jr	nz, 00051$
+		adc	a, #0
+		ld	h, a
+		ret
+	00051$:
+		adc	a, #0xFF
+		ld	h, a
+		ret
+	__endasm;
 }
 
 static void Dart()
@@ -469,49 +813,140 @@ static void Flame()
 		FlameDirection(s_FlameDX, -s_FlameDY);
 }
 
+// Each creature in the room a tick on, in assembly (M13: SDCC indexed the
+// arrays a creature at a time, 4 000 cycles a tick in a busy room).
+#define CM_ALIVE		0
+#define CM_DYING		1
+#define CM_APPEARING	2
+typedef char c_CModes[(CREATURE_ALIVE == CM_ALIVE && CREATURE_DYING == CM_DYING
+	&& CREATURE_APPEARING == CM_APPEARING && BEHAVIOUR_DART == 0 && BEHAVIOUR_HOME_IN == 1) ? 1 : -1];
+static u8 s_TcK;      // the k of g_Here
+static u8 s_TcI;      // its creature
+static u8 s_TcDown;   // he is down: the small creatures burst
+
+static void TickHere() __naked
+{
+	__asm
+		xor	a
+		ld	(_s_TcK), a
+	00010$:
+		ld	a, (_s_TcK)
+		ld	hl, #_g_HereN
+		cp	a, (hl)
+		ret	nc
+		ld	e, a
+		ld	d, #0
+		ld	hl, #_g_Here
+		add	hl, de
+		ld	e, (hl)                 ; de = i
+		ld	a, e
+		ld	(_s_TcI), a
+		ld	hl, #_g_CMode
+		add	hl, de
+		ld	a, (hl)
+		cp	a, #CM_DYING
+		jr	nz, 00020$
+		ld	hl, #_g_CModeTick       ; a puff: its frames on
+		add	hl, de
+		inc	(hl)
+		jp	00080$
+	00020$:
+		cp	a, #CM_APPEARING
+		jr	nz, 00030$
+		ld	hl, #_g_CModeTick       ; forming: alive when it has formed
+		add	hl, de
+		inc	(hl)
+		ld	a, (hl)
+		cp	a, #SWARM_APPEAR_TICKS
+		jp	c, 00080$
+		ld	(hl), #0
+		ld	hl, #_g_CMode
+		add	hl, de
+		ld	(hl), #CM_ALIVE
+		ld	hl, #_g_CSpecies
+		add	hl, de
+		ld	c, (hl)
+		ld	b, #0
+		ld	hl, #g_CreatureBehaviour_AT
+		add	hl, bc
+		ld	a, (hl)
+		or	a
+		jp	nz, 00080$              ; a dart is on its way the moment it forms
+		ld	a, (_s_TcI)
+		call	_Load
+		call	_SetOff
+		call	_Store
+		jp	00080$
+	00030$:
+		ld	a, (_s_TcDown)
+		or	a
+		jr	z, 00040$
+		ld	hl, #_g_CSpecies
+		add	hl, de
+		ld	a, (hl)
+		cp	a, #FLAME_SPECIES
+		jr	z, 00040$
+		ld	a, e                    ; with him down, every small creature bursts
+		call	_Burst
+		jp	00080$
+	00040$:
+		ld	hl, #_g_CHurt
+		add	hl, de
+		ld	a, (hl)
+		or	a
+		jr	z, 00041$
+		dec	(hl)
+	00041$:
+		ld	a, e
+		call	_Load
+		ld	a, (_s_S)
+		ld	e, a
+		ld	d, #0
+		ld	hl, #g_CreatureBehaviour_AT
+		add	hl, de
+		ld	a, (hl)
+		or	a
+		jr	nz, 00042$
+		call	_Dart
+		jr	00045$
+	00042$:
+		dec	a
+		jr	nz, 00043$
+		call	_HomeIn
+		jr	00045$
+	00043$:
+		call	_Flame
+	00045$:
+		call	_Store
+		ld	a, (_s_TcI)             ; its walk: on if it moved, else again
+		ld	l, a
+		ld	h, #0
+		add	hl, hl
+		ld	de, #_g_CMoveTicks
+		add	hl, de
+		ld	a, (_s_Moved)
+		or	a
+		jr	z, 00046$
+		inc	(hl)
+		jr	nz, 00080$
+		inc	hl
+		inc	(hl)
+		jp	00080$
+	00046$:
+		ld	(hl), a
+		inc	hl
+		ld	(hl), a
+	00080$:
+		ld	hl, #_s_TcK
+		inc	(hl)
+		jp	00010$
+	__endasm;
+}
+
 void Jungle_TickCreatures()
 {
-	bool down = g_ValeMode != MODE_ALIVE || (g_GameOn && g_EffectKind == EFFECT_KNOCKDOWN);
-	for (u8 k = 0; k < g_HereN; k++)
-	{
-		u8 i = g_Here[k];
-		if (g_CMode[i] == CREATURE_DYING)
-		{
-			g_CModeTick[i]++;
-			continue;
-		}
-		if (g_CMode[i] == CREATURE_APPEARING)
-		{
-			if (++g_CModeTick[i] >= SWARM_APPEAR_TICKS)
-			{
-				g_CMode[i] = CREATURE_ALIVE;
-				g_CModeTick[i] = 0;
-				if (g_CreatureBehaviour[g_CSpecies[i]] == BEHAVIOUR_DART)
-				{
-					Load(i);
-					SetOff();   // on its way the moment it forms
-					Store();
-				}
-			}
-			continue;
-		}
-		if (down && g_CSpecies[i] != FLAME_SPECIES)
-		{
-			Burst(i);   // with him down (fallen, or sat by the yellow flower), every small creature bursts
-			continue;
-		}
-		if (g_CHurt[i] > 0)
-			g_CHurt[i]--;
-		Load(i);
-		if (g_CreatureBehaviour[s_S] == BEHAVIOUR_DART)
-			Dart();
-		else if (g_CreatureBehaviour[s_S] == BEHAVIOUR_HOME_IN)
-			HomeIn();
-		else
-			Flame();
-		Store();
-		g_CMoveTicks[i] = s_Moved ? g_CMoveTicks[i] + 1 : 0;
-	}
+	s_TcDown = g_ValeMode != MODE_ALIVE || (g_GameOn && g_EffectKind == EFFECT_KNOCKDOWN);
+	TickHere();
 	// removeFinished: the puffs that are done.
 	u8 keep = 0;
 	for (u8 k = 0; k < g_HereN; k++)
@@ -778,6 +1213,770 @@ static i16 BeastCentreX(u8 b)
 	return FP_PX(g_Beast[b].X) + g_BeastBoxX[k] + g_BeastBoxW[k] / 2;
 }
 
+//-----------------------------------------------------------------------------
+// A big beast's step (Simulation.stepBeast; here since M13, out of the main
+// code, which had no room): x then y on the wrapping map,
+// round its ends, and the room it is in now. On the Beast at g_BeastPtr
+// (jungle.h; its offsets are fixed here). 1 if it moved.
+//
+// Its box free where it stands, a step of less than a cell (the converter
+// checks the beasts' speeds) is Collision.resolve with one test at most.
+// Whether the leading edge changed cells shows in its pixel's low byte: the
+// step is under 256 px, so the low bytes' cell bits differ when the cells do.
+// Forwards, the box's far edge stays in its cell or goes one on: the same
+// cell, the target is free; the next, the target is free if that strip of
+// cells is. If not, every candidate whose far edge is in the new cell is
+// blocked (its box holds the strip) and every one whose far edge is still in
+// the old cell is free (its box lies in the free one's cells), so the first
+// free one, from the target down, is the last pixel before the strip, if that
+// is past where it stands. Backwards the same with the near edge, from the
+// target up: the first pixel after the strip, if that is short of where it
+// stands, or level with it but for a fraction. A box not free where it stands
+// (set down in scenery) takes Move_Axis's search, a test a candidate.
+
+Beast* g_BeastPtr = 0;
+static u8 s_BsFree = 0;     // its Free, during the step
+static u8 s_BsMoved = 0;    // the axis being stepped moved
+static i8 s_BsEdge = 0;  // the edge that leads: forwards the far one, backwards the near
+static i16 s_BsStrip = 0;   // the strip it steps into, its first pixel along the axis
+static u8 s_BsCross = 0;    // an axis's step took its place (not its edge) into another cell:
+                          // the map's ends and the rooms' edges are cells' edges, so only
+                          // then may it go round an end or into another room (M13)
+static u8 s_BsOldH = 0;
+static u16 s_BsT = 0;     // the axis's target's low word
+static u8 s_BsAdj = 0;    // its high word's change: 0, 1 or -1     // the axis's pixel's low byte where it stood
+
+#define MAP_W_HI	(GRID_W)                      // MAP_W_FP >> 16: a room is 256 px
+#define MAP_H_HI	((GRID_H * PLAYFIELD_H) >> 8)  // MAP_H_FP >> 16
+#if PLAYFIELD_W != 256 || ((GRID_H * PLAYFIELD_H) & 255) != 0
+#error "Beast_Step takes rooms 256 px wide, and the map's height a whole number of 256 px"
+#endif
+#if PLAYFIELD_H != 176
+#error "Beast_Step takes a row of rooms as 176 px (128 + 32 + 16)"
+#endif
+
+// The fast step (M13): free where it stands, each axis's leading edge in its
+// cell, its pixel's low byte not round (so neither an end of the map nor
+// another column of rooms), and its place, if into another cell, still in its
+// row of rooms: the target, no test, as the full step would have it.
+static u16 s_BsFX = 0;   // x's target's low word, till y is through
+static u8 s_BsFOn = 0;   // bit 0: x to put; bit 1: y put
+static u8 s_BsOCell = 0; // y's place into another cell
+// The strip test's key (M13): its axis (bit 7, x) and how many cells across,
+// the strip's first pixel, the first cell across. A beast's Blocked holds the
+// last it found blocked: the scenery stays, so the same key is blocked still
+// (one pushing a wall while it slides along it tests it every tick).
+#define BS_KEY	5
+static u8 s_BsKey[BS_KEY];
+
+u8 Beast_Step() __naked
+{
+	__asm
+		push	ix
+		ld	ix, (_g_BeastPtr)
+		ld	a, 21 (ix)
+		or	a
+		jp	z, 00090$
+		xor	a
+		ld	(_s_BsFOn), a
+		; x
+		ld	e, 4 (ix)
+		ld	d, 5 (ix)
+		ld	a, d
+		or	a, e
+		jr	z, 00060$
+		ld	l, 0 (ix)
+		ld	h, 1 (ix)
+		ld	b, h
+		add	hl, de
+		jr	c, 00051$
+		bit	7, d
+		jp	nz, 00090$              ; backwards, no carry: round below its low byte
+		jr	00052$
+	00051$:
+		bit	7, d
+		jp	z, 00090$               ; forwards, a carry: round past it
+	00052$:
+		ld	c, 8 (ix)
+		bit	7, d
+		jr	z, 00053$
+		ld	c, 6 (ix)
+	00053$:
+		ld	a, b
+		add	a, c
+		and	a, #0xF8
+		ld	b, a
+		ld	a, h
+		add	a, c
+		and	a, #0xF8
+		cp	a, b
+		jp	nz, 00090$              ; its leading edge into another cell
+		ld	(_s_BsFX), hl
+		ld	a, #1
+		ld	(_s_BsFOn), a
+	00060$:
+		; y
+		ld	e, 13 (ix)
+		ld	d, 14 (ix)
+		ld	a, d
+		or	a, e
+		jr	z, 00070$
+		ld	l, 9 (ix)
+		ld	h, 10 (ix)
+		ld	b, h
+		add	hl, de
+		jr	c, 00061$
+		bit	7, d
+		jp	nz, 00094$
+		jr	00062$
+	00061$:
+		bit	7, d
+		jp	z, 00094$
+	00062$:
+		ld	a, b
+		xor	a, h
+		and	a, #0xF8
+		ld	(_s_BsOCell), a
+		ld	c, 17 (ix)
+		bit	7, d
+		jr	z, 00063$
+		ld	c, 15 (ix)
+	00063$:
+		ld	a, b
+		add	a, c
+		and	a, #0xF8
+		ld	b, a
+		ld	a, h
+		add	a, c
+		and	a, #0xF8
+		cp	a, b
+		jp	nz, 00094$
+		ld	a, (_s_BsOCell)
+		or	a
+		jr	z, 00065$
+		; its place into another cell: still in its row, top <= y < top + PLAYFIELD_H
+		push	hl
+		ld	e, h
+		ld	d, 11 (ix)              ; de = y's whole pixels (its high byte as it was)
+		ld	a, 18 (ix)
+		rrca
+		rrca
+		rrca
+		rrca
+		and	a, #15
+		ld	l, a
+		ld	h, #0
+		add	hl, hl
+		add	hl, hl
+		add	hl, hl
+		add	hl, hl
+		ld	b, h
+		ld	c, l                    ; 16 rows
+		add	hl, hl
+		add	hl, hl
+		add	hl, hl
+		add	hl, bc
+		sla	c
+		rl	b
+		add	hl, bc                  ; the row's top, row * 176
+		ld	a, e
+		sub	a, l
+		ld	a, d
+		sbc	a, h
+		jr	c, 00066$               ; above it
+		ld	bc, #PLAYFIELD_H
+		add	hl, bc
+		ld	a, e
+		sub	a, l
+		ld	a, d
+		sbc	a, h
+		jr	nc, 00066$              ; at or past the next row's top
+		pop	hl
+	00065$:
+		ld	9 (ix), l
+		ld	10 (ix), h
+		ld	a, (_s_BsFOn)
+		or	a, #2
+		ld	(_s_BsFOn), a
+	00070$:
+		ld	a, (_s_BsFOn)
+		or	a
+		jr	z, 00090$               ; still: the full step's
+		rrca
+		jr	nc, 00071$
+		ld	hl, (_s_BsFX)
+		ld	0 (ix), l
+		ld	1 (ix), h
+	00071$:
+		inc	19 (ix)                 ; its walk on
+		jr	nz, 00072$
+		inc	20 (ix)
+	00072$:
+		ld	a, #1
+		pop	ix
+		ret
+	00066$:
+		pop	hl
+	00094$:
+		; y takes the full step: x, if it took the fast one, put first (M13)
+		ld	a, (_s_BsFOn)
+		rrca
+		jr	nc, 00090$
+		ld	hl, (_s_BsFX)
+		ld	0 (ix), l
+		ld	1 (ix), h
+		ld	a, #1
+		ld	(_s_BsFree), a
+		xor	a
+		ld	(_s_BsCross), a
+		ld	bc, #0x0100             ; x moved
+		jp	00010$
+	00090$:
+		; the full step
+		ld	a, 21 (ix)
+		ld	(_s_BsFree), a
+		or	a
+		call	z, 00200$               ; not known free where it stands: test it there, once
+		xor	a
+		ld	(_s_BsCross), a
+		ld	bc, #0                  ; b: x moved, c: y moved
+		; x, if it moves along x
+		ld	a, 4 (ix)
+		or	a, 5 (ix)
+		jr	z, 00010$
+		ld	a, #1
+		ld	(_g_MoveAlongX), a
+		dec	a
+		ld	(_s_BsMoved), a
+		call	00300$
+		ld	a, (_s_BsMoved)
+		ld	b, a
+		ld	c, #0
+	00010$:
+		; y, if it moves along y: ix on its block
+		ld	a, 13 (ix)
+		or	a, 14 (ix)
+		jr	z, 00015$
+		ld	de, #9
+		add	ix, de
+		xor	a
+		ld	(_g_MoveAlongX), a
+		ld	(_s_BsMoved), a
+		push	bc
+		call	00300$
+		pop	bc
+		ld	de, #-9
+		add	ix, de
+		ld	a, (_s_BsMoved)
+		ld	c, a
+	00015$:
+		ld	a, (_s_BsFree)
+		ld	21 (ix), a
+		ld	a, b
+		or	a, c
+		jp	nz, 00030$
+		ld	19 (ix), a              ; still: its walk starts again
+		ld	20 (ix), a
+		pop	ix
+		ret
+
+	; ---- where it stands, tested once (it was set down in scenery, or not known)
+	00200$:
+		ld	l, 1 (ix)
+		ld	h, 2 (ix)
+		ld	a, 6 (ix)
+		ld	e, a
+		rla
+		sbc	a, a
+		ld	d, a
+		add	hl, de
+		ld	(_g_BoxLeft), hl
+		ld	l, 10 (ix)
+		ld	h, 11 (ix)
+		ld	a, 15 (ix)
+		ld	e, a
+		rla
+		sbc	a, a
+		ld	d, a
+		add	hl, de
+		ld	(_g_BoxTop), hl
+		ld	a, 7 (ix)
+		ld	(_g_BoxW), a
+		ld	a, 16 (ix)
+		ld	(_g_BoxH), a
+		ld	a, #1
+		ld	(_g_BoxWrap), a
+		call	_Data_BoxTest
+		xor	a, #1
+		ld	(_s_BsFree), a
+		ret
+
+	; ---- hl = the other axis's block: ix + 9 along x, ix - 9 along y
+	00210$:
+		ld	de, #9
+		ld	a, (_g_MoveAlongX)
+		or	a
+		jr	nz, 00211$
+		ld	de, #-9
+	00211$:
+		push	ix
+		pop	hl
+		add	hl, de
+		ret
+
+	00030$:
+		; its place still in its cells: no end of the map, no other room (s_BsCross)
+		ld	a, (_s_BsCross)
+		or	a
+		jp	z, 00046$
+		; round the map's ends, x in [0, MAP_W) and y in [0, MAP_H), each if it moved
+		ld	a, b
+		or	a
+		jr	z, 00033$
+		ld	a, 3 (ix)
+		bit	7, a
+		jr	z, 00031$
+		ld	a, 2 (ix)
+		add	a, #MAP_W_HI
+		ld	2 (ix), a
+		ld	a, 3 (ix)
+		adc	a, #0
+		ld	3 (ix), a
+		jr	00033$
+	00031$:
+		or	a                       ; byte 3 not 0: past the end
+		jr	nz, 00032$
+		ld	a, 2 (ix)
+		cp	a, #MAP_W_HI
+		jr	c, 00033$
+	00032$:
+		ld	a, 2 (ix)
+		sub	a, #MAP_W_HI
+		ld	2 (ix), a
+		ld	a, 3 (ix)
+		sbc	a, #0
+		ld	3 (ix), a
+	00033$:
+		ld	a, c
+		or	a
+		jr	nz, 00037$
+		; y did not move: the same row, the column from x
+		ld	a, 18 (ix)
+		and	a, #0xF0
+		or	a, 2 (ix)
+		ld	18 (ix), a
+		jr	00046$
+	00037$:
+		ld	a, 12 (ix)
+		bit	7, a
+		jr	z, 00034$
+		ld	a, 11 (ix)
+		add	a, #MAP_H_HI
+		ld	11 (ix), a
+		ld	a, 12 (ix)
+		adc	a, #0
+		ld	12 (ix), a
+		jr	00036$
+	00034$:
+		or	a
+		jr	nz, 00035$
+		ld	a, 11 (ix)
+		cp	a, #MAP_H_HI
+		jr	c, 00036$
+	00035$:
+		ld	a, 11 (ix)
+		sub	a, #MAP_H_HI
+		ld	11 (ix), a
+		ld	a, 12 (ix)
+		sbc	a, #0
+		ld	12 (ix), a
+	00036$:
+		; the row: from its room's, up or down by the tops
+		ld	a, 18 (ix)
+		rrca
+		rrca
+		rrca
+		rrca
+		and	a, #15
+		ld	c, a                    ; row
+		ld	e, 10 (ix)
+		ld	d, 11 (ix)              ; de = y's whole pixels
+	00040$:
+		; hl = the row's top, row * PLAYFIELD_H (176: 128 + 32 + 16)
+		ld	a, c
+		ld	l, c
+		ld	h, #0
+		add	hl, hl
+		add	hl, hl
+		add	hl, hl
+		add	hl, hl
+		ld	b, h
+		ld	c, l                    ; bc = 16 rows
+		add	hl, hl
+		add	hl, hl
+		add	hl, hl
+		add	hl, bc
+		sla	c
+		rl	b
+		add	hl, bc
+		ld	c, a
+		ld	a, e
+		sub	a, l
+		ld	a, d
+		sbc	a, h
+		jr	nc, 00042$
+		dec	c                       ; above its top: up a row
+		jr	00040$
+	00042$:
+		ld	a, l
+		add	a, #PLAYFIELD_H
+		ld	l, a
+		jr	nc, 00043$
+		inc	h                       ; the next row's top
+	00043$:
+		ld	a, e
+		sub	a, l
+		ld	a, d
+		sbc	a, h
+		jr	c, 00044$               ; above the next row's top: this row
+		inc	c
+		jr	00040$
+	00044$:
+		ld	a, c
+		add	a, a
+		add	a, a
+		add	a, a
+		add	a, a
+		or	a, 2 (ix)               ; the column: x's whole pixels >> 8
+		ld	18 (ix), a
+	00046$:
+		inc	19 (ix)
+		jr	nz, 00045$
+		inc	20 (ix)
+	00045$:
+		ld	a, #1
+		pop	ix
+		ret
+
+	; ---- one axis, ix on its block: position 0-3, delta 4-5, near edge 6,
+	; size 7, far edge 8; the other's at ix + 9 or - 9 (00210$)
+	00300$:
+		ld	a, (_s_BsFree)
+		or	a
+		jp	z, 00380$               ; not free where it stands: the search
+		ld	e, 4 (ix)
+		ld	d, 5 (ix)               ; de: the delta
+		ld	l, 0 (ix)
+		ld	h, 1 (ix)               ; hl: the position's low word
+		; the leading edge (forwards the far one), and its cell where it stands
+		ld	a, d
+		or	a
+		ld	a, 8 (ix)
+		jp	p, 00305$
+		ld	a, 6 (ix)
+	00305$:
+		ld	(_s_BsEdge), a
+		ld	c, a
+		add	a, h
+		and	a, #0xF8
+		ld	b, a                    ; its cell's bits in the pixel's low byte
+		ld	a, h
+		ld	(_s_BsOldH), a
+		; the target, kept till it is known free (M13: written, then taken
+		; back when blocked): the low word, and the high one's change, a
+		; carry out not the delta's sign's (forwards a carry, backwards none)
+		add	hl, de
+		ld	(_s_BsT), hl
+		jr	c, 00306$
+		bit	7, d
+		ld	a, #0
+		jr	z, 00307$
+		dec	a                       ; backwards, no carry: the high word less one
+		jr	00307$
+	00306$:
+		bit	7, d
+		ld	a, #0
+		jr	nz, 00307$
+		inc	a                       ; forwards, a carry: the high word one more
+	00307$:
+		ld	(_s_BsAdj), a
+	00308$:
+		ld	a, h
+		add	a, c
+		and	a, #0xF8
+		cp	a, b
+		jr	nz, 00310$
+		; the same cell: there; its place into another cell or not
+		call	00365$
+		ld	a, (_s_BsOldH)
+		xor	a, h
+		and	a, #0xF8
+		jp	z, 00360$
+		ld	a, #1
+		ld	(_s_BsCross), a
+		jp	00360$
+	00310$:
+		ld	a, #1
+		ld	(_s_BsCross), a
+		; a new strip: its first pixel, (target + edge) rounded down to a cell
+		ld	a, (_s_BsAdj)
+		add	a, 2 (ix)
+		ld	d, a
+		ld	e, h                    ; de = the target's whole pixels
+		ld	a, (_s_BsEdge)
+		ld	l, a
+		rla
+		sbc	a, a
+		ld	h, a
+		add	hl, de
+		ld	a, l
+		and	a, #0xF8
+		ld	l, a
+		ld	(_s_BsStrip), hl
+		call	00400$
+		or	a
+		jr	nz, 00320$
+		call	00365$                  ; free: there
+		jp	00360$
+	00320$:
+		; blocked: from where it stands, the candidate next to the strip
+		ld	a, (_s_BsEdge)
+		ld	e, a
+		rla
+		sbc	a, a
+		ld	d, a
+		ld	hl, (_s_BsStrip)
+		bit	7, 5 (ix)
+		jr	nz, 00340$
+		; forwards: the strip's first pixel - 1 - the far edge; where it stands, it stays
+		dec	hl
+		or	a
+		sbc	hl, de
+		ld	a, l
+		cp	a, 1 (ix)
+		jr	nz, 00370$
+		ld	a, h
+		cp	a, 2 (ix)
+		ret	z
+		jr	00370$
+	00340$:
+		; backwards: the strip's first pixel + 8 - the near edge; level, only with a fraction
+		ld	bc, #8
+		add	hl, bc
+		or	a
+		sbc	hl, de
+		ld	a, l
+		cp	a, 1 (ix)
+		jr	nz, 00370$
+		ld	a, h
+		cp	a, 2 (ix)
+		jr	nz, 00370$
+		ld	a, 0 (ix)
+		or	a
+		ret	z
+		jr	00370$
+	; ---- the target into the position (hl kept: the target's low word)
+	00365$:
+		ld	hl, (_s_BsT)
+		ld	0 (ix), l
+		ld	1 (ix), h
+		ld	a, (_s_BsAdj)
+		or	a
+		ret	z
+		inc	a
+		jr	z, 00366$
+		inc	2 (ix)                  ; one more
+		ret	nz
+		inc	3 (ix)
+		ret
+	00366$:
+		ld	a, 2 (ix)               ; one less
+		sub	a, #1
+		ld	2 (ix), a
+		ret	nc
+		dec	3 (ix)
+		ret
+	00370$:
+		; hl, a whole pixel
+		ld	0 (ix), #0
+		ld	1 (ix), l
+		ld	2 (ix), h
+		ld	a, h
+		rla
+		sbc	a, a
+		ld	3 (ix), a
+	00360$:
+		ld	a, #1
+		ld	(_s_BsMoved), a
+		ret
+	00380$:
+		; the search, a test a candidate (Move_Axis); where it ends is free if it moved
+		ld	a, #1
+		ld	(_s_BsCross), a
+		ld	l, 0 (ix)
+		ld	h, 1 (ix)
+		ld	(_g_MovePos), hl
+		ld	l, 2 (ix)
+		ld	h, 3 (ix)
+		ld	(_g_MovePos + 2), hl
+		ld	l, 4 (ix)
+		ld	h, 5 (ix)
+		ld	(_g_MoveDelta), hl
+		ld	a, 6 (ix)
+		ld	(_g_MoveOff), a
+		ld	a, 7 (ix)
+		ld	(_g_MoveSize), a
+		call	00210$
+		inc	hl
+		ld	e, (hl)
+		inc	hl
+		ld	d, (hl)
+		ld	(_g_MoveOther), de      ; the other's whole pixels
+		inc	hl
+		inc	hl
+		inc	hl
+		inc	hl
+		ld	a, (hl)
+		ld	(_g_MoveOffO), a
+		inc	hl
+		ld	a, (hl)
+		ld	(_g_MoveSizeO), a
+		ld	a, #MOVE_MAP
+		ld	(_g_MoveWorld), a
+		call	_Move_Axis
+		ld	hl, (_g_MovePos)
+		ld	e, 0 (ix)
+		ld	d, 1 (ix)
+		or	a
+		sbc	hl, de
+		jr	nz, 00382$
+		ld	hl, (_g_MovePos + 2)
+		ld	e, 2 (ix)
+		ld	d, 3 (ix)
+		or	a
+		sbc	hl, de
+		ret	z
+	00382$:
+		ld	hl, (_g_MovePos)
+		ld	0 (ix), l
+		ld	1 (ix), h
+		ld	hl, (_g_MovePos + 2)
+		ld	2 (ix), l
+		ld	3 (ix), h
+		ld	a, #1
+		ld	(_s_BsFree), a
+		ld	(_s_BsMoved), a
+		ret
+
+	; ---- the strip at s_BsStrip along the axis, the box's breadth across: a = 1
+	; blocked. Read off the map's bitmap (M13: a strip remembered, and its
+	; key, cost more than the map's bits cost now, Data_StripTest)
+	00400$:
+		call	00210$
+		inc	hl
+		ld	e, (hl)
+		inc	hl
+		ld	d, (hl)                 ; the other's whole pixels
+		inc	hl
+		inc	hl
+		inc	hl
+		inc	hl
+		ld	a, (hl)                 ; its near edge
+		inc	hl
+		ld	c, (hl)                 ; its size
+		ld	l, a
+		rla
+		sbc	a, a
+		ld	h, a
+		add	hl, de                  ; the box's near edge across
+		; the key (s_BsKey): the axis and the cells across, the strip
+		push	hl
+		ld	a, c
+		dec	a
+		ld	e, a
+		ld	d, #0
+		push	hl
+		add	hl, de
+		call	00420$
+		ld	b, l                    ; the last cell across
+		pop	hl
+		call	00420$                  ; the first
+		ld	(_s_BsKey + 3), hl
+		ld	a, b
+		sub	a, l
+		inc	a                       ; how many
+		ld	b, a
+		ld	a, (_g_MoveAlongX)
+		or	a
+		jr	z, 00401$
+		set	7, b
+	00401$:
+		ld	a, b
+		ld	(_s_BsKey), a
+		ld	hl, (_s_BsStrip)
+		ld	(_s_BsKey + 1), hl
+		; the last strip it found blocked (its Blocked): the same, blocked still
+		ld	hl, (_g_BeastPtr)
+		ld	de, #22
+		add	hl, de
+		ld	de, #_s_BsKey
+		ld	b, #BS_KEY
+	00402$:
+		ld	a, (de)
+		cp	a, (hl)
+		jr	nz, 00405$
+		inc	hl
+		inc	de
+		djnz	00402$
+		pop	hl
+		ld	a, #1
+		ret
+	00405$:
+		pop	hl
+		ld	a, (_g_MoveAlongX)
+		or	a
+		jr	z, 00410$
+		ld	(_g_BoxTop), hl
+		ld	a, c
+		ld	(_g_BoxH), a
+		ld	hl, (_s_BsStrip)
+		ld	(_g_BoxLeft), hl
+		ld	a, #1
+		jr	00415$
+	00410$:
+		ld	(_g_BoxLeft), hl
+		ld	a, c
+		ld	(_g_BoxW), a
+		ld	hl, (_s_BsStrip)
+		ld	(_g_BoxTop), hl
+		xor	a
+	00415$:
+		call	_Data_StripTest
+		or	a
+		ret	z
+		; blocked: remembered
+		ld	hl, (_g_BeastPtr)
+		ld	de, #22
+		add	hl, de
+		ex	de, hl
+		ld	hl, #_s_BsKey
+		ld	bc, #BS_KEY
+		ldir
+		ld	a, #1
+		ret
+
+	; ---- hl = hl >> 3, signed
+	00420$:
+		sra	h
+		rr	l
+		sra	h
+		rr	l
+		sra	h
+		rr	l
+		ret
+	__endasm;
+}
+
 // x then y against the scenery, room to room, the map's ends joined. Its
 // room follows it by comparison: it moves a few pixels a tick at most.
 // Each beast's struct, without a multiplication.
@@ -920,9 +2119,10 @@ static bool LevelWithAQuarter(u8 b)
 	i16 by = FP_PX(g_Beast[b].Y) - (i16)(at / GRID_W) * PLAYFIELD_H;
 	i16 hint = P_HINT[g_BKind[b]];
 	u8 k = g_QuestSet * LAIRS;
-	for (u8 i = 0; i < LAIRS; i++, k++)
+	u8 done = Quest_Done();
+	for (u8 i = 0; i < LAIRS; i++, k++, done >>= 1)
 	{
-		if (Quest_Done() & (1 << i))
+		if (done & 1)
 			continue;
 		u8 room = g_LairRoom[k];
 		i16 dx = g_LairPedX[k] - bx;
@@ -1148,29 +2348,96 @@ void Jungle_TickBeasts() __naked
 //-----------------------------------------------------------------------------
 // Simulation.resolveCombat: the blade, then his touch
 
+// The next creature of g_Here from s_TcK the box at s_AX.. touches, in
+// assembly (M13: the C indexed each array a creature at a time): with a set,
+// the blade's (alive or forming, not hit by this swing yet, one it can hurt);
+// else his (alive). Its index, or 0xFF.
+static u8 s_HitSabre;
+static u8 NextHit(u8 sabre) __naked
+{
+	sabre;   // in a
+	__asm
+		ld	(_s_HitSabre), a
+	00010$:
+		ld	a, (_s_TcK)
+		ld	hl, #_g_HereN
+		cp	a, (hl)
+		jp	nc, 00090$
+		inc	a
+		ld	(_s_TcK), a
+		dec	a
+		ld	e, a
+		ld	d, #0
+		ld	hl, #_g_Here
+		add	hl, de
+		ld	e, (hl)                 ; de = i
+		ld	a, e
+		ld	(_s_TcI), a
+		ld	hl, #_g_CMode
+		add	hl, de
+		ld	c, (hl)
+		ld	a, (_s_HitSabre)
+		or	a
+		jr	z, 00020$
+		ld	a, c
+		cp	a, #CM_DYING
+		jr	z, 00010$
+		ld	hl, #_s_LastHit
+		add	hl, de
+		add	hl, de
+		ld	a, (_g_SwingSerial)
+		cp	a, (hl)
+		jr	nz, 00015$
+		inc	hl
+		ld	a, (_g_SwingSerial + 1)
+		cp	a, (hl)
+		jr	z, 00010$               ; this swing has hit it
+	00015$:
+		ld	hl, #_g_CSpecies
+		add	hl, de
+		ld	c, (hl)
+		ld	b, #0
+		ld	hl, #g_CreatureHp_AT
+		add	hl, bc
+		ld	a, (hl)
+		or	a
+		jr	z, 00010$               ; no blade hurts it
+		jr	00030$
+	00020$:
+		ld	a, c
+		or	a
+		jr	nz, 00010$              ; not alive
+	00030$:
+		ld	a, (_s_TcI)
+		call	_CreatureBox
+		call	_Overlaps
+		or	a
+		jp	z, 00010$
+		ld	a, (_s_TcI)
+		ret
+	00090$:
+		ld	a, #0xFF
+		ret
+	__endasm;
+}
+
 void Jungle_Combat()
 {
+	u8 i;
 	if (g_SabreW != 0)
 	{
 		s_AX = g_SabreX;
 		s_AY = g_SabreY;
 		s_AW = g_SabreW;
 		s_AH = g_SabreH;
-		for (u8 k = 0; k < g_HereN; k++)
+		s_TcK = 0;
+		while ((i = NextHit(1)) != 0xFF)
 		{
-			u8 i = g_Here[k];
-			bool struck = g_CMode[i] == CREATURE_ALIVE || g_CMode[i] == CREATURE_APPEARING;
-			if (!struck || s_LastHit[i] == g_SwingSerial || g_CreatureHp[g_CSpecies[i]] == 0)
-				continue;
-			CreatureBox(i);
-			if (Overlaps())
-			{
-				s_LastHit[i] = g_SwingSerial;
-				if (--g_CHp[i] == 0)
-					Burst(i);
-				else
-					g_CHurt[i] = CREATURE_HURT_FLASH_TICKS;
-			}
+			s_LastHit[i] = g_SwingSerial;
+			if (--g_CHp[i] == 0)
+				Burst(i);
+			else
+				g_CHurt[i] = CREATURE_HURT_FLASH_TICKS;
 		}
 		if (g_QuestOn)
 			QUEST(Quest_Parry);   // the original's Wulf is not pushed; the guardian is
@@ -1189,26 +2456,20 @@ void Jungle_Combat()
 	if (g_GameOn && EFFECT_IMMUNE())
 		return;   // the flower's: no creature can touch him
 	ValeBox();
-	for (u8 k = 0; k < g_HereN; k++)
+	s_TcK = 0;
+	while ((i = NextHit(0)) != 0xFF)
 	{
-		u8 i = g_Here[k];
-		if (g_CMode[i] != CREATURE_ALIVE)
-			continue;
-		CreatureBox(i);
-		if (Overlaps())
+		if (g_CSpecies[i] == FLAME_SPECIES)
 		{
-			if (g_CSpecies[i] == FLAME_SPECIES)
-			{
-				Vale_Kill();   // the flame: no blade can touch it
-				return;
-			}
-			// A small creature that touches him bursts either way. Fencing and
-			// facing it, that is all; otherwise it takes him with it.
-			Burst(i);
-			if (g_ValeSwing >= 0 && InFront(s_BX + s_BW / 2, s_BY + s_BH / 2))
-				continue;
-			Vale_Kill();
+			Vale_Kill();   // the flame: no blade can touch it
 			return;
 		}
+		// A small creature that touches him bursts either way. Fencing and
+		// facing it, that is all; otherwise it takes him with it.
+		Burst(i);
+		if (g_ValeSwing >= 0 && InFront(s_BX + s_BW / 2, s_BY + s_BH / 2))
+			continue;
+		Vale_Kill();
+		return;
 	}
 }

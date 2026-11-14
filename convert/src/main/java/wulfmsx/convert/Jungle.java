@@ -93,6 +93,13 @@ public final class Jungle {
             for (int p = 0; p < names.size(); p++) {
                 params[p][i] = s.behaviour().param(names.get(p));
             }
+            // move.c's Move_Axis takes a step whose leading edge stays in its cell as free (M13):
+            // a step is under a cell.
+            int fastest = kind[i] == 0 ? params[0][i] + params[1][i] * params[2][i]
+                    : kind[i] == 1 ? params[1][i] : 0;
+            if (Math.abs(fastest) >= Simulation.CELL_PX * Fixed.ONE) {
+                throw new ConvertException(where + " moves a cell or more a tick; the ROM's creatures step less");
+            }
             String[] f = {"walk0", "walk1", "walk0_l", "walk1_l"};
             for (int k = 0; k < 4; k++) {
                 frames[i * 4 + k] = bank.index(s.sprite(), f[k]);

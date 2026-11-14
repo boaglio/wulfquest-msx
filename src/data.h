@@ -71,6 +71,9 @@ extern u8 g_BoxW;
 extern u8 g_BoxH;
 extern u8 g_BoxWrap;
 u8 Data_BoxTest();
+// A strip one cell across, as Data_BoxTest with g_BoxW (along x) or g_BoxH
+// (along y) a pixel, and round the map's ends (data.c).
+u8 Data_StripTest(u8 alongX);
 
 // A shape of the blade (blade.h): its two patterns to video RAM.
 void Data_LoadBlade(u8 shape, u8 vramHigh, u16 vramLow);

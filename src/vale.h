@@ -41,6 +41,7 @@ extern u8  g_ValeRoom;
 extern u8  g_ValeFreeze;
 // With this set nothing but the map's edge is solid, and a flip freezes
 // nothing (the movement tests' open world).
+extern u8  g_ValeFree;      // his box known free where he stands (Resolve); 0 when he is put somewhere
 extern u8  g_ValeOpen;
 
 // What he is doing (Player.Mode): on his feet, falling, down, or out of lives.

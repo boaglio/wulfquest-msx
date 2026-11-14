@@ -70,6 +70,7 @@ static void StepProwler()
 	g_MoveOffO = WULF_BOX_Y;
 	g_MoveSizeO = WULF_BOX_H;
 	g_MoveAlongX = 1;
+	g_MoveFree = 1;   // free where it stands: placed free (the converter checks), and a step ends free or stays
 	Move_Axis();
 	if (g_MovePos == g_WulfX)
 	{

@@ -238,4 +238,5 @@ void Spawn_NearestFree()
 		return;   // where he stood is at least not a cell
 	g_ValeX = (i32)nx << FIXED_SHIFT;
 	g_ValeY = (i32)ny << FIXED_SHIFT;
+	g_ValeFree = 0;
 }

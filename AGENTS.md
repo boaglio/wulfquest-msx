@@ -154,6 +154,10 @@ Left out: SCALE, FULLSCREEN, GLOW, scanlines (the television does that),
 - **On 50 Hz machines**, one tick per frame.
 - **On 60 Hz machines** (Japanese MSX2s), the game skips a tick in every six
   frames, so it runs at the same speed as everywhere else.
+- **The ticks come first** (M13, the owner's decision): the game keeps 50
+  ticks a second at 50 and 60 Hz, and in the busiest rooms the pictures may
+  come every second or third frame (about 17 a second at worst); a tick is
+  never dropped to keep a picture.
 - Integer and fixed-point arithmetic only, the same as the Java simulation.
 
 ---
@@ -1297,6 +1301,37 @@ Specifics:
 **Accept when:** a full game plays at the same speed on 50 Hz and 60 Hz
 machines (a timed scripted route, within a tick); the game has been played
 on real hardware, and what was found is written in this section.
+
+**Progress, part 1 (game speed; not done):** the target is a tick plus a
+third of a picture within a frame less the interrupt (§6), about 63 600 Z80
+cycles at 50 Hz. Measured with the profiler (DEVELOPER.md, the tests), every
+plan still equal to the Java game's at 50 and 60 Hz:
+- Frames at 50 Hz, before → now: fencing 1 062 → 865 for 800 ticks,
+  orchids 16 938 → 11 999 for 9 000, flame 1 466 → 1 204 for 900;
+  map-scroll and shrine now at full speed.
+- Fencing now: a tick 54 000 cycles (the beasts 23 500, the small creatures
+  14 000, combat 6 800, Vale's move 4 700), a picture 66 500, the interrupt
+  about 5 000 a frame (BIOS 3 300, sound 1 900). Orchids: a tick about
+  70 000, a picture 100 000.
+- What did it: a small creature, Wulf, Vale and a free beast are free where
+  they stand, so a step whose leading edge stays in its cell is taken with
+  no test, and a step into a new strip of cells tests that strip alone,
+  the beasts' and Wulf's off the map's bitmap (`Data_StripTest`); a beast
+  remembers the last strip it found blocked (its `Blocked` bytes) and takes
+  the fast step when neither axis leaves its cells (`Beast_Step`, in the
+  jungle's segment now: the main code had no room); the creatures' tick,
+  combat's loops, the sound's frame, a random draw (5 500 → about 2 500
+  cycles), the sprites' placing and counting in assembly; the flower's bar,
+  the orchid's sway and the blinks carried on without 32-bit divisions;
+  SDCC's shifts by a variable out of the items' tests; Vale's speed table
+  no longer counted out (490 000 cycles at a change of scale).
+- Tried and slower, taken out: a count of ticks to a beast's next cell (a
+  division a crossing), a cache of 16 strips (cold, and its key cost more
+  than the bitmap); deferring far beasts is impossible (the tribesmen share
+  the random stream).
+- Still to do: the busiest rooms (fencing about 17% short of the target,
+  orchids about 40%); then `test/check_moves.py` checks game speed and
+  reports the pictures' rate instead of `MOVES_TIMING_SLIPPED`'s SLIPs.
 
 ### M14 — The first release: the ROM and a disk image
 

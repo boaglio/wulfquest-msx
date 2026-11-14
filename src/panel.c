@@ -78,6 +78,7 @@ static u8 s_Message = 0xFE;     // the message's key: 0xFF none, else a hint's n
 static u16 s_DebugKey = 0;
 static u8 s_Bar = 0xFF;         // the bar's fill in pixels, 0xFF none
 static u8 s_BarInk = 0;
+static u8 s_BarFrom = 0xFF;      // the fill shown before s_Bar, when only its end has to move
 
 // Tables in RAM: banked code (segment PANEL_SEG, M11) reads none from ROM.
 static u16 s_Hints[16] = { STR_HINTS };
@@ -279,11 +280,21 @@ static bool Want()
 	// The flower's bar: what is left of it, in its colour (remainingPerMille).
 	// (The fill is the main loop's, g_PanelBarFill: its sums take SDCC's library.)
 	u8 bar = 0xFF;
+	u8 ink = s_BarInk;
 	if (msg == 0xFF && g_PanelBarFill != 0xFF)
 	{
 		bar = g_PanelBarFill;
-		s_BarInk = s_OrchidInk[g_EffectOrchid];
+		ink = s_OrchidInk[g_EffectOrchid];
 	}
+	if (!line && bar != 0xFF && s_Bar != 0xFF && ink == s_BarInk && bar != s_Bar)
+	{
+		// Only the fill's end moved (M13: the whole line was five fills,
+		// waited for, a pixel at a time): the strip between, in ink or ground.
+		s_BarFrom = s_Bar;
+		s_Bar = bar;
+		return FALSE;
+	}
+	s_BarInk = ink;
 	if (bar != s_Bar)
 	{
 		s_Bar = bar;
@@ -296,8 +307,16 @@ void Panel_Update()
 {
 	u8 page = g_PanelPage;
 	s_Top = page ? 0x8000 : 0;
+	s_BarFrom = 0xFF;
 	if (Want())
 		Bar(page);   // the line cleared, and the bar if no message is on it
+	else if (s_BarFrom != 0xFF)
+	{
+		if (s_Bar < s_BarFrom)
+			Fill(page, BAR_X + 1 + s_Bar, ROW_C + 1, s_BarFrom - s_Bar, 4, PANEL_GROUND);
+		else
+			Fill(page, BAR_X + 1 + s_BarFrom, ROW_C + 1, s_Bar - s_BarFrom, 4, s_BarInk);
+	}
 	u8 left = g_PanelBusy ? PANEL_CELLS_A_FRAME - 1 : PANEL_CELLS_A_FRAME;
 	while (left && s_Head != s_Tail)
 	{

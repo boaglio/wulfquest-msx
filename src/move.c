@@ -27,8 +27,10 @@ u8  g_MoveSizeO = 0;
 u8  g_MoveAlongX = 0;
 u8  g_MoveWorld = 0;
 u8  g_MoveScenery = 0;
+u8  g_MoveFree = 0;
 
 static i32 s_T = 0;       // the target
+static i16 s_MStrip = 0;  // a creature's step: the strip of cells it steps into
 static i16 s_Base = 0;    // MOVE_ROOM: + a candidate = the box's near edge from the room's
 static u16 s_Lim = 0;     //            the most that edge may be
 
@@ -168,6 +170,218 @@ void Move_Axis() __naked
 		ld	hl, (_g_MovePos + 2)
 		adc	hl, de
 		ld	(_s_T + 2), hl
+		; known free where it stands (g_MoveFree, M13): a step under a cell whose
+		; leading edge stays in its cell keeps the box in the cells it had, so the
+		; target is free (the room's edges are cells' edges)
+		ld	a, (_g_MoveFree)
+		or	a
+		jp	z, 00005$
+		xor	a
+		ld	(_g_MoveFree), a
+		ld	a, (_g_MoveOff)
+		ld	b, a                    ; backwards, the near edge
+		ld	a, (_g_MoveDelta + 1)
+		rla
+		jr	c, 00002$
+		ld	a, (_g_MoveSize)        ; forwards, the far one
+		dec	a
+		add	a, b
+		ld	b, a
+	00002$:
+		ld	a, (_g_MovePos + 1)
+		add	a, b
+		and	a, #0xF8
+		ld	c, a                    ; its cell where it stands (the low byte's cell bits)
+		ld	a, (_s_T + 1)
+		add	a, b
+		and	a, #0xF8
+		cp	a, c
+		jr	nz, 00100$
+	00099$:
+		ld	hl, (_s_T)              ; the same cell, or a free strip: the target
+		ld	(_g_MovePos), hl
+		ld	hl, (_s_T + 2)
+		ld	(_g_MovePos + 2), hl
+		pop	ix
+		ret
+	00100$:
+		; into a new strip of cells (M13, as Beast_Step): only it is tested, and
+		; blocked (a wall, or past the room's edge, a cell's edge too) every
+		; candidate whose leading edge is in it is blocked and every other one
+		; free, so the first free is the last pixel before it
+		ld	hl, (_s_T + 1)
+		ld	e, b
+		ld	a, b
+		rla
+		sbc	a, a
+		ld	d, a
+		add	hl, de
+		ld	a, l
+		and	a, #0xF8
+		ld	l, a                    ; the strip's first pixel, the world's
+		ld	(_s_MStrip), hl
+		ld	a, (_g_MoveWorld)
+		or	a
+		jp	nz, 00130$              ; the map's world: the strip off its bitmap
+		ld	a, (_g_MoveAlongX)
+		or	a
+		jr	z, 00110$
+		ld	de, (_g_RoomX)
+		or	a
+		sbc	hl, de
+		ld	a, h
+		or	a
+		jp	nz, 00150$              ; past the room's left or right edge
+		ld	a, (_g_MoveScenery)
+		or	a
+		jr	z, 00099$
+		ld	de, #(CELLS_MARGIN * CELL)
+		add	hl, de
+		ld	(_g_CbLeft), hl
+		ld	a, #1
+		ld	(_g_CbW), a
+		ld	hl, (_g_MoveOther)
+		ld	a, (_g_MoveOffO)
+		ld	e, a
+		rla
+		sbc	a, a
+		ld	d, a
+		add	hl, de
+		ld	de, (_g_RoomY)
+		or	a
+		sbc	hl, de
+		ld	a, l
+		add	a, #(CELLS_MARGIN * CELL)
+		ld	(_g_CbTop), a
+		ld	a, (_g_MoveSizeO)
+		ld	(_g_CbH), a
+		jr	00120$
+	00110$:
+		ld	de, (_g_RoomY)
+		or	a
+		sbc	hl, de
+		ld	de, #PLAYFIELD_H
+		or	a
+		sbc	hl, de
+		jr	nc, 00150$              ; past the room's top or bottom (unsigned)
+		add	hl, de
+		ld	a, (_g_MoveScenery)
+		or	a
+		jr	z, 00099$
+		ld	a, l
+		add	a, #(CELLS_MARGIN * CELL)
+		ld	(_g_CbTop), a
+		ld	a, #1
+		ld	(_g_CbH), a
+		ld	hl, (_g_MoveOther)
+		ld	a, (_g_MoveOffO)
+		ld	e, a
+		rla
+		sbc	a, a
+		ld	d, a
+		add	hl, de
+		ld	de, (_g_RoomX)
+		or	a
+		sbc	hl, de
+		ld	de, #(CELLS_MARGIN * CELL)
+		add	hl, de
+		ld	(_g_CbLeft), hl
+		ld	a, (_g_MoveSizeO)
+		ld	(_g_CbW), a
+		jr	00120$
+	00130$:
+		; the map's world (Wulf): the strip round its ends (Data_StripTest), the
+		; box's breadth across
+		ld	(_g_BoxLeft), hl        ; along x the strip's column; along y, set below
+		ld	(_g_BoxTop), hl
+		ld	hl, (_g_MoveOther)
+		ld	a, (_g_MoveOffO)
+		ld	e, a
+		rla
+		sbc	a, a
+		ld	d, a
+		add	hl, de                  ; the box's near edge across
+		ld	a, (_g_MoveSizeO)
+		ld	c, a
+		ld	a, (_g_MoveAlongX)
+		or	a
+		jr	z, 00135$
+		ld	(_g_BoxTop), hl
+		ld	a, c
+		ld	(_g_BoxH), a
+		ld	a, #1
+		jr	00136$
+	00135$:
+		ld	(_g_BoxLeft), hl
+		ld	a, c
+		ld	(_g_BoxW), a
+		xor	a
+	00136$:
+		call	_Data_StripTest
+		jr	00121$
+	00120$:
+		call	_Cells_Blocked
+	00121$:
+		or	a
+		jp	z, 00099$
+	00150$:
+		; blocked: forwards, the strip's first pixel - 1 - the far edge; where it
+		; stands, it stays. Backwards, the strip's first pixel + 8 - the near
+		; edge; level with where it stands, only with a fraction
+		ld	hl, (_s_MStrip)
+		ld	a, (_g_MoveOff)
+		ld	e, a
+		ld	a, (_g_MoveDelta + 1)
+		rla
+		jr	c, 00160$
+		ld	a, (_g_MoveSize)
+		dec	a
+		add	a, e
+		ld	e, a                    ; the far edge
+		ld	a, e
+		rla
+		sbc	a, a
+		ld	d, a
+		dec	hl
+		or	a
+		sbc	hl, de
+		ld	de, (_g_MovePos + 1)
+		or	a
+		sbc	hl, de
+		jr	z, 00170$               ; where it stands
+		add	hl, de
+		jr	00165$
+	00160$:
+		ld	a, e
+		rla
+		sbc	a, a
+		ld	d, a
+		ld	bc, #8
+		add	hl, bc
+		or	a
+		sbc	hl, de
+		ld	de, (_g_MovePos + 1)
+		or	a
+		sbc	hl, de
+		jr	nz, 00163$
+		ld	a, (_g_MovePos)
+		or	a
+		jr	z, 00170$               ; level, and no fraction: where it stands
+	00163$:
+		add	hl, de
+	00165$:
+		; hl, a whole pixel
+		xor	a
+		ld	(_g_MovePos), a
+		ld	(_g_MovePos + 1), hl
+		ld	a, h
+		rla
+		sbc	a, a
+		ld	(_g_MovePos + 3), a
+	00170$:
+		pop	ix
+		ret
+	00005$:
 		call	00500$                  ; the other axis: carry if every candidate is blocked
 		jp	c, 00090$
 		ld	hl, (_s_T + 1)          ; t, the target's pixel
@@ -444,536 +658,5 @@ void Move_Axis() __naked
 		rr	l
 		ret
 
-	__endasm;
-}
-
-//-----------------------------------------------------------------------------
-// A big beast's step (Simulation.stepBeast): x then y on the wrapping map,
-// round its ends, and the room it is in now. On the Beast at g_BeastPtr
-// (jungle.h; its offsets are fixed here). 1 if it moved.
-//
-// Its box free where it stands, a step of less than a cell (the converter
-// checks the beasts' speeds) is Collision.resolve with one test at most.
-// Whether the leading edge changed cells shows in its pixel's low byte: the
-// step is under 256 px, so the low bytes' cell bits differ when the cells do.
-// Forwards, the box's far edge stays in its cell or goes one on: the same
-// cell, the target is free; the next, the target is free if that strip of
-// cells is. If not, every candidate whose far edge is in the new cell is
-// blocked (its box holds the strip) and every one whose far edge is still in
-// the old cell is free (its box lies in the free one's cells), so the first
-// free one, from the target down, is the last pixel before the strip, if that
-// is past where it stands. Backwards the same with the near edge, from the
-// target up: the first pixel after the strip, if that is short of where it
-// stands, or level with it but for a fraction. A box not free where it stands
-// (set down in scenery) takes Move_Axis's search, a test a candidate.
-
-Beast* g_BeastPtr = 0;
-static u8 s_Free = 0;     // its Free, during the step
-static u8 s_Moved = 0;    // the axis being stepped moved
-static u8 s_MovedX = 0;   // x moved
-static i8 s_EdgeOff = 0;  // the edge that leads: forwards the far one, backwards the near
-static i16 s_Strip = 0;   // the strip it steps into, its first pixel along the axis
-static u8* s_Other = 0;   // the other axis's block
-static u8* s_Cache = 0;   // its Blocked
-static u8 s_Key[7];       // a strip: the axis, its first pixel along it, its cells across
-
-#define MAP_W_HI	(GRID_W)                      // MAP_W_FP >> 16: a room is 256 px
-#define MAP_H_HI	((GRID_H * PLAYFIELD_H) >> 8)  // MAP_H_FP >> 16
-#if PLAYFIELD_W != 256 || ((GRID_H * PLAYFIELD_H) & 255) != 0
-#error "Beast_Step takes rooms 256 px wide, and the map's height a whole number of 256 px"
-#endif
-// Each row of rooms' top, world pixels, and one past the last.
-static const i16 c_RowTop[GRID_H + 1] = {
-	0 * PLAYFIELD_H, 1 * PLAYFIELD_H, 2 * PLAYFIELD_H, 3 * PLAYFIELD_H,
-	4 * PLAYFIELD_H, 5 * PLAYFIELD_H, 6 * PLAYFIELD_H, 7 * PLAYFIELD_H,
-	8 * PLAYFIELD_H, 9 * PLAYFIELD_H, 10 * PLAYFIELD_H, 11 * PLAYFIELD_H,
-	12 * PLAYFIELD_H, 13 * PLAYFIELD_H, 14 * PLAYFIELD_H, 15 * PLAYFIELD_H,
-	16 * PLAYFIELD_H
-};
-#if GRID_H != 16
-#error "c_RowTop has 16 rows"
-#endif
-
-u8 Beast_Step() __naked
-{
-	__asm
-		push	ix
-		ld	ix, (_g_BeastPtr)
-		xor	a
-		ld	(_s_Moved), a
-		ld	(_s_MovedX), a
-		inc	a
-		ld	(_g_BoxWrap), a
-		ld	a, 21 (ix)
-		ld	(_s_Free), a
-		or	a
-		jr	nz, 00002$
-		; not known free where it stands: test it there, once
-		ld	l, 1 (ix)
-		ld	h, 2 (ix)
-		ld	a, 6 (ix)
-		ld	e, a
-		rla
-		sbc	a, a
-		ld	d, a
-		add	hl, de
-		ld	(_g_BoxLeft), hl
-		ld	l, 10 (ix)
-		ld	h, 11 (ix)
-		ld	a, 15 (ix)
-		ld	e, a
-		rla
-		sbc	a, a
-		ld	d, a
-		add	hl, de
-		ld	(_g_BoxTop), hl
-		ld	a, 7 (ix)
-		ld	(_g_BoxW), a
-		ld	a, 16 (ix)
-		ld	(_g_BoxH), a
-		call	_Data_BoxTest
-		xor	a, #1
-		ld	(_s_Free), a
-	00002$:
-		; x, if it moves along x; the other axis is y's block
-		ld	a, 4 (ix)
-		or	a, 5 (ix)
-		jr	z, 00010$
-		push	ix
-		pop	hl
-		ld	de, #9
-		add	hl, de
-		ld	(_s_Other), hl
-		ld	a, #1
-		ld	(_g_MoveAlongX), a
-		call	00300$
-		ld	a, (_s_Moved)           ; x moved; then y's own
-		ld	(_s_MovedX), a
-		xor	a
-		ld	(_s_Moved), a
-	00010$:
-		; y, if it moves along y: ix on its block
-		ld	de, #9
-		add	ix, de
-		ld	a, 4 (ix)
-		or	a, 5 (ix)
-		jr	z, 00015$
-		push	ix
-		pop	hl
-		ld	de, #-9
-		add	hl, de
-		ld	(_s_Other), hl
-		xor	a
-		ld	(_g_MoveAlongX), a
-		call	00300$
-	00015$:
-		ld	de, #-9
-		add	ix, de
-		ld	a, (_s_Free)
-		ld	21 (ix), a
-		ld	a, (_s_MovedX)
-		ld	b, a
-		ld	a, (_s_Moved)           ; y's
-		ld	c, a
-		or	a, b
-		jr	nz, 00030$
-		ld	19 (ix), a              ; still: its walk starts again
-		ld	20 (ix), a
-		pop	ix
-		ret
-	00030$:
-		; round the map's ends, x in [0, MAP_W) and y in [0, MAP_H), each if it moved
-		ld	a, b
-		or	a
-		jr	z, 00033$
-		ld	a, 3 (ix)
-		bit	7, a
-		jr	z, 00031$
-		ld	a, 2 (ix)
-		add	a, #MAP_W_HI
-		ld	2 (ix), a
-		ld	a, 3 (ix)
-		adc	a, #0
-		ld	3 (ix), a
-		jr	00033$
-	00031$:
-		or	a                       ; byte 3 not 0: past the end
-		jr	nz, 00032$
-		ld	a, 2 (ix)
-		cp	a, #MAP_W_HI
-		jr	c, 00033$
-	00032$:
-		ld	a, 2 (ix)
-		sub	a, #MAP_W_HI
-		ld	2 (ix), a
-		ld	a, 3 (ix)
-		sbc	a, #0
-		ld	3 (ix), a
-	00033$:
-		ld	a, c
-		or	a
-		jr	nz, 00037$
-		; y did not move: the same row, the column from x
-		ld	a, 18 (ix)
-		and	a, #0xF0
-		or	a, 2 (ix)
-		ld	18 (ix), a
-		jr	00046$
-	00037$:
-		ld	a, 12 (ix)
-		bit	7, a
-		jr	z, 00034$
-		ld	a, 11 (ix)
-		add	a, #MAP_H_HI
-		ld	11 (ix), a
-		ld	a, 12 (ix)
-		adc	a, #0
-		ld	12 (ix), a
-		jr	00036$
-	00034$:
-		or	a
-		jr	nz, 00035$
-		ld	a, 11 (ix)
-		cp	a, #MAP_H_HI
-		jr	c, 00036$
-	00035$:
-		ld	a, 11 (ix)
-		sub	a, #MAP_H_HI
-		ld	11 (ix), a
-		ld	a, 12 (ix)
-		sbc	a, #0
-		ld	12 (ix), a
-	00036$:
-		; the row: from its room's, up or down by the tops
-		ld	a, 18 (ix)
-		rrca
-		rrca
-		rrca
-		rrca
-		and	a, #15
-		ld	c, a                    ; row
-		ld	e, 10 (ix)
-		ld	d, 11 (ix)              ; de = y's whole pixels
-	00040$:
-		ld	hl, #_c_RowTop
-		ld	a, c
-		add	a, a
-		add	a, l
-		ld	l, a
-		adc	a, h
-		sub	a, l
-		ld	h, a
-		ld	a, e
-		sub	a, (hl)
-		inc	hl
-		ld	a, d
-		sbc	a, (hl)
-		inc	hl
-		jr	nc, 00042$
-		dec	c                       ; above its top: up a row
-		jr	00040$
-	00042$:
-		ld	a, e
-		sub	a, (hl)
-		inc	hl
-		ld	a, d
-		sbc	a, (hl)
-		jr	c, 00044$               ; above the next row's top: this row
-		inc	c
-		jr	00040$
-	00044$:
-		ld	a, c
-		add	a, a
-		add	a, a
-		add	a, a
-		add	a, a
-		or	a, 2 (ix)               ; the column: x's whole pixels >> 8
-		ld	18 (ix), a
-	00046$:
-		inc	19 (ix)
-		jr	nz, 00045$
-		inc	20 (ix)
-	00045$:
-		ld	a, #1
-		pop	ix
-		ret
-
-	; ---- one axis, ix on its block: position 0-3, delta 4-5, near edge 6,
-	; size 7, far edge 8; s_Other the other's
-	00300$:
-		ld	a, (_s_Free)
-		or	a
-		jp	z, 00380$               ; not free where it stands: the search
-		ld	e, 4 (ix)
-		ld	d, 5 (ix)
-		ld	a, d
-		rla
-		sbc	a, a
-		ld	b, a                    ; bde: the delta, signed
-		; the leading edge, and its cell's bits in the pixel's low byte
-		or	a
-		ld	a, 8 (ix)
-		jr	z, 00305$
-		ld	a, 6 (ix)
-	00305$:
-		ld	(_s_EdgeOff), a
-		add	a, 1 (ix)
-		and	a, #0xF8
-		ld	c, a
-		; to the target
-		ld	a, 0 (ix)
-		add	a, e
-		ld	0 (ix), a
-		ld	a, 1 (ix)
-		adc	a, d
-		ld	1 (ix), a
-		ld	a, 2 (ix)
-		adc	a, b
-		ld	2 (ix), a
-		ld	a, 3 (ix)
-		adc	a, b
-		ld	3 (ix), a
-		ld	a, (_s_EdgeOff)
-		add	a, 1 (ix)
-		and	a, #0xF8
-		cp	a, c
-		jp	z, 00360$               ; the same cell: there
-		; a new strip: its first pixel, (target + edge) rounded down to a cell
-		ld	a, (_s_EdgeOff)
-		ld	l, a
-		rla
-		sbc	a, a
-		ld	h, a
-		ld	a, 1 (ix)
-		add	a, l
-		ld	l, a
-		ld	a, 2 (ix)
-		adc	a, h
-		ld	h, a
-		ld	a, l
-		and	a, #0xF8
-		ld	l, a
-		ld	(_s_Strip), hl
-		call	00400$
-		or	a
-		jp	z, 00360$               ; free: there
-		; blocked: back where it stood, then the candidate next to the strip
-		ld	e, 4 (ix)
-		ld	d, 5 (ix)
-		ld	a, d
-		rla
-		sbc	a, a
-		ld	b, a
-		ld	a, 0 (ix)
-		sub	a, e
-		ld	0 (ix), a
-		ld	a, 1 (ix)
-		sbc	a, d
-		ld	1 (ix), a
-		ld	a, 2 (ix)
-		sbc	a, b
-		ld	2 (ix), a
-		ld	a, 3 (ix)
-		sbc	a, b
-		ld	3 (ix), a
-		ld	a, (_s_EdgeOff)
-		ld	e, a
-		rla
-		sbc	a, a
-		ld	d, a
-		ld	hl, (_s_Strip)
-		ld	a, b
-		or	a
-		jr	nz, 00340$
-		; forwards: the strip's first pixel - 1 - the far edge; where it stands, it stays
-		dec	hl
-		or	a
-		sbc	hl, de
-		ld	a, l
-		cp	a, 1 (ix)
-		jr	nz, 00370$
-		ld	a, h
-		cp	a, 2 (ix)
-		ret	z
-		jr	00370$
-	00340$:
-		; backwards: the strip's first pixel + 8 - the near edge; level, only with a fraction
-		ld	bc, #8
-		add	hl, bc
-		or	a
-		sbc	hl, de
-		ld	a, l
-		cp	a, 1 (ix)
-		jr	nz, 00370$
-		ld	a, h
-		cp	a, 2 (ix)
-		jr	nz, 00370$
-		ld	a, 0 (ix)
-		or	a
-		ret	z
-	00370$:
-		; hl, a whole pixel
-		ld	0 (ix), #0
-		ld	1 (ix), l
-		ld	2 (ix), h
-		ld	a, h
-		rla
-		sbc	a, a
-		ld	3 (ix), a
-	00360$:
-		ld	a, #1
-		ld	(_s_Moved), a
-		ret
-	00380$:
-		; the search, a test a candidate (Move_Axis); where it ends is free if it moved
-		ld	l, 0 (ix)
-		ld	h, 1 (ix)
-		ld	(_g_MovePos), hl
-		ld	l, 2 (ix)
-		ld	h, 3 (ix)
-		ld	(_g_MovePos + 2), hl
-		ld	l, 4 (ix)
-		ld	h, 5 (ix)
-		ld	(_g_MoveDelta), hl
-		ld	a, 6 (ix)
-		ld	(_g_MoveOff), a
-		ld	a, 7 (ix)
-		ld	(_g_MoveSize), a
-		ld	hl, (_s_Other)
-		inc	hl
-		ld	e, (hl)
-		inc	hl
-		ld	d, (hl)
-		ld	(_g_MoveOther), de      ; the other's whole pixels
-		inc	hl
-		inc	hl
-		inc	hl
-		inc	hl
-		ld	a, (hl)
-		ld	(_g_MoveOffO), a
-		inc	hl
-		ld	a, (hl)
-		ld	(_g_MoveSizeO), a
-		ld	a, #MOVE_MAP
-		ld	(_g_MoveWorld), a
-		call	_Move_Axis
-		ld	hl, (_g_MovePos)
-		ld	e, 0 (ix)
-		ld	d, 1 (ix)
-		or	a
-		sbc	hl, de
-		jr	nz, 00382$
-		ld	hl, (_g_MovePos + 2)
-		ld	e, 2 (ix)
-		ld	d, 3 (ix)
-		or	a
-		sbc	hl, de
-		ret	z
-	00382$:
-		ld	hl, (_g_MovePos)
-		ld	0 (ix), l
-		ld	1 (ix), h
-		ld	hl, (_g_MovePos + 2)
-		ld	2 (ix), l
-		ld	3 (ix), h
-		ld	a, #1
-		ld	(_s_Free), a
-		ld	(_s_Moved), a
-		ret
-
-	; ---- the strip at s_Strip along the axis, the box's breadth across: a = 1
-	; blocked. The map never changes: a strip once found blocked is blocked, and
-	; the last one is kept (a beast pushing along a wall meets it every tick).
-	00400$:
-		ld	hl, (_s_Other)
-		inc	hl
-		ld	e, (hl)
-		inc	hl
-		ld	d, (hl)                 ; the other's whole pixels
-		inc	hl
-		inc	hl
-		inc	hl
-		inc	hl
-		ld	a, (hl)                 ; its near edge
-		inc	hl
-		ld	c, (hl)                 ; its size
-		ld	l, a
-		rla
-		sbc	a, a
-		ld	h, a
-		add	hl, de                  ; the box's near edge across
-		; the key: the axis, the strip, the cells across
-		ld	a, (_g_MoveAlongX)
-		ld	(_s_Key), a
-		ld	de, (_s_Strip)
-		ld	(_s_Key + 1), de
-		push	hl
-		sra	h
-		rr	l
-		sra	h
-		rr	l
-		sra	h
-		rr	l
-		ld	(_s_Key + 3), hl
-		pop	hl
-		push	hl
-		ld	e, c
-		dec	e
-		ld	d, #0
-		add	hl, de
-		sra	h
-		rr	l
-		sra	h
-		rr	l
-		sra	h
-		rr	l
-		ld	(_s_Key + 5), hl
-		ld	hl, (_g_BeastPtr)
-		ld	de, #22
-		add	hl, de
-		ld	(_s_Cache), hl
-		ld	de, #_s_Key
-		ld	b, #7
-	00401$:
-		ld	a, (de)
-		cp	a, (hl)
-		jr	nz, 00402$
-		inc	hl
-		inc	de
-		djnz	00401$
-		pop	hl
-		ld	a, #1                   ; the strip it found blocked
-		ret
-	00402$:
-		pop	hl
-		ld	a, (_g_MoveAlongX)
-		or	a
-		jr	z, 00410$
-		ld	(_g_BoxTop), hl
-		ld	a, c
-		ld	(_g_BoxH), a
-		ld	hl, (_s_Strip)
-		ld	(_g_BoxLeft), hl
-		ld	a, #1
-		ld	(_g_BoxW), a
-		jr	00420$
-	00410$:
-		ld	(_g_BoxLeft), hl
-		ld	a, c
-		ld	(_g_BoxW), a
-		ld	hl, (_s_Strip)
-		ld	(_g_BoxTop), hl
-		ld	a, #1
-		ld	(_g_BoxH), a
-	00420$:
-		call	_Data_BoxTest
-		or	a
-		ret	z
-		ld	hl, #_s_Key             ; blocked: kept
-		ld	de, (_s_Cache)
-		ld	bc, #7
-		ldir
-		ld	a, #1
-		ret
 	__endasm;
 }

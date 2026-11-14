@@ -289,6 +289,81 @@ static u8 TicksIn(u8 frames)
 	return ticks;
 }
 
+// The flower's bar, (EFFECT_BAR_W - 2) * perMille / 1000 with perMille =
+// min(1000, ticks * 1000 / total) (PanelPainter.remainingPerMille). Its
+// 32-bit divisions were 4 000 cycles a frame (M13). Both quotients are carried
+// on, exactly, as the ticks count down: a tick takes 1000 / total from
+// ticks * 1000 / total and 1000 % total from its remainder, borrowing one; d
+// per mille take d * BAR_PX from BAR_PX * perMille's remainder by 1 000, a
+// pixel for each thousand. The state is (ticks, total)'s alone: a new total,
+// or ticks gone up, starts it again from the full bar, ticks = total.
+#define BAR_PX	(EFFECT_BAR_W - 2)
+#if BAR_PX >= 1000
+#error "BarFill takes the bar under 1000 px (64 * BAR_PX fits 16 bits)"
+#endif
+static u16 s_BarTotal = 0;
+static u16 s_BarTicks = 0;
+static u16 s_BarQ = 0;      // s_BarTicks * 1000 / s_BarTotal
+static u16 s_BarR = 0;      // and its remainder
+static u16 s_BarQs = 0;     // 1000 / s_BarTotal: a tick's
+static u16 s_BarRs = 0;     // 1000 % s_BarTotal
+static u16 s_BarPm = 0;     // the per mille the bar is for (at most 1000)
+static u16 s_BarS = 0;      // BAR_PX * s_BarPm % 1000
+static u8  s_Bar = 0;       // BAR_PX * s_BarPm / 1000
+
+static u8 BarFill(u16 ticks, u16 total)
+{
+	if (total == 0)
+		return 0;
+	if (ticks > total)
+		ticks = total;   // a full bar, as perMille's min
+	if (total != s_BarTotal || ticks > s_BarTicks)
+	{
+		s_BarTotal = total;
+		s_BarTicks = total;
+		s_BarQ = 1000;
+		s_BarR = 0;
+		s_BarQs = 1000 / total;
+		s_BarRs = 1000 % total;
+		s_BarPm = 1000;
+		s_Bar = BAR_PX;
+		s_BarS = 0;
+	}
+	for (u16 d = s_BarTicks - ticks; d; d--)
+	{
+		s_BarQ -= s_BarQs;
+		if (s_BarR >= s_BarRs)
+			s_BarR -= s_BarRs;
+		else
+		{
+			s_BarR += total - s_BarRs;   // under total: no overflow
+			s_BarQ--;
+		}
+	}
+	s_BarTicks = ticks;
+	u16 pm = s_BarQ > 1000 ? 1000 : s_BarQ;
+	for (u16 d = s_BarPm - pm; d; )
+	{
+		u8 k = d > 64 ? 64 : (u8)d;
+		d -= k;
+		u16 x = (u16)k * BAR_PX;
+		while (x >= 1000)
+		{
+			x -= 1000;
+			s_Bar--;
+		}
+		if (s_BarS >= x)
+			s_BarS -= x;
+		else
+		{
+			s_BarS += 1000 - x;
+			s_Bar--;
+		}
+	}
+	s_BarPm = pm;
+	return s_Bar;
+}
+
 // He has walked into another room: show it, then run the frozen ticks that
 // fall in the frames the drawing took (as many as there were, and no more).
 static void Flip()
@@ -528,19 +603,60 @@ static u8 DrawPiece(u8 m, u8 mask, i16 x, i16 y, bool flying)
 	return m;
 }
 
+// (u8)(t / k), carried on from the last draw's (M13: a 32-bit division,
+// SDCC's library, was a few thousand cycles, and a draw made two; the
+// bloom's sway subtracted its way there): t has moved on by a few since, so
+// the remainder takes them and the quotient counts each k it passes.
+// Divided anew after a jump back or far, or for another k.
+typedef struct
+{
+	u32 Tick;
+	u16 K;
+	u16 Rem;   // Tick % K
+	u8  Q;     // (u8)(Tick / K)
+} TickDiv;
+static TickDiv s_GlanceDiv = { 0, 0, 0, 0 };
+static TickDiv s_BlinkDiv = { 0, 0, 0, 0 };
+
+static TickDiv s_SwayDiv = { 0, 0, 0, 0 };
+
+static u8 RunQuotient(TickDiv* d, u32 t, u16 k)
+{
+	if (d->K == k && t >= d->Tick && t - d->Tick < 256)
+	{
+		u16 r = d->Rem + (u8)(t - d->Tick);
+		while (r >= k)
+		{
+			r -= k;
+			d->Q++;
+		}
+		d->Rem = r;
+	}
+	else
+	{
+		d->K = k;
+		d->Q = (u8)(t / k);
+		d->Rem = (u16)(t % k);
+	}
+	d->Tick = t;
+	return d->Q;
+}
+
 static u8 DrawLoot(u8 m)
 {
 	u8 room = g_ValeRoom;
-	u8 glance = c_Glance[(u8)(g_SimTick / ITEM_GLANCE_TICKS) & 3];
+	u8 glance = c_Glance[RunQuotient(&s_GlanceDiv, g_SimTick, ITEM_GLANCE_TICKS) & 3];
 	if (!g_MapTaken && room == MAP_ROOM && m < SPR_SMALL)
 		PutFrame(m++, MAP_FRAME, 0, MAP_X, MAP_Y);
-	for (u8 i = 0; i < EYES; i++)
-		if (!(g_EyesTaken & (1 << i)) && g_ItemRoom[i] == room && m < SPR_SMALL)
+	// The room first, the taken bit after, a running one (TakeItems).
+	u8 bit = 1;
+	for (u8 i = 0; i < EYES; i++, bit <<= 1)
+		if (g_ItemRoom[i] == room && !(g_EyesTaken & bit) && m < SPR_SMALL)
 			PutFrame(m++, g_GlanceFrame[glance], 0, g_ItemX[i], g_ItemY[i]);
-	bool whole = Quest_Quarters() >= EXIT_REQUIRES_PIECES;
-	for (u8 i = 0; i < GLASSES; i++)
-		if (!(g_GlassesTaken & (1 << i)) && (i < GLASSES_BEFORE_WHOLE || whole) && g_ItemRoom[EYES + i] == room
-			&& m < SPR_SMALL)
+	bit = 1;
+	for (u8 i = 0; i < GLASSES; i++, bit <<= 1)
+		if (g_ItemRoom[EYES + i] == room && !(g_GlassesTaken & bit) && m < SPR_SMALL
+			&& (i < GLASSES_BEFORE_WHOLE || Quest_Quarters() >= EXIT_REQUIRES_PIECES))
 			PutFrame(m++, g_GlanceFrame[3 + glance], 0, g_ItemX[EYES + i], g_ItemY[EYES + i]);
 	for (u8 p = 0; p < 2; p++)
 	{
@@ -553,7 +669,7 @@ static u8 DrawLoot(u8 m)
 	if (g_WayTicks > 0 && m < SPR_SMALL)
 	{
 		u16 blink = g_WayTicks <= WAY_WARN_TICKS ? WAY_WARN_BLINK_TICKS : WAY_BLINK_TICKS;
-		if (((u16)(g_SimTick / blink) & 1) == 0)
+		if ((RunQuotient(&s_BlinkDiv, g_SimTick, blink) & 1) == 0)
 		{
 			u8 done = Quest_Done();   // a later job's lairs without a piece count as taken
 			if (s_WayRoom != room || s_WayTaken != done)
@@ -587,13 +703,7 @@ static u8 DrawLoot(u8 m)
 		{
 			// The bloom sways on its two frames (stageTick / swayTicks).
 			u16 t = g_OrchidPhase - (ORCHID_SEED_TICKS + ORCHID_SPROUT_TICKS + ORCHID_BUD_TICKS);
-			u8 sway = 0;
-			while (t >= ORCHID_SWAY_TICKS)
-			{
-				t -= ORCHID_SWAY_TICKS;
-				sway ^= 1;
-			}
-			f = g_OrchidFrame[o + 1 + sway];
+			f = g_OrchidFrame[o + 1 + (RunQuotient(&s_SwayDiv, t, ORCHID_SWAY_TICKS) & 1)];
 		}
 		else if (stage == STAGE_WILT)
 			f = g_OrchidFrame[o + 3];
@@ -1004,12 +1114,7 @@ static void Main()
 			// SDCC's library, which the banked panel may not call.
 			g_PanelBarFill = 0xFF;
 			if (g_EffectKind != EFFECT_NONE && g_EffectOrchid >= 0)
-			{
-				u16 perMille = g_EffectTotal ? (u16)((u32)g_EffectTicks * 1000 / g_EffectTotal) : 0;
-				if (perMille > 1000)
-					perMille = 1000;
-				g_PanelBarFill = (u8)((u32)(EFFECT_BAR_W - 2) * perMille / 1000);
-			}
+				g_PanelBarFill = BarFill(g_EffectTicks, g_EffectTotal);
 			g_PanelPage = g_PageShown;
 			g_PanelBusy = s_Loaded;
 			PANEL(Panel_Update);

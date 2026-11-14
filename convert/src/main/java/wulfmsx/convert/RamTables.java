@@ -39,6 +39,8 @@ final class RamTables {
         }
         names.append("#define ").append(name).append("\t((const ").append(type).append("*)(g_Tables + ")
                 .append(blob.size()).append("))\t// [").append(values.length).append("]\n");
+        // Its address, for assembly (M13).
+        names.append("#define ").append(name).append("_AT\t(RAM_TABLES + ").append(blob.size()).append(")\n");
         for (int v : values) {
             if (v < min || v > max) {
                 throw new ConvertException(name + ": " + v + " does not fit a " + type);

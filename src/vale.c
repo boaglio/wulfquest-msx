@@ -57,6 +57,7 @@ u8  g_SabreW;
 u8  g_SabreH;
 u8  g_ValeRoom = 0;
 u8  g_ValeFreeze = 0;
+u8  g_ValeFree = 0;   // his box is known free where he stands (Resolve, M13)
 u8  g_ValeOpen = 0;   // the rest are set by Vale_Init and Vale_Place
 u8  g_ValeMode = MODE_ALIVE;
 u8  g_ValeModeTick = 0;
@@ -111,6 +112,7 @@ static void EnterRoom(u8 room)
 	s_CellsX = s_RoomX - CELLS_MARGIN * CELL;
 	s_CellsY = s_RoomY - CELLS_MARGIN * CELL;
 	Data_LoadCells(room, s_Cells);
+	g_ValeFree = 0;   // tested afresh in this room's cells
 	if (g_JungleOn)
 		JUNGLE(Jungle_EnterRoom);
 	if (g_QuestOn)
@@ -124,15 +126,41 @@ static void EnterRoom(u8 room)
 // (EffectState.speedFp: haste and torpor scale his pace, (base * scale) >> 8).
 static i16 s_ScaleFor = 0;
 
+// bx * l / LEVELS for each level l: both non-negative (the speeds are, and
+// the flowers' scales: the converter checks), so the quotient is carried on
+// from level to level (M13: the 32-bit multiplication and division were 1 KB
+// of SDCC's library, where the main code has no room).
+#if PLAYER_SPEED_X_FP <= 0 || PLAYER_SPEED_Y_FP <= 0
+#error "Speeds takes Vale's speeds as positive"
+#endif
 static void Speeds(i16 scale)
 {
 	s_ScaleFor = scale;
 	i16 bx = (i16)(((i32)PLAYER_SPEED_X_FP * scale) >> 8);
 	i16 by = (i16)(((i32)PLAYER_SPEED_Y_FP * scale) >> 8);
+	// a level's step, bx / LEVELS and its remainder (M13: counted out one by
+	// one, a change of scale was 490 000 cycles)
+	u16 sx = (u16)bx / LEVELS, tx = (u16)bx % LEVELS;
+	u16 sy = (u16)by / LEVELS, ty = (u16)by % LEVELS;
+	u16 qx = 0, rx = 0, qy = 0, ry = 0;
 	for (u8 l = 0; l <= LEVELS; l++)
 	{
-		s_SpeedX[l] = (i16)((i32)bx * l / LEVELS);
-		s_SpeedY[l] = (i16)((i32)by * l / LEVELS);
+		s_SpeedX[l] = (i16)qx;
+		s_SpeedY[l] = (i16)qy;
+		qx += sx;
+		rx += tx;
+		if (rx >= LEVELS)
+		{
+			rx -= LEVELS;
+			qx++;
+		}
+		qy += sy;
+		ry += ty;
+		if (ry >= LEVELS)
+		{
+			ry -= LEVELS;
+			qy++;
+		}
 		// Fixed.mul: (a * b) >> 8
 		s_DiagX[l] = (i16)(((i32)s_SpeedX[l] * PLAYER_DIAGONAL_SCALE_FP) >> FIXED_SHIFT);
 		s_DiagY[l] = (i16)(((i32)s_SpeedY[l] * PLAYER_DIAGONAL_SCALE_FP) >> FIXED_SHIFT);
@@ -167,6 +195,7 @@ void Vale_Place(i32 x, i32 y)
 {
 	g_ValeX = x;
 	g_ValeY = y;
+	g_ValeFree = 0;
 	g_ValeFacing = FACE_S;
 	g_ValeSwing = -1;
 	g_ValeCooldown = 0;
@@ -299,7 +328,10 @@ static i32 Resolve(i32 pos, i16 delta, i16 other, bool alongX)
 	i32 target = pos + delta;
 	i16 t = FP_PX(target);
 	if (g_ValeOpen)
+	{
+		g_ValeFree = 0;
 		return (alongX ? Blocked(t, other) : Blocked(other, t)) ? ResolveSlow(pos, delta, other, alongX) : target;
+	}
 	// The other axis, once: outside the window, every candidate is solid.
 	g_CbW = PLAYER_BOX_W;
 	g_CbH = PLAYER_BOX_H;
@@ -322,21 +354,38 @@ static i32 Resolve(i32 pos, i16 delta, i16 other, bool alongX)
 		s_RBase = PLAYER_BOX_Y - s_CellsY;
 		s_RLimit = CELLS_H * CELL - PLAYER_BOX_H;
 	}
-	if (!Try(t))
+	// Free where he stands (a box test said so, and only this has moved him
+	// since), a step under a cell whose leading edge stays in its cell keeps
+	// his box in the cells it had: the target, no test (M13, as Move_Axis).
+	u8 edge = alongX ? (delta > 0 ? PLAYER_BOX_X + PLAYER_BOX_W - 1 : PLAYER_BOX_X)
+		: (delta > 0 ? PLAYER_BOX_Y + PLAYER_BOX_H - 1 : PLAYER_BOX_Y);
+	if (g_ValeFree && delta > -CELL * 256 && delta < CELL * 256
+		&& (((u8)FP_PX(pos) + edge) & 0xF8) == (((u8)t + edge) & 0xF8))
 		return target;
+	if (!Try(t))
+	{
+		g_ValeFree = 1;
+		return target;
+	}
 	i16 p = FP_PX(pos);
 	if (delta > 0)
 	{
 		for (i16 c = t; c > p; c--)
 			if (!Try(c))
+			{
+				g_ValeFree = 1;
 				return FixedOf(c);
+			}
 	}
 	else
 	{
 		bool fraction = *(u8*)&pos != 0;
 		for (i16 c = t + 1; c < p || (c == p && fraction); c++)
 			if (!Try(c))
+			{
+				g_ValeFree = 1;
 				return FixedOf(c);
+			}
 	}
 	return pos;
 }
@@ -403,19 +452,25 @@ static void ComputeSabre()
 // The walk (§11.2, §11.3)
 
 // One axis of one frame of the original: the held direction (-1, 0, 1) on the velocity.
+// In 8 bits (M13: SDCC's 16-bit signed comparisons were 500 cycles a call):
+// the momentum stays within the max, and one more step fits a byte.
+#if PLAYER_MOMENTUM_MAX + PLAYER_MOMENTUM_ACCEL > 127 || PLAYER_MOMENTUM_FIGHT > 127 || PLAYER_MOMENTUM_DECAY > 127
+#error "Accelerate and Decay take the momentum in a byte"
+#endif
 static i16 Accelerate(i16 v, i8 d)
 {
 	if (g_ValeSwing >= 0)
 		return d > 0 ? PLAYER_MOMENTUM_FIGHT : d < 0 ? -PLAYER_MOMENTUM_FIGHT : 0;   // fighting: a steady pace
+	i8 w = (i8)v;
 	if (d > 0)
-		v += PLAYER_MOMENTUM_ACCEL;
+		w += PLAYER_MOMENTUM_ACCEL;
 	else if (d < 0)
-		v -= PLAYER_MOMENTUM_ACCEL;
-	if (v > PLAYER_MOMENTUM_MAX)
+		w -= PLAYER_MOMENTUM_ACCEL;
+	if (w > PLAYER_MOMENTUM_MAX)
 		return PLAYER_MOMENTUM_MAX;
-	if (v < -PLAYER_MOMENTUM_MAX)
+	if (w < -PLAYER_MOMENTUM_MAX)
 		return -PLAYER_MOMENTUM_MAX;
-	return v;
+	return w;
 }
 
 // signum(v) * (|v| / step)
@@ -427,10 +482,11 @@ static i8 LevelOf(i16 v)
 // v toward 0 by the decay, never past it.
 static i16 Decay(i16 v)
 {
-	if (v > 0)
-		return v > PLAYER_MOMENTUM_DECAY ? v - PLAYER_MOMENTUM_DECAY : 0;
-	if (v < 0)
-		return v < -PLAYER_MOMENTUM_DECAY ? v + PLAYER_MOMENTUM_DECAY : 0;
+	i8 w = (i8)v;
+	if (w > 0)
+		return w > PLAYER_MOMENTUM_DECAY ? w - PLAYER_MOMENTUM_DECAY : 0;
+	if (w < 0)
+		return w < -PLAYER_MOMENTUM_DECAY ? w + PLAYER_MOMENTUM_DECAY : 0;
 	return 0;
 }
 
@@ -658,6 +714,7 @@ static void Escape()
 	if (step > PLAYER_SPEED_X_FP)
 		step = PLAYER_SPEED_X_FP;
 	g_ValeX += d < 0 ? -step : step;
+	g_ValeFree = 0;
 	g_ValeY -= PLAYER_SPEED_Y_FP;   // no collision: the arch is the way out
 	if (g_ValeModeTick >= ESCAPE_WALK_TICKS)
 	{

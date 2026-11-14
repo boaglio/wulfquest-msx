@@ -15,11 +15,14 @@ extern u8  g_MoveSizeO;
 extern u8  g_MoveAlongX;    // x (else y)
 extern u8  g_MoveWorld;     // MOVE_ROOM or MOVE_MAP
 extern u8  g_MoveScenery;   // MOVE_ROOM: the scenery counts (else only the room's edges)
+extern u8  g_MoveFree;      // set by the caller: the box is free where it stands (a step under
+                            // a cell). Move_Axis clears it.
 
 // MOVE_ROOM: a creature's world, its room (g_RoomX/Y, vale.h): the edges
 // walls, the cells around it (s_Cells) its scenery.
-// MOVE_MAP: a beast's, the whole map round its ends (Data_BoxTest). Beast_Step
-// needs it only for a beast whose box is not free where it stands.
+// MOVE_MAP: Wulf's and a beast's, the whole map round its ends (Data_BoxTest;
+// with g_MoveFree, the new strip's cells, Data_StripTest). Beast_Step needs it
+// only for a beast whose box is not free where it stands.
 #define MOVE_ROOM	0
 #define MOVE_MAP	1
 
