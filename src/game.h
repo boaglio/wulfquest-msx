@@ -10,6 +10,7 @@
 
 #include "msxgl.h"
 #include "data.h"
+#include "tables.h"   // and ram.h: g_Prep
 
 #define GAME_SEG	27
 #define GAME(fn)	BANKED(GAME_SEG, fn)
@@ -91,6 +92,24 @@ extern u16 g_FlameWait;
 
 // Banked (GAME): the Java game's parts.
 void Game_NewGame();            // the treasures laid, the orchids unpicked, the score and items cleared
+
+// The next game's treasures, laid while the title is up (M13, the owner's
+// choice: a new game at once). Its seed is picked when the title comes up;
+// Game_PrepTick, a frame of the title, lays a few rooms' with their own
+// stream (in VRAM_TREASURES, which only a game writes). A new game with that
+// seed (g_Prep.Seed) finishes what is left and takes them; any other game
+// throws them away. The state lies in the spawn finder's queue, free while
+// no game runs (nothing of a game's set-up uses it before Game_NewGame).
+typedef struct
+{
+	u8  Seed[8];
+	u8  Rng[16];   // the treasures' stream, where it got to
+	u16 Room;      // the next room to lay, 256 when done
+	u8  On;        // PREP_ON when picked (the queue holds other things in a game)
+} PrepState;
+#define PREP_ON	0xA5
+#define g_Prep	(*(PrepState*)RAM_SPAWN_QUEUE)
+void Game_PrepTick();           // the title's frame: a seed picked, or a few rooms laid
 void Game_EnterRoom();          // enterRoom's: g_GameByFlip a flip (a first visit scores)
 extern u8 g_GameByFlip;
 void Game_GetUp();              // getUp's: the flame's wait, the hints once a life

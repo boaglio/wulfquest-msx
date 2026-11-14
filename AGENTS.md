@@ -1353,6 +1353,30 @@ plan still equal to the Java game's at 50 and 60 Hz:
   under 1%, the rest would take deeper rewrites (the creatures' data, the
   beasts' step). `MOVES_TIMING_SLIPPED` stays till they keep up.
 
+**Progress, part 2 (stalls; in progress):** measured with the profiler's
+exact timing (its longest call):
+- A new game: the treasures (Game_NewGame) took 2.2 s at Start. The owner's
+  choice (2026-11-14): the next game's seed is picked when the title comes
+  up (the frames since power-on, the R register, the MSX2 clock's seconds
+  and minutes) and its 256 rooms' treasures laid while the title is up
+  (Game_PrepTick, two rooms a frame, about 2.6 s; g_Prep in the spawn
+  finder's queue, which nothing uses then); Start takes them, finishing what
+  is left, and blanks the lairs' rooms (the draws are the same either way).
+  The seed no longer comes from how long the title was up. Checked by laying
+  them again from the start at each such new game (the same). Left: the
+  first room's showing, 0.7 s (its drawing, the panel, its cells).
+- The pause menu: the jungle's dimming (0.55 s of video RAM read and
+  written, after the table was moved to a page of its own) came before the
+  menu showed. The owner's choice: the menu comes up at once over a copy of
+  the game, the jungle darkening behind it over about half a second
+  (DimStep, six lines a tick; the box's lines only beside it).
+- An orchid's cycle start: 6.6 frames → 2.2 (the seeding's helpers in
+  assembly, the multiplication with the other registers, a game's seed's
+  hash step and a room's first three kept); its room's first visit 5.8
+  frames; the busiest tick now 3.4 frames.
+- A respawn: 10 000 cycles, no stall.
+- Left: keys pressed during a stall, the first room's showing.
+
 ### M14 — The first release: the ROM and a disk image
 
 **For:** players.

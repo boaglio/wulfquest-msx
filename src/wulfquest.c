@@ -1192,6 +1192,7 @@ static u8 s_DemoSeed[8] = { DEMO_SEED_BYTES };
 // gallery, the blitter's bench): set once one is used.
 static bool s_Frozen = FALSE;
 static bool s_SpritesOn = TRUE;
+static bool s_OnTitle = FALSE;   // the title was up last frame (Game_PrepTick)
 
 static void Main();
 
@@ -1299,8 +1300,12 @@ static void Main()
 					}
 					else
 					{
-						// Seeded from the clock: how long the title was up.
+						// The seed the title picked, its treasures laid already
+						// (Game_PrepTick, M13); none picked, from the clock.
 						u8 seed[8] = { (u8)g_JIFFY, (u8)(g_JIFFY >> 8), (u8)g_Frames, (u8)(g_Frames >> 8), 0, 0, 0, 0 };
+						if (s_OnTitle && g_Prep.On == PREP_ON)
+							for (u8 b = 0; b < 8; b++)
+								seed[b] = g_Prep.Seed[b];
 						NewGame(seed, PLAYER_START_X_FP, PLAYER_START_Y_FP);
 					}
 					SHELL(Shell_Shown);
@@ -1326,6 +1331,14 @@ static void Main()
 					break;
 			}
 		}
+		// The title up: the next game's treasures laid meanwhile (M13). Come
+		// to it, a new pick (a game has written over the queue the state is in).
+		bool title = !g_TestMode && !s_Frozen && g_Shell == SH_TITLE;
+		if (title && !s_OnTitle)
+			g_Prep.On = 0;
+		s_OnTitle = title;
+		if (title)
+			GAME(Game_PrepTick);
 		// The game on screen: its sprites, its panel, its border.
 		bool game = g_TestMode || s_Frozen || g_Shell == SH_PLAYING || g_Shell == SH_ATTRACT;
 		if (game != s_SpritesOn)

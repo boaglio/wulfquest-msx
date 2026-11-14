@@ -117,6 +117,41 @@ static void EffectClear()
 	g_EffectUntouchable = 0;
 }
 
+// The treasures' stream of the game's seed (g_TestSeed), seeded.
+static void TreasureStream()
+{
+	SeedValue(0);
+	for (u8 b = 0; b < 8; b++)
+		g_RngValues[1][b] = s_TreasureStream[b];
+	Rng_HashSeed(2);
+}
+
+// A room's two places, from the stream: a kind or none (no spot, none);
+// its orchid's cycle start unset.
+static void TreasureRoom(u8 room)
+{
+	u8 more[GAME_ROOM_BYTES];
+	u8 laid[2];
+	Data_LoadRoomMore(room, more);
+	for (u8 p = 0; p < 2; p++)
+	{
+		bool filled = Rng_Next(10000) < TREASURE_FILL_PER10K;
+		u8 kind = (u8)Rng_Next(TREASURE_KINDS);
+		laid[p] = filled && more[2 + 2 * p] != 0xFF ? kind + 1 : 0;
+	}
+	Data_VramWrite(VRAM_TREASURES + ((u16)room << 1), laid, 2);
+	// No orchid picked yet: every cycle start unset.
+	Data_VramWrite(VRAM_ORCHIDS + ((u16)room << 2), (const u8*)&c_Unset, 4);
+}
+static u8 ReadR() __naked   // the R register
+{
+	__asm
+		ld	a, r
+		ret
+	__endasm;
+}
+extern u16 g_Frames;   // wulfquest.c: the frames seen
+
 //-----------------------------------------------------------------------------
 // A new game (Simulation's constructor, layTreasures)
 
@@ -144,34 +179,75 @@ void Game_NewGame()
 	g_OrchidHere = 0;
 
 	// §16.4: each place holds something fillPercent of the time, of an even
-	// pick of kind; none in this game's lairs. Their own stream of the seed.
+	// pick of kind; none in this game's lairs. Their own stream of the seed:
+	// laid on the title already (g_Prep), what is left of it.
 	u8 keep[16];
-	u8 more[GAME_ROOM_BYTES];
-	u8 laid[2];
 	Rng_Save(keep);
-	SeedValue(0);
-	for (u8 b = 0; b < 8; b++)
-		g_RngValues[1][b] = s_TreasureStream[b];
-	Rng_HashSeed(2);
-	u8 room = 0;
-	do
+	u16 room = 0;
+	bool same = g_Prep.On == PREP_ON;
+	for (u8 b = 0; same && b < 8; b++)
+		if (g_Prep.Seed[b] != g_TestSeed[b])
+			same = FALSE;
+	if (same)
 	{
-		Data_LoadRoomMore(room, more);
-		bool lair = FALSE;
-		u8 k = g_QuestSet * LAIRS;
-		for (u8 i = 0; i < LAIRS; i++)
-			if ((g_LairKept & (1 << i)) && g_LairRoom[k + i] == room)
-				lair = TRUE;
-		for (u8 p = 0; p < 2; p++)
+		Rng_Restore(g_Prep.Rng);
+		room = g_Prep.Room;
+	}
+	else
+		TreasureStream();
+	g_Prep.On = 0;   // taken, or not this game's
+	for (; room < 256; room++)
+		TreasureRoom((u8)room);
+	// The lairs kept: nothing laid in their rooms (the draws are made all the
+	// same, so this comes after).
+	u8 kept = g_LairKept;
+	u8 none[2] = { 0, 0 };
+	for (u8 i = 0; i < LAIRS; i++, kept >>= 1)
+		if (kept & 1)
+			Data_VramWrite(VRAM_TREASURES + ((u16)g_LairRoom[g_QuestSet * LAIRS + i] << 1), none, 2);
+	Rng_Restore(keep);
+}
+
+// The title's frame: the next game's seed picked (the frames since power-on,
+// the R register, the MSX2's clock's seconds and minutes), then PREP_ROOMS
+// rooms' treasures a frame, about 20 000 cycles a room.
+#define PREP_ROOMS	2
+__sfr __at(0xB4) s_RtcReg;
+__sfr __at(0xB5) s_RtcData;
+void Game_PrepTick()
+{
+	if (g_Prep.On != PREP_ON)
+	{
+		u8 r = ReadR();
+		g_Prep.Seed[0] = (u8)g_JIFFY;
+		g_Prep.Seed[1] = (u8)(g_JIFFY >> 8);
+		g_Prep.Seed[2] = (u8)g_Frames;
+		g_Prep.Seed[3] = (u8)(g_Frames >> 8);
+		g_Prep.Seed[4] = r;
+		for (u8 i = 0; i < 3; i++)
 		{
-			bool filled = Rng_Next(10000) < TREASURE_FILL_PER10K;
-			u8 kind = (u8)Rng_Next(TREASURE_KINDS);
-			laid[p] = filled && more[2 + 2 * p] != 0xFF && !lair ? kind + 1 : 0;
+			s_RtcReg = i;   // the clock's seconds, tens, minutes (block 0)
+			g_Prep.Seed[5 + i] = s_RtcData & 0x0F;
 		}
-		Data_VramWrite(VRAM_TREASURES + ((u16)room << 1), laid, 2);
-		// No orchid picked yet: every cycle start unset.
-		Data_VramWrite(VRAM_ORCHIDS + ((u16)room << 2), (const u8*)&c_Unset, 4);
-	} while (++room != 0);
+		u8 keep[16];
+		Rng_Save(keep);
+		for (u8 b = 0; b < 8; b++)
+			g_TestSeed[b] = g_Prep.Seed[b];
+		TreasureStream();
+		Rng_Save(g_Prep.Rng);
+		Rng_Restore(keep);
+		g_Prep.Room = 0;
+		g_Prep.On = PREP_ON;
+		return;
+	}
+	if (g_Prep.Room >= 256)
+		return;
+	u8 keep[16];
+	Rng_Save(keep);
+	Rng_Restore(g_Prep.Rng);
+	for (u8 k = 0; k < PREP_ROOMS && g_Prep.Room < 256; k++)
+		TreasureRoom((u8)g_Prep.Room++);
+	Rng_Save(g_Prep.Rng);
 	Rng_Restore(keep);
 }
 
@@ -179,15 +255,20 @@ void Game_NewGame()
 // The room's orchid (OrchidField)
 
 // orchidAt: which orchid this cycle grows, from the seed, the room and when it began.
+// The room's hash of (seed, room, 0), its orchids' hashes' common start:
+// worked out as the room is entered (OrchidRoom), kept while it is the room
+// (M13: two steps of every orchid's hash, three frames).
+static u8 s_OrchidH3[8];
+
 static void OrchidAt()
 {
 	u8 keep[16];
+	u8 h[8];
 	Rng_Save(keep);
-	SeedValue(0);
-	Rng_Value(1, g_ValeRoom);
-	Rng_Value(2, 0);
+	for (u8 b = 0; b < 8; b++)
+		h[b] = s_OrchidH3[b];
 	Rng_Value(3, g_OrchidStart);
-	Rng_HashSeed(4);
+	Rng_HashFrom(h, 3, 4);
 	i16 roll = (i16)Rng_Next(ORCHID_WEIGHTS);
 	u8 which = ORCHIDS - 1;
 	for (u8 i = 0; i < ORCHIDS; i++)
@@ -212,17 +293,21 @@ static void OrchidRoom()
 		return;
 	g_OrchidX = g_RoomMore[0];
 	g_OrchidY = g_RoomMore[1];
+	SeedValue(0);
+	Rng_Value(1, g_ValeRoom);
+	Rng_Value(2, 0);
+	Rng_HashPrefix(3, s_OrchidH3);
 	Data_VramRead(VRAM_ORCHIDS + ((u16)g_ValeRoom << 2), (u8*)&g_OrchidStart, 4);
 	if (g_OrchidStart == c_Unset)
 	{
 		// firstCycleStart: -nextInt(total), from its own hash.
 		u8 keep[16];
+		u8 h[8];
 		Rng_Save(keep);
-		SeedValue(0);
-		Rng_Value(1, g_ValeRoom);
-		Rng_Value(2, 0);
+		for (u8 b = 0; b < 8; b++)
+			h[b] = s_OrchidH3[b];
 		Rng_Value(3, ORCHID_FIRST_STREAM);
-		Rng_HashSeed(4);
+		Rng_HashFrom(h, 3, 4);
 		g_OrchidStart = -(i32)Rng_Next(ORCHID_CYCLE_TICKS);
 		Rng_Restore(keep);
 		Data_VramWrite(VRAM_ORCHIDS + ((u16)g_ValeRoom << 2), (const u8*)&g_OrchidStart, 4);

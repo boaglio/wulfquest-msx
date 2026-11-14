@@ -23,5 +23,10 @@ u16 Rng_Stream(const u8* seed, const u8* stream, u16 bound);
 extern u8 g_RngValues[4][8];
 void Rng_Value(u8 i, i32 v);
 void Rng_HashSeed(u8 n);
+// Its steps apart (M13: hashes that share their first values share them):
+// h = the hash of g_RngValues[0..n-1], before the seeding; then from h,
+// values[from..n-1] more, and the generator seeded.
+void Rng_HashPrefix(u8 n, u8* h);
+void Rng_HashFrom(u8* h, u8 from, u8 n);
 void Rng_Save(u8* keep);
 void Rng_Restore(const u8* keep);

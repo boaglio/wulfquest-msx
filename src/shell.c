@@ -262,8 +262,40 @@ static void Line(u8 y, u8 chosen, u8 greyed)
 			(i16)y + (8 + IMG_MARKER_H) / 2 - IMG_MARKER_H);
 }
 
+// The menus over the game come up at once, the jungle around them darkening
+// over half a second (M13, the owner's choice: Framebuffer.dim was 0.55 s of
+// video RAM read and written before the menu showed): DIM_LINES lines a
+// tick, from the game's page onto the menu's, the box's lines only beside it.
+#define DIM_LINES	6
+static u8 s_BoxTop;
+static u8 s_BoxH;
+static u8 s_DimNext = PLAYFIELD_H;   // the next line to dim; PLAYFIELD_H: done
+
+static void DimBegin()
+{
+	Data_DimStart();
+	s_DimNext = 0;
+}
+
+static void DimStep()
+{
+	if (s_DimNext >= PLAYFIELD_H)
+		return;
+	if (g_Shell == SH_PLAYING || s_On == g_PageShown)
+	{
+		s_DimNext = PLAYFIELD_H;   // the menu gone
+		return;
+	}
+	u8 n = PLAYFIELD_H - s_DimNext;
+	if (n > DIM_LINES)
+		n = DIM_LINES;
+	Data_VdpWait();
+	Data_DimLines(g_PageShown, s_On, s_DimNext, n, s_BoxTop, s_BoxH);
+	s_DimNext += n;
+}
+
 // A screen of its own goes on the page not shown; one over the game on the
-// other page, over a copy of the game's (dimmed for the menus).
+// other page, over a copy of the game's (dimmed for the menus, DimStep).
 static void Begin(u8 over, u8 dim)
 {
 	s_Page = 1 - g_PageShown;
@@ -274,19 +306,11 @@ static void Begin(u8 over, u8 dim)
 	g_VDX = 0;
 	g_VDY = (u16)s_Page << 8;
 	g_VNX = 256;
-	g_VNY = dim ? 212 - PLAYFIELD_H : 212;
-	if (dim)
-	{
-		g_VSY += PLAYFIELD_H;
-		g_VDY += PLAYFIELD_H;
-	}
+	g_VNY = 212;
 	g_VCmd = VCMD_HMMM;
 	Data_Vdp();
 	if (dim)
-	{
-		Data_VdpWait();
-		Data_Dim(g_PageShown, s_Page, PLAYFIELD_H);
-	}
+		DimBegin();
 }
 
 static void Show(u8 over)
@@ -922,8 +946,6 @@ static u16 MenuFooter()
 }
 
 static u8 s_RowsY;   // where the rows start, and the box's top and height
-static u8 s_BoxTop;
-static u8 s_BoxH;
 
 static void MenuRows()
 {
@@ -973,7 +995,7 @@ static void DrawMenu()
 		{
 			s_Page = s_On;
 			Data_VdpWait();
-			Data_Dim(g_PageShown, s_Page, PLAYFIELD_H);
+			DimBegin();   // the last box's lines dimmed again as the sweep passes
 		}
 		else
 			Begin(TRUE, TRUE);
@@ -2464,6 +2486,7 @@ static u8 s_MediumSeen = 0;
 void Shell_Tick()
 {
 	g_ShellTick++;
+	DimStep();
 	s_Press = g_ShellIn & ~s_Held;
 	s_Held = g_ShellIn;
 	s_KeyPress = g_ShellKeys & ~s_KeysHeld;

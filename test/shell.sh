@@ -53,8 +53,10 @@ plan=(
     "pause 0.6" "$SPACE" "wait 0"
     # A game: its pause menu, the options over it, its map.
     "$SPACE" "wait 4" "pause 0.5" "dump game"
-    "$F1" "wait 5" "dump pause"
-    "$DOWN" "$DOWN" "$DOWN" "$SPACE" "wait 3" "dump ingameopt"
+    # (an in-game menu comes up at once, the jungle darkening behind it for
+    # half a second, M13: the screens taken once it has)
+    "$F1" "wait 5" "pause 0.8" "dump pause"
+    "$DOWN" "$DOWN" "$DOWN" "$SPACE" "wait 3" "pause 0.8" "dump ingameopt"
     "$ESC" "wait 5" "$ESC" "wait 4"
     "$M" "wait 9" "dump map2" "$M" "wait 4"
     # The screens a game's events bring, brought on: a quarter, game over and a continue, the win.

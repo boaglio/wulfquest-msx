@@ -18,59 +18,120 @@ static u16 s_Bound = 0;
 //-----------------------------------------------------------------------------
 // Seeding: splitmix64, with 64-bit words as byte arrays.
 
-static void Copy(u8* d, const u8* s)
-{
-	for (u8 i = 0; i < 8; i++)
-		d[i] = s[i];
-}
-
-static void Add(u8* a, const u8* b)
-{
-	u16 c = 0;
-	for (u8 i = 0; i < 8; i++)
-	{
-		c += (u16)a[i] + b[i];
-		a[i] = (u8)c;
-		c >>= 8;
-	}
-}
-
-// a ^= a >> n, n < 64
-static void XorShr(u8* a, u8 n)
-{
-	u8 t[8];
-	for (u8 i = 0; i < 8; i++)
-	{
-		u8 lo = i + (n >> 3);
-		u8 s = n & 7;
-		u8 v = lo < 8 ? a[lo] >> s : 0;
-		if (s && lo + 1 < 8)
-			v |= a[lo + 1] << (8 - s);
-		t[i] = v;
-	}
-	for (u8 i = 0; i < 8; i++)
-		a[i] ^= t[i];
-}
-
-// a *= m (mod 2^64), in assembly (the C was 340 000 cycles a multiplication,
-// and a new game seeds a dozen times: M8). Byte by byte (M13: bit by bit
-// through the eight bytes it was 34 000 cycles): each a_i * m_j with i + j
-// under 8, an unrolled 8 x 8 multiplication, added into the product's bytes
-// i + j and up.
 static u8 s_MA[8];     // the multiplicand
 static u8 s_MB[8];     // the multiplier
-static u8 s_MAcc[8];   // the product
+static u8 s_MAcc[10];  // the product (and two spare bytes: MulAsm)
+
+// The words' helpers in assembly (M13: SDCC's byte loops were 1 500 cycles a
+// copy, 6 400 a shift; an orchid's cycle start hashes six times). d and a in
+// hl, s and b in de.
+static void Copy(u8* d, const u8* s) __naked
+{
+	d; s;
+	__asm
+		ex	de, hl
+		ld	bc, #8
+		ldir
+		ret
+	__endasm;
+}
+
+static void Add(u8* a, const u8* b) __naked
+{
+	a; b;
+	__asm
+		ld	b, #8
+		or	a
+	00001$:
+		ld	a, (de)
+		adc	a, (hl)
+		ld	(hl), a
+		inc	hl
+		inc	de
+		djnz	00001$
+		ret
+	__endasm;
+}
+
+// a ^= a >> n, n < 64: XorShr(a, n). The shifted word in s_MAcc (free
+// between multiplications: Mul copies its product out).
+static u8 s_XN;
+static void XorShrAsm(u8* a) __naked
+{
+	a;
+	__asm
+		push	hl
+		ld	a, (_s_XN)
+		rrca
+		rrca
+		rrca
+		and	a, #7
+		ld	e, a
+		ld	d, #0
+		add	hl, de                  ; a + n / 8
+		ld	a, #8
+		sub	a, e
+		ld	c, a
+		ld	b, #0
+		ld	de, #_s_MAcc
+		ldir                        ; its bytes, n / 8 down
+		ld	a, (_s_XN)
+		rrca
+		rrca
+		rrca
+		and	a, #7
+		jr	z, 00002$
+		ld	b, a
+		xor	a
+	00001$:
+		ld	(de), a                 ; the top ones 0
+		inc	de
+		djnz	00001$
+	00002$:
+		ld	a, (_s_XN)
+		and	a, #7
+		jr	z, 00020$
+		ld	c, a                    ; n % 8 bits more
+	00010$:
+		ld	hl, #_s_MAcc + 7
+		or	a
+		ld	b, #8
+	00011$:
+		rr	(hl)
+		dec	hl
+		djnz	00011$
+		dec	c
+		jr	nz, 00010$
+	00020$:
+		pop	hl
+		ld	de, #_s_MAcc
+		ld	b, #8
+	00021$:
+		ld	a, (de)
+		xor	a, (hl)
+		ld	(hl), a
+		inc	hl
+		inc	de
+		djnz	00021$
+		ret
+	__endasm;
+}
+#define XorShr(a, n)	do { s_XN = (n); XorShrAsm(a); } while (0)
+
+// a *= m (mod 2^64), in assembly (the C was 340 000 cycles a multiplication,
+// and a new game seeds a dozen times: M8). Byte by byte (M13: bit by bit it
+// was 34 000 cycles): each a_i * m_j with i + j under 8, an unrolled 8 x 8
+// multiplication, added into the product's bytes i + j up; the row's places
+// in the other registers (exx). The product has two bytes spare, past the
+// eight kept, so its top products need no case of their own.
 static u8 s_MI;        // i
-static u8 s_MK;        // i + j
-static u8 s_MM;        // a_i
-static const u8* s_MP; // m_j's place
 
 static void MulAsm() __naked
 {
 	__asm
 		ld	hl, #_s_MAcc
 		xor	a
-		ld	b, #8
+		ld	b, #10
 	00001$:
 		ld	(hl), a
 		inc	hl
@@ -78,27 +139,31 @@ static void MulAsm() __naked
 		ld	(_s_MI), a
 	00010$:
 		ld	a, (_s_MI)
-		ld	(_s_MK), a              ; j = 0
 		ld	e, a
 		ld	d, #0
 		ld	hl, #_s_MA
 		add	hl, de
 		ld	a, (hl)
 		or	a
-		jp	z, 00040$               ; a_i = 0 adds nothing
-		ld	(_s_MM), a
-		ld	hl, #_s_MB
-		ld	(_s_MP), hl
-	00020$:
-		; hl = a_i * m_j
-		ld	hl, (_s_MP)
-		ld	e, (hl)
-		inc	hl
-		ld	(_s_MP), hl
-		ld	a, (_s_MM)
-		ld	h, a
-		ld	l, #0
-		ld	d, l
+		jp	z, 00045$               ; a_i = 0 adds nothing
+		ld	c, a                    ; c = a_i
+		ld	hl, #_s_MAcc
+		add	hl, de                  ; the product's byte i
+		ld	a, #8
+		sub	a, e
+		push	hl
+		exx
+		pop	hl                      ; hl' = its byte i + j
+		ld	de, #_s_MB              ; de' = m_j
+		ld	b, a                    ; b' = 8 - i products
+	00020$:                         ; (in the other registers)
+		ld	a, (de)
+		inc	de
+		exx
+		ld	e, a
+		ld	d, #0
+		ld	h, c
+		ld	l, d                    ; hl = a_i * m_j:
 		add	hl, hl
 		jr	nc, 00050$
 		add	hl, de
@@ -131,49 +196,32 @@ static void MulAsm() __naked
 		jr	nc, 00057$
 		add	hl, de
 	00057$:
-		ex	de, hl                  ; de = the product
-		ld	a, (_s_MK)
-		ld	c, a
-		ld	b, #0
-		ld	hl, #_s_MAcc
-		add	hl, bc
-		ld	a, c
-		cp	a, #7
-		jr	nz, 00025$
-		ld	a, (hl)                 ; the top byte: its low byte only
-		add	a, e
-		ld	(hl), a
-		jr	00030$
-	00025$:
-		ld	a, #6
-		sub	a, c
-		ld	b, a                    ; the bytes above its high byte's
-		ld	a, (hl)
-		add	a, e
+		ld	a, l
+		exx
+		add	a, (hl)
 		ld	(hl), a
 		inc	hl
-		ld	a, (hl)
-		adc	a, d
+		push	hl
+		exx
+		ld	a, h
+		exx
+		adc	a, (hl)
 		ld	(hl), a
-		jr	nc, 00030$
-		ld	a, b
-		or	a
-		jr	z, 00030$
-		scf                             ; the carry, on up
-	00026$:
-		inc	hl
-		ld	a, (hl)
-		adc	a, #0
-		ld	(hl), a
-		jr	nc, 00030$
-		djnz	00026$
+		jr	nc, 00040$
 	00030$:
-		ld	hl, #_s_MK
-		inc	(hl)
+		ld	a, l                    ; the carry on up, to the spare byte at most
+		cp	a, #<(_s_MAcc + 9)
+		jr	z, 00040$
+		inc	hl
 		ld	a, (hl)
-		cp	a, #8
-		jp	c, 00020$
+		add	a, #1
+		ld	(hl), a
+		jr	c, 00030$
 	00040$:
+		pop	hl
+		djnz	00020$
+		exx
+	00045$:
 		ld	hl, #_s_MI
 		inc	(hl)
 		ld	a, (hl)
@@ -481,36 +529,122 @@ static void NextLong() __naked
 
 // (s_X >>> 1) % s_Bound, bound < 32768: long division, a bit at a time,
 // x's bits 63 down to 1 (bit 0 is shifted out). The remainder stays under
-// the bound, so twice it and a bit fit 16 bits.
+// the bound, so twice it and a bit fit 16 bits with no carry out: no carry
+// to clear before the subtraction. A byte's eight steps unrolled (M13: with
+// a loop a bit, 5 600 cycles a call).
 static u16 Mod() __naked
 {
 	__asm
-		push	ix
 		ld	de, (_s_Bound)
 		ld	hl, #0                  ; the remainder
-		ld	ix, #_s_X + 7
-		ld	c, #8                   ; bytes left
-	00010$:
-		ld	a, 0 (ix)
-		ld	b, #8
-		dec	c
-		jr	nz, 00014$
-		ld	b, #7                   ; x[0]: its bit 0 is shifted out
-	00014$:
-		rla                             ; the next bit, into carry (the rest stay in a:
-		adc	hl, hl                  ; none of these touch it) remainder * 2 + bit
-		or	a
+		ld	a, (_s_X + 7)
+		call	00590$
+		ld	a, (_s_X + 6)
+		call	00590$
+		ld	a, (_s_X + 5)
+		call	00590$
+		ld	a, (_s_X + 4)
+		call	00590$
+		ld	a, (_s_X + 3)
+		call	00590$
+		ld	a, (_s_X + 2)
+		call	00590$
+		ld	a, (_s_X + 1)
+		call	00590$
+		ld	a, (_s_X)               ; its bit 0 is shifted out: seven
+		rla
+		adc	hl, hl
 		sbc	hl, de
-		jr	nc, 00015$
-		add	hl, de                  ; too small: back
-	00015$:
-		djnz	00014$
-		dec	ix
-		ld	a, c
-		or	a
-		jr	nz, 00010$
+		jr	nc, 00620$
+		add	hl, de
+	00620$:
+		rla
+		adc	hl, hl
+		sbc	hl, de
+		jr	nc, 00621$
+		add	hl, de
+	00621$:
+		rla
+		adc	hl, hl
+		sbc	hl, de
+		jr	nc, 00622$
+		add	hl, de
+	00622$:
+		rla
+		adc	hl, hl
+		sbc	hl, de
+		jr	nc, 00623$
+		add	hl, de
+	00623$:
+		rla
+		adc	hl, hl
+		sbc	hl, de
+		jr	nc, 00624$
+		add	hl, de
+	00624$:
+		rla
+		adc	hl, hl
+		sbc	hl, de
+		jr	nc, 00625$
+		add	hl, de
+	00625$:
+		rla
+		adc	hl, hl
+		sbc	hl, de
+		jr	nc, 00626$
+		add	hl, de
+	00626$:
 		ex	de, hl                  ; the result in de
-		pop	ix
+		ret
+	00590$:                         ; ---- a's eight bits
+		rla
+		adc	hl, hl
+		sbc	hl, de
+		jr	nc, 00600$
+		add	hl, de
+	00600$:
+		rla
+		adc	hl, hl
+		sbc	hl, de
+		jr	nc, 00601$
+		add	hl, de
+	00601$:
+		rla
+		adc	hl, hl
+		sbc	hl, de
+		jr	nc, 00602$
+		add	hl, de
+	00602$:
+		rla
+		adc	hl, hl
+		sbc	hl, de
+		jr	nc, 00603$
+		add	hl, de
+	00603$:
+		rla
+		adc	hl, hl
+		sbc	hl, de
+		jr	nc, 00604$
+		add	hl, de
+	00604$:
+		rla
+		adc	hl, hl
+		sbc	hl, de
+		jr	nc, 00605$
+		add	hl, de
+	00605$:
+		rla
+		adc	hl, hl
+		sbc	hl, de
+		jr	nc, 00606$
+		add	hl, de
+	00606$:
+		rla
+		adc	hl, hl
+		sbc	hl, de
+		jr	nc, 00607$
+		add	hl, de
+	00607$:
 		ret
 	__endasm;
 }
@@ -531,23 +665,72 @@ u16 Rng_Next(u16 bound)
 //-----------------------------------------------------------------------------
 // Rng.hash(seed, stream): splitmix(splitmix(GOLDEN ^ seed) ^ stream).
 
-static void Xor(u8* a, const u8* b)
+static void Xor(u8* a, const u8* b) __naked
 {
-	for (u8 i = 0; i < 8; i++)
-		a[i] ^= b[i];
+	a; b;
+	__asm
+		ld	b, #8
+	00001$:
+		ld	a, (de)
+		xor	a, (hl)
+		ld	(hl), a
+		inc	hl
+		inc	de
+		djnz	00001$
+		ret
+	__endasm;
 }
 
 u8 g_RngValues[4][8];   // Rng_HashSeed's values
 
-void Rng_HashSeed(u8 n)
+// Its first step, splitmix(GOLDEN ^ values[0]), kept for the values[0] it was
+// for (M13: a game hashes its own seed first every time, an orchid's cycle
+// start too).
+static u8 s_H1Key[8];
+static u8 s_H1[8];
+static u8 s_H1Ok = 0;
+
+void Rng_HashPrefix(u8 n, u8* h)
 {
-	u8 h[8];
-	Copy(h, c_Golden);
-	for (u8 i = 0; i < n; i++)
+	u8 i = 0;
+	bool same = s_H1Ok && n >= 1;
+	for (u8 b = 0; same && b < 8; b++)
+		if (s_H1Key[b] != g_RngValues[0][b])
+			same = FALSE;
+	if (same)
+	{
+		Copy(h, s_H1);
+		i = 1;
+	}
+	else
+		Copy(h, c_Golden);
+	for (; i < n; i++)
+	{
+		Xor(h, g_RngValues[i]);
+		Splitmix(h);
+		if (i == 0)
+		{
+			Copy(s_H1Key, g_RngValues[0]);
+			Copy(s_H1, h);
+			s_H1Ok = 1;
+		}
+	}
+}
+
+void Rng_HashFrom(u8* h, u8 from, u8 n)
+{
+	for (u8 i = from; i < n; i++)
 	{
 		Xor(h, g_RngValues[i]);
 		Splitmix(h);
 	}
+	Rng_Seed(h);
+}
+
+void Rng_HashSeed(u8 n)
+{
+	u8 h[8];
+	Rng_HashPrefix(n, h);
 	Rng_Seed(h);
 }
 

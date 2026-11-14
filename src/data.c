@@ -866,12 +866,25 @@ void Data_LoadBlade(u8 shape, u8 vramHigh, u16 vramLow)
 
 #include "game_data.h"
 
+static const u8* s_MoreSrc;
+static u8* s_MoreOut;
 void Data_LoadRoomMore(u8 room, u8* out)
 {
 	SET_BANK_SEGMENT(ROM_DATA_BANK, ROOMS_MORE_BIN_SEG);
-	const u8* src = (const u8*)(ROM_DATA_ADDR + ROOMS_MORE_BIN_REL) + ((u16)room << 4);
-	for (u8 i = 0; i < GAME_ROOM_BYTES; i++)
-		out[i] = src[i];
+	s_MoreSrc = (const u8*)(ROM_DATA_ADDR + ROOMS_MORE_BIN_REL) + ((u16)room << 4);
+	s_MoreOut = out;
+	__asm   // (M13: a byte at a time in C, a new game reads all 256; the C's registers kept)
+		push	bc
+		push	de
+		push	hl
+		ld	hl, (_s_MoreSrc)
+		ld	de, (_s_MoreOut)
+		ld	bc, #GAME_ROOM_BYTES
+		ldir
+		pop	hl
+		pop	de
+		pop	bc
+	__endasm;
 	SET_BANK_SEGMENT(ROM_DATA_BANK, g_CodeSeg);
 }
 
@@ -1333,10 +1346,24 @@ u8 g_Scratch[256];
 static u16 s_DimSrc;
 static u16 s_DimDst;
 
-static void DimLine() __naked
+// The table on a 256-byte page of RAM while it runs (M13: indexed where it
+// lies in ROM, each byte took an addition with a carry): in the spawn
+// finder's queue, which is free while the pause menu dims (it is a respawn's
+// and a creature's set-down's working space, nothing kept in it).
+#define DIM_TABLE_AT	((RAM_SPAWN_QUEUE + 255) & 0xFF00)
+#if DIM_TABLE_AT + 256 > RAM_SPAWN_QUEUE + RAM_SPAWN_QUEUE_BYTES
+#error "Data_Dim's table needs a page inside the spawn queue"
+#endif
+static const u8 c_DimPage = DIM_TABLE_AT >> 8;   // for the assembly (ram.h's sums are C's)
+
+// a bytes of a line, from s_DimSrc to s_DimDst (video RAM, their offsets in).
+static void DimLine(u8 n) __naked
 {
+	n;   // a
 	__asm
 		di
+		ld	c, a
+		push	bc                      ; the count, for the loop and the write
 		ld	de, (_s_DimSrc)
 		ld	a, d
 		rlca
@@ -1351,19 +1378,19 @@ static void DimLine() __naked
 		and	a, #0x3F
 		out	(#0x99), a              ; bits 13-8, and "read"
 		ld	hl, #_g_Scratch
-		ld	bc, #0x8098             ; 128 bytes from port 98h
+		ld	b, c
+		ld	c, #0x98
 		inir
 		; each byte through the table
+		pop	bc
+		push	bc
+		ld	b, c
 		ld	de, #_g_Scratch
-		ld	b, #128
+		ld	a, (_c_DimPage)
+		ld	h, a                    ; the table on a page of its own: its byte's place the low byte
 	00001$:
 		ld	a, (de)
-		ld	hl, #_c_DimByte
-		add	a, l
 		ld	l, a
-		adc	a, h
-		sub	a, l
-		ld	h, a
 		ld	a, (hl)
 		ld	(de), a
 		inc	de
@@ -1382,23 +1409,45 @@ static void DimLine() __naked
 		and	a, #0x3F
 		or	a, #0x40
 		out	(#0x99), a              ; and "write"
+		pop	bc
+		ld	b, c
 		ld	hl, #_g_Scratch
-		ld	bc, #0x8098
+		ld	c, #0x98
 		otir
 		ei
 		ret
 	__endasm;
 }
 
-void Data_Dim(u8 from, u8 to, u8 lines)
+void Data_DimStart()
 {
-	s_DimSrc = (u16)from << 15;
-	s_DimDst = (u16)to << 15;
-	while (lines--)
+	u8* t = (u8*)DIM_TABLE_AT;
+	for (u16 i = 0; i < 256; i++)
+		t[i] = c_DimByte[i];
+}
+
+// MENU_PAD (shell_data.h) is even: the box's margins whole bytes.
+#if MENU_PAD & 1
+#error "Data_DimLines takes the box's margins as whole bytes"
+#endif
+void Data_DimLines(u8 from, u8 to, u8 first, u8 n, u8 boxTop, u8 boxH)
+{
+	u16 src = ((u16)from << 15) + ((u16)first << 7);
+	u16 dst = ((u16)to << 15) + ((u16)first << 7);
+	for (u8 l = first; l < first + n; l++, src += 128, dst += 128)
 	{
-		DimLine();
-		s_DimSrc += 128;
-		s_DimDst += 128;
+		s_DimSrc = src;
+		s_DimDst = dst;
+		if (l >= boxTop && l < boxTop + boxH)
+		{
+			// the box's lines: only the margins either side of it
+			DimLine(MENU_PAD / 2);
+			s_DimSrc = src + 128 - MENU_PAD / 2;
+			s_DimDst = dst + 128 - MENU_PAD / 2;
+			DimLine(MENU_PAD / 2);
+		}
+		else
+			DimLine(128);
 	}
 }
 

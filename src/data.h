@@ -149,7 +149,12 @@ void Data_GlyphBits(u8 ch, u8* out);
 // The map screen's room (16x11, MapScreen) in ink on a page; a page's
 // playfield lines in their plain colours onto the other (the pause menu).
 void Data_MapRoom(u8 room, u8 page, u8 ink);
-void Data_Dim(u8 from, u8 to, u8 lines);
+// Framebuffer.dim, a few lines at a time (M13: the pause menu at once, the
+// jungle darkening behind it): the table put in place, then lines first..
+// first + n - 1 of page from's playfield in their plain colours onto page to,
+// on the lines boxTop.. boxTop + boxH - 1 only the margins (MENU_PAD).
+void Data_DimStart();
+void Data_DimLines(u8 from, u8 to, u8 first, u8 n, u8 boxTop, u8 boxH);
 // A buffer shared by what never runs at once: Data_Dim's line, a save's record.
 extern u8 g_Scratch[256];
 // The game's palette, or (dim) each colour as its plain twin, the shell's
