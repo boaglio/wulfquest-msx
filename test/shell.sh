@@ -18,7 +18,7 @@ mkdir -p build/test build/shots
 
 syms=""
 for n in g_Booted g_RollTick g_TallyBefore g_TallyEscape g_TallyTime g_TallyLives g_Shell g_ShellTick g_DemoTicks g_ValeRoom g_ValeX g_ValeY g_Score g_ValeLives g_TestMapOpen \
-         g_QuestSlots g_QuestPieces g_ValeMode g_ContinuesUsed g_BestScore; do
+         g_QuestSlots g_QuestPieces g_ValeMode g_ContinuesUsed g_BestScore g_Bank1Segment; do
     a=$(awk -v s="_$n" '$2 == s { print "0x" substr($1, length($1) - 3) }' "$map")
     [[ -n "$a" ]] || { echo "shell.sh: $n is not in $map" >&2; exit 1; }
     syms+="$n $a "

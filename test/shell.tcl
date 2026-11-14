@@ -12,6 +12,7 @@ foreach {n v} $env(SHELL_SYMS) { set ::a($n) $v }
 set out [open $env(SHELL_OUT) w]
 
 proc finish {msg} {
+    if {[llength [info procs t_report]]} { t_report }
     puts $::out "end $msg"
     close $::out
     exit
@@ -35,6 +36,43 @@ proc dump {tag} {
     # The whole page: the credits roll scrolls it (R#23) through all of its 256 lines.
     puts $::out "$tag vram [binary encode hex [debug read_block VRAM $start 32768]]"
     flush $::out
+}
+
+# SHELL_TIME (M13, the stalls): "NAME=0xADDR[@SEGMENT]" words (tools/profile.py
+# --addr); each call timed, callees in, and its longest logged at the end
+# as "log time NAME CALLS TOTAL_CYCLES LONGEST_CYCLES".
+array set ::t_n {}
+array set ::t_max {}
+proc t_enter {name seg} {
+    if {$seg ne "" && [debug read memory $::a(g_Bank1Segment)] != $seg} { return }
+    if {[info exists ::t_bp($name)]} { return }
+    set sp [reg sp]
+    set ret [expr {[debug read memory $sp] | [debug read memory [expr {$sp + 1}]] << 8}]
+    set ::t_at($name) [machine_info time]
+    set ::t_sp($name) [expr {$sp + 2}]
+    set ::t_bp($name) [debug breakpoint create -address $ret -command [list t_leave $name]]
+}
+proc t_leave {name} {
+    if {![info exists ::t_bp($name)] || [reg sp] < $::t_sp($name)} { return }
+    catch {debug breakpoint remove $::t_bp($name)}
+    unset ::t_bp($name)
+    set took [expr {round(([machine_info time] - $::t_at($name)) * 3579545)}]
+    incr ::t_n($name)
+    incr ::t_sum($name) $took
+    if {$took > $::t_max($name)} { set ::t_max($name) $took }
+}
+if {[info exists env(SHELL_TIME)]} {
+    foreach w $env(SHELL_TIME) {
+        set seg [lindex [split $w @] 1]
+        lassign [split [lindex [split $w @] 0] =] name addr
+        set ::t_n($name) 0
+        set ::t_sum($name) 0
+        set ::t_max($name) 0
+        debug breakpoint create -address $addr -command [list t_enter $name $seg]
+    }
+}
+proc t_report {} {
+    foreach name [array names ::t_n] { puts $::out "log time $name $::t_n($name) $::t_sum($name) $::t_max($name)" }
 }
 
 # The joystick: active-low bits 0-5 (up, down, left, right, A, B) of port A.

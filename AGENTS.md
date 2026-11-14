@@ -1377,6 +1377,14 @@ exact timing (its longest call):
 - A respawn: 10 000 cycles, no stall.
 - Left: keys pressed during a stall, the first room's showing.
 
+**Progress, part 3 (the map; in progress):** opening it took 4 s (M10).
+Now, at worst (all 256 rooms revealed), 3.5 M cycles, about 1 s; a game's
+own map, only the rooms visited, less: a room's miniature in assembly in
+the shell's segment (MiniLines: a table of each four pixels' two bytes,
+straight to the VDP, 7 600 cycles a room), Visited without SDCC's shift by
+a variable, Data_ShellBytes with ldir. Measured with `test/shell.sh`'s
+SHELL_TIME (DEVELOPER.md). Left: the trail's search (up to 30 s, M12).
+
 ### M14 — The first release: the ROM and a disk image
 
 **For:** players.

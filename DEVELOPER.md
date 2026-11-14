@@ -237,6 +237,9 @@ ignores it, so the submodule stays clean.
   `tools/profile.py --addr NAME module:NAME FUNCTION/00072 ...` prints (a
   local label too): calls counted, with who called, and calls timed exactly,
   callees in.
+- **`test/shell.sh`'s timing** (M13): `SHELL_TIME` takes the same
+  `NAME=0xADDR[@SEGMENT]` words; each call is timed, callees in, and the
+  summary file gets `log time NAME CALLS TOTAL LONGEST` lines (cycles).
 - **The pictures' pace** (M13, AGENTS.md §6): each plan's summary says, for
   each scenario, how many frames a new picture took on average, how many
   came within 3 frames and the longest wait (`pictures` lines, counted each

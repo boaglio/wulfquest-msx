@@ -1403,7 +1403,10 @@ static u8 s_CurPh;
 
 static u8 Visited(u8 room)
 {
-	return g_Visited[room >> 3] & (1 << (room & 7));
+	u8 bit = 1;   // (M13: SDCC's shift by room & 7 was 3 000 cycles, 256 a map)
+	for (u8 k = room & 7; k; k--)
+		bit <<= 1;
+	return g_Visited[room >> 3] & bit;
 }
 
 static void Icon(u16 sx, u8 room, u8 w, u8 h, u8 ox, u8 oy)
@@ -1792,14 +1795,154 @@ static void MapCross()
 	}
 }
 
+// A room's miniature (MapScreen): its open ground in ink, the rest black, at
+// its place in the playfield of page s_Page. A table of its ink's two bytes
+// for each four pixels' bits (MiniTable), the lines' bytes straight to the
+// VDP (M13: in C in data.c, the map took seconds).
+static void MiniTable(u8 ink, u8* tab)
+{
+	for (u8 n = 0; n < 16; n++)
+		for (u8 k = 0; k < 2; k++)
+		{
+			u8 two = k ? n & 3 : n >> 2;
+			tab[2 * n + k] = (u8)((((two & 2) ? ink : INK_GROUND) << 4) | ((two & 1) ? ink : INK_GROUND));
+		}
+}
+
+// buf: the miniature's MINI_BYTES bytes, then its first line's video RAM
+// address (2 bytes); tab: MiniTable's.
+static void MiniLines(u8* buf, const u8* tab) __naked
+{
+	buf; tab;   // hl, de
+	__asm
+		push	ix
+		push	hl
+		pop	ix
+		ld	l, MINI_BYTES (ix)
+		ld	h, MINI_BYTES + 1 (ix)
+		push	hl
+		exx
+		pop	hl                      ; hl' = the line's address
+		exx
+		ld	b, #MINI_H
+	00010$:
+		push	bc
+		exx
+		di
+		ld	a, h
+		rlca
+		rlca
+		and	a, #0x03
+		out	(#0x99), a
+		ld	a, #0x8E
+		out	(#0x99), a              ; R#14: bits 16-14
+		ld	a, l
+		out	(#0x99), a
+		ld	a, h
+		and	a, #0x3F
+		or	a, #0x40
+		out	(#0x99), a              ; bits 13-8, and "write"
+		ld	bc, #128
+		add	hl, bc                  ; the next line
+		exx
+		ld	a, 0 (ix)
+		ld	c, a
+		rrca
+		rrca
+		rrca
+		rrca
+		and	a, #0x0F
+		add	a, a
+		add	a, e
+		ld	l, a
+		adc	a, d
+		sub	a, l
+		ld	h, a
+		ld	a, (hl)
+		out	(#0x98), a
+		inc	hl
+		ld	a, (hl)
+		out	(#0x98), a
+		ld	a, c
+		and	a, #0x0F
+		add	a, a
+		add	a, e
+		ld	l, a
+		adc	a, d
+		sub	a, l
+		ld	h, a
+		ld	a, (hl)
+		out	(#0x98), a
+		inc	hl
+		ld	a, (hl)
+		out	(#0x98), a
+		ld	a, 1 (ix)
+		ld	c, a
+		rrca
+		rrca
+		rrca
+		rrca
+		and	a, #0x0F
+		add	a, a
+		add	a, e
+		ld	l, a
+		adc	a, d
+		sub	a, l
+		ld	h, a
+		ld	a, (hl)
+		out	(#0x98), a
+		inc	hl
+		ld	a, (hl)
+		out	(#0x98), a
+		ld	a, c
+		and	a, #0x0F
+		add	a, a
+		add	a, e
+		ld	l, a
+		adc	a, d
+		sub	a, l
+		ld	h, a
+		ld	a, (hl)
+		out	(#0x98), a
+		inc	hl
+		ld	a, (hl)
+		out	(#0x98), a
+		ei
+		inc	ix
+		inc	ix
+		pop	bc
+		djnz	00010$
+		pop	ix
+		ret
+	__endasm;
+}
+
+static void MiniRoom(u8 room, const u8* tab)
+{
+	u8 buf[MINI_BYTES + 2];
+	Data_ShellBytes(MAP_MINIS + ((u16)room << 4) + ((u16)room << 2) + ((u16)room << 1), buf, MINI_BYTES);
+	u8 row = room >> 4;
+	u16 addr = ((u16)s_Page << 15) + ((u16)((row << 3) + (row << 1) + row) << 7) + ((room & 15) << 3);
+	buf[MINI_BYTES] = (u8)addr;
+	buf[MINI_BYTES + 1] = (u8)(addr >> 8);
+	MiniLines(buf, tab);
+}
+
 static void MapBase(u8 room, u8 alone)
 {
 	if (alone || Visited(room) || g_MapTaken)
 	{
+		u8 tab[32];
 		if (Visited(room))
-			Data_MapRoom(room, s_Page, INK_MAP_VISITED);
+		{
+			MiniTable(INK_MAP_VISITED, tab);
+			MiniRoom(room, tab);
+		}
 		else if (g_MapTaken)
-			Data_MapRoom(room, s_Page, INK_MAP_REVEALED);
+		{
+			MiniTable(INK_MAP_REVEALED, tab);
+			MiniRoom(room, tab);
+		}
 		else
 		{
 			u8 row = room >> 4;
@@ -1910,9 +2053,18 @@ static void DrawMap()
 
 	Begin(TRUE, FALSE);
 	Fill(0, 0, 256, PLAYFIELD_H, INK_GROUND);
-	for (u16 r = 0; r < GRID_W * GRID_H; r++)
-		if (Visited((u8)r) || g_MapTaken)
-			Data_MapRoom((u8)r, s_Page, Visited((u8)r) ? INK_MAP_VISITED : INK_MAP_REVEALED);
+	{
+		u8 visited[32];
+		u8 revealed[32];
+		MiniTable(INK_MAP_VISITED, visited);
+		MiniTable(INK_MAP_REVEALED, revealed);
+		for (u16 r = 0; r < GRID_W * GRID_H; r++)
+		{
+			u8 v = Visited((u8)r);
+			if (v || g_MapTaken)
+				MiniRoom((u8)r, v ? visited : revealed);
+		}
+	}
 	MapMarks(TRUE, TRUE);
 	MapCell(g_ValeRoom, TRUE);
 	// The panel's line says how to go back (GameSession.message's, from the shell).

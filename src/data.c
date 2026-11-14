@@ -16,6 +16,12 @@
 #include "tables.h"   // and ram.h
 #include "palette.h"
 
+// A copy's source and place, for the ldir (Data_ShellBytes, Data_LoadRoomMore).
+static const u8* s_MoreSrc;
+static u8* s_MoreOut;
+static u8 s_MoreN;
+
+
 __sfr __at(0x98) s_VdpData;
 __sfr __at(0x99) s_VdpCtrl;
 
@@ -866,8 +872,6 @@ void Data_LoadBlade(u8 shape, u8 vramHigh, u16 vramLow)
 
 #include "game_data.h"
 
-static const u8* s_MoreSrc;
-static u8* s_MoreOut;
 void Data_LoadRoomMore(u8 room, u8* out)
 {
 	SET_BANK_SEGMENT(ROM_DATA_BANK, ROOMS_MORE_BIN_SEG);
@@ -1178,9 +1182,26 @@ void Data_ShowPage(u8 page)
 void Data_ShellBytes(u16 at, u8* out, u8 n)
 {
 	SET_BANK_SEGMENT(ROM_DATA_BANK, SHELL_BIN_SEG);
-	const u8* src = (const u8*)(ROM_DATA_ADDR + SHELL_BIN_REL) + at;
-	while (n--)
-		*out++ = *src++;
+	s_MoreSrc = (const u8*)(ROM_DATA_ADDR + SHELL_BIN_REL) + at;
+	s_MoreOut = out;
+	s_MoreN = n;
+	__asm   // (M13: a byte at a time in C; the C's registers kept)
+		push	bc
+		push	de
+		push	hl
+		ld	a, (_s_MoreN)
+		or	a
+		jr	z, 00001$
+		ld	c, a
+		ld	b, #0
+		ld	hl, (_s_MoreSrc)
+		ld	de, (_s_MoreOut)
+		ldir
+	00001$:
+		pop	hl
+		pop	de
+		pop	bc
+	__endasm;
 	SET_BANK_SEGMENT(ROM_DATA_BANK, g_CodeSeg);
 }
 
@@ -1305,34 +1326,6 @@ void Data_GlyphBits(u8 ch, u8* out)
 	for (u8 i = 0; i < 8; i++)
 		out[i] = src[i];
 	SET_BANK_SEGMENT(ROM_DATA_BANK, g_CodeSeg);
-}
-
-// A room's miniature on the map screen (MapScreen): its open ground in ink,
-// the rest black, at its place in the playfield of a page.
-void Data_MapRoom(u8 room, u8 page, u8 ink)
-{
-	u8 bits[MINI_BYTES];
-	u16 at = MAP_MINIS + ((u16)room << 4) + ((u16)room << 2) + ((u16)room << 1);   // room * 22
-	Data_ShellBytes(at, bits, MINI_BYTES);
-	u8 row = room >> 4;
-	u16 addr = ((u16)page << 15) + ((u16)((row << 3) + (row << 1) + row) << 7) + ((room & 15) << 3);
-	u8 on = (u8)((ink << 4) | ink);
-	u8 lo = (u8)((ink << 4) | INK_GROUND);
-	u8 hi = (u8)((INK_GROUND << 4) | ink);
-	u8 off = (u8)((INK_GROUND << 4) | INK_GROUND);
-	u8 line[8];
-	for (u8 v = 0; v < MINI_H; v++)
-	{
-		u16 b = (u16)bits[2 * v] << 8 | bits[2 * v + 1];
-		for (u8 i = 0; i < 8; i++)
-		{
-			u8 two = (u8)(b >> 14);
-			line[i] = two == 3 ? on : two == 2 ? lo : two == 1 ? hi : off;
-			b <<= 2;
-		}
-		Data_VramWrite(addr, line, 8);
-		addr += 128;
-	}
 }
 
 // Framebuffer.dim: lines of a page's playfield in their plain colours, onto

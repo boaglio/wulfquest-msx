@@ -146,9 +146,6 @@ void Data_TextStr(u16 at);
 void Data_TextNum(u32 v);
 void Data_TextDraw(u8 big, u8 page, u8 x, u8 y, u8 ink);
 void Data_GlyphBits(u8 ch, u8* out);
-// The map screen's room (16x11, MapScreen) in ink on a page; a page's
-// playfield lines in their plain colours onto the other (the pause menu).
-void Data_MapRoom(u8 room, u8 page, u8 ink);
 // Framebuffer.dim, a few lines at a time (M13: the pause menu at once, the
 // jungle darkening behind it): the table put in place, then lines first..
 // first + n - 1 of page from's playfield in their plain colours onto page to,
