@@ -340,14 +340,18 @@ developers; the game is not meant to run there.
 `site/` is the project's page for players (`index.html`, `style.css`: what
 it is, play it in WebMSX, download the ROM, play it in openMSX, the
 controls). `.github/workflows/pages.yml` builds the ROM from each push to
-`main` and publishes the page with `wulfquest.rom` and the screenshots
-(`tools/screenshots.sh`, below) beside it on GitHub Pages (neither is ever
-committed; if the screenshots fail, the page goes up without them and the
-step's log has openMSX's own); WebMSX loads the ROM from there
+`main` and publishes the page with `wulfquest.rom` beside it on GitHub
+Pages (the ROM is never committed); WebMSX loads the ROM from there
 (`webmsx.org/?MACHINE=MSX2E&ROM_FORMAT=ASCII16&ROM=...`). Turn it on once in
 the repository's Settings > Pages, Source "GitHub Actions"; it can also be
 run by hand from the Actions tab. To look at it locally:
-`mkdir -p /tmp/site && cp site/* build/wulfquest.rom build/shots/*.png /tmp/site/ && python3 -m http.server -d /tmp/site`.
+`mkdir -p /tmp/site && cp -r site/* build/wulfquest.rom /tmp/site/ && python3 -m http.server -d /tmp/site`.
+
+The README's and the page's screenshots are `site/screenshots/*.png`, the
+one kind of binary file committed (AGENTS.md §2, the owner's exception; the
+binaries gate allows that folder's PNGs only). To make them again:
+`tools/screenshots.sh`, then copy `title`, `intro`, `game` and `pause` from
+`build/shots/` to `site/screenshots/`.
 
 WebMSX can be run headless to see the ROM there (how its reboot loop on
 an empty drive was found): save `https://webmsx.org/` (one self-contained

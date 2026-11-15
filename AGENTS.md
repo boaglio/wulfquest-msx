@@ -47,6 +47,9 @@ win and in `README.md`.
   the converter. The ROM, disk images and converter output are build output,
   under `build/` only, and are attached to releases, never committed. A gate
   fails the build if a `.rom`, `.dsk`, image or sound file is committed.
+  One exception, the owner's (2026-11-15): the screenshots the README and the
+  homepage show, `site/screenshots/*.png` (made by `tools/screenshots.sh`;
+  the gate allows that folder's PNGs and nothing else).
 - **Licence:** GPL-3.0-or-later, like the Java game. MSXgl is CC BY-SA 4.0,
   which is one-way compatible with GPLv3; credit MSXgl and its author,
   Guillaume "Aoineko" Blanchard, in the credits and the README. Check SDCC's
@@ -210,7 +213,8 @@ practice and developer options, except in a debug build.
 2. **Never type a game number into the C.** It comes from the converter.
 3. **Never edit anything inside `wulfquest/`.** A change to the game goes to
    that repository; this one moves its pin to a new tag.
-4. **Never commit a binary.** Art and sound are made by the converter.
+4. **Never commit a binary.** Art and sound are made by the converter. (The
+   one exception, the owner's: §2's `site/screenshots/*.png`.)
 5. **Build and run the tests before declaring anything done**, and report the
    actual result.
 6. **Measure before writing assembly.** C first; assembly only for a loop the
@@ -1449,9 +1453,10 @@ map, drawn from the VDP's video RAM, registers and palette, the sprites as
 the V9938 draws them, 512x424), on a pre-release. `README.md` for players,
 the homepage first (`site/`, GitHub Pages). Left: the first tag's run
 watched (the workflow has not run yet).
-- The homepage shows the screenshots too: `pages.yml` installs openMSX and
-  runs `tools/screenshots.sh` on each build, the PNGs beside the page (never
-  committed).
+- The README and the homepage show screenshots: the title, the intro, a
+  game and its pause menu, in `site/screenshots/` (committed: the owner's
+  exception to §2, 2026-11-15; made again with `tools/screenshots.sh` when
+  the screens change).
 - WebMSX's MSX2E and MSX2J (a disk interface with two drives by default)
   rebooted over and over: the title's first disk call, on an empty drive,
   answered "abort" (see M11's disk calls). Found by running WebMSX in a

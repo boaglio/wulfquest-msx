@@ -1,6 +1,5 @@
 # The project's page (site/) on GitHub Pages, with the ROM built from this
-# commit beside it, and its screenshots (tools/screenshots.sh): build output,
-# never committed (AGENTS.md §2).
+# commit beside it (AGENTS.md §2: the ROM is build output, never committed).
 # WebMSX loads it from the page's own address. Enable it once in the
 # repository's Settings > Pages: Source "GitHub Actions".
 name: Pages
@@ -34,23 +33,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: openMSX (the screenshots)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y openmsx
       - name: Build the ROM
         run: ./build.sh
-      - name: The screenshots (tools/screenshots.sh)
-        # The page and the ROM go up without them if this fails (the page
-        # hides a missing one); its log says why.
-        continue-on-error: true
-        run: tools/screenshots.sh
-      - name: The page, the ROM and the screenshots
+      - name: The page (its screenshots in site/screenshots/) and the ROM
         run: |
           mkdir -p _site
-          cp site/* _site/
+          cp -r site/* _site/
           cp build/wulfquest.rom _site/wulfquest.rom
-          cp build/shots/*.png _site/ 2>/dev/null || echo "no screenshots"
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site

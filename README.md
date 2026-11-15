@@ -9,6 +9,15 @@ pieces of a broken amulet, with the Wulf on his trail. This is its version
 for the MSX2, as a ROM cartridge, played the same way as the original, tick
 for tick.
 
+<p>
+<img src="site/screenshots/title.png" width="400" alt="The title screen">
+<img src="site/screenshots/game.png" width="400" alt="Ranger Vale in a jungle room">
+</p>
+<p>
+<img src="site/screenshots/intro.png" width="400" alt="The intro: the plane on the jungle airstrip">
+<img src="site/screenshots/pause.png" width="400" alt="The pause menu over the darkened jungle">
+</p>
+
 It is a pre-release: the whole game is in, and its tuning for real machines
 is still going on (the busiest rooms can run a little slow).
 
