@@ -1454,7 +1454,9 @@ the V9938 draws them, 512x424), on a pre-release. `README.md` for players,
 the homepage first (`site/`, GitHub Pages). Left: the first tag's run
 watched (the workflow has not run yet).
 - The README and the homepage show screenshots: the title, the intro, a
-  game and its pause menu, in `site/screenshots/` (committed: the owner's
+  game, its pause menu, and two rooms of a real game played with the attract
+  demo's keys (`tools/screenshots_demo.tcl`: the sabre and a rhino, natives
+  by the pool), in `site/screenshots/` (committed: the owner's
   exception to §2, 2026-11-15; made again with `tools/screenshots.sh` when
   the screens change).
 - WebMSX's MSX2E and MSX2J (a disk interface with two drives by default)

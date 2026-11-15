@@ -350,8 +350,11 @@ run by hand from the Actions tab. To look at it locally:
 The README's and the page's screenshots are `site/screenshots/*.png`, the
 one kind of binary file committed (AGENTS.md §2, the owner's exception; the
 binaries gate allows that folder's PNGs only). To make them again:
-`tools/screenshots.sh`, then copy `title`, `intro`, `game` and `pause` from
-`build/shots/` to `site/screenshots/`.
+`tools/screenshots.sh`, then copy `title`, `intro`, `game`, `pause`, `sabre`
+and `natives` from `build/shots/` to `site/screenshots/`. The last two come
+from a real game played with the attract demo's keys (`demo.txt`, its seed
+and start) by `tools/screenshots_demo.tcl`, taken at ticks 528 and 706
+(`SHOTS_AT` in `screenshots.sh`); a new demo.txt means new ticks to pick.
 
 WebMSX can be run headless to see the ROM there (how its reboot loop on
 an empty drive was found): save `https://webmsx.org/` (one self-contained
@@ -365,7 +368,8 @@ headless Chromium with remote debugging, and read the machine through
 ## A release
 
 `tools/screenshots.sh` takes screenshots from the last build into
-`build/shots/` (the title, the intro, a game, its pause menu, its map),
+`build/shots/` (the title, the intro, a game, its pause menu, its map, two
+rooms of the demo's game),
 drawn from openMSX's VDP state (`tools/screenshots.tcl`, `.py`; openMSX's
 own screenshot is blank without a display). `tools/release.sh` puts the
 release's files in `build/release/`: the ROM, a blank 720 KB save disk,
