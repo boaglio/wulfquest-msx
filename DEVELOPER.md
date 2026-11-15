@@ -346,6 +346,18 @@ the repository's Settings > Pages, Source "GitHub Actions"; it can also be
 run by hand from the Actions tab. To look at it locally:
 `mkdir -p /tmp/site && cp site/* build/wulfquest.rom /tmp/site/ && python3 -m http.server -d /tmp/site`.
 
+## A release
+
+`tools/screenshots.sh` takes screenshots from the last build into
+`build/shots/` (the title, the intro, a game, its pause menu, its map),
+drawn from openMSX's VDP state (`tools/screenshots.tcl`, `.py`; openMSX's
+own screenshot is blank without a display). `tools/release.sh` puts the
+release's files in `build/release/`: the ROM, a blank 720 KB save disk,
+`SHA256SUMS` and the screenshots. Pushing a `v0.x.y` tag runs
+`.github/workflows/release.yml`: the build and every test, then
+`tools/release.sh`, attached to a GitHub pre-release. Only `v0.*` tags run
+it; never `v1.0` until the owner says so (AGENTS.md M14).
+
 ## Layout
 
 ```

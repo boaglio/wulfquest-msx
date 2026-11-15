@@ -1421,13 +1421,27 @@ the MSX2+ and turbo R; what is found goes under its **Found**, then here.
 
 **For:** players.
 
-- A release workflow: a `v0.x.y` tag builds the ROM and a bootable disk image
-  that loads it, runs the tests, and attaches both to a GitHub pre-release.
+- A release workflow: a `v0.x.y` tag builds the ROM and a blank disk image
+  for the saves, runs the tests, and attaches both to a GitHub pre-release.
+  (The owner's choice, 2026-11-14: not a disk that loads the game, which
+  would need a RAM build banked through the memory mapper and an MSX2 with
+  512 KB of mapped RAM; the disk is for the saves.)
 - `README.md` for players: what it is, which machines, how to run the ROM on
   a flash cartridge or an emulator, how saves work, the controls, the §2.5
   text, the licence, the MSXgl credit.
 - Screenshots from openMSX, attached to the release, never committed.
 
 **Accept when:** pushing a tag produces a release with the ROM and the disk
-image; both boot in openMSX on a 50 Hz and a 60 Hz MSX2; the README's
+image; the ROM boots in openMSX on a 50 Hz and a 60 Hz MSX2, and saves to
+the disk; the README's
 instructions work from a clean download. Never `v1.0` until the user says so.
+
+**Done so far (2026-11-14):** `.github/workflows/release.yml` (v0.* tags
+only, a v1 one stops): the build and every test (`./build.sh test`, openMSX
+from Ubuntu's packages), then `tools/release.sh`: the ROM, a blank 720 KB
+disk (openMSX's diskmanipulator), `SHA256SUMS` and screenshots
+(`tools/screenshots.sh`: the title, the intro, a game, its pause and its
+map, drawn from the VDP's video RAM, registers and palette, the sprites as
+the V9938 draws them, 512x424), on a pre-release. `README.md` for players,
+the homepage first (`site/`, GitHub Pages). Left: the first tag's run
+watched (the workflow has not run yet).

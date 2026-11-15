@@ -1,15 +1,72 @@
 # Wulf Quest for MSX2
 
+**Homepage: https://boaglio.github.io/wulfquest-msx/**, to play it in your
+browser or download it.
+
 [Wulf Quest](https://github.com/boaglio/wulfquest) is a flip-screen jungle
-adventure: a ranger alone in a 256-room jungle, looking for four pieces of a
-broken amulet, with the Wulf on his trail. This is its version for the MSX2,
-as a ROM cartridge.
+adventure: Ranger Vale alone in a 256-room jungle, looking for the four
+pieces of a broken amulet, with the Wulf on his trail. This is its version
+for the MSX2, as a ROM cartridge, played the same way as the original, tick
+for tick.
 
-**It is not playable yet.** Work has just begun: today the ROM starts, sets
-up the screen and waits for a key. The plan, milestone by milestone, is in
-[AGENTS.md](AGENTS.md); how to build it is in [DEVELOPER.md](DEVELOPER.md).
+It is a pre-release: the whole game is in, and its tuning for real machines
+is still going on (the busiest rooms can run a little slow).
 
-It will need an MSX2 (or an MSX2+ or turbo R). On an MSX1 it says so.
+## What it needs
+
+An **MSX2**, an MSX2+ or a turbo R, 50 Hz or 60 Hz (the game runs at the
+same speed on both). On an MSX1 it says so.
+
+## Getting it
+
+- **In the browser:** the [homepage](https://boaglio.github.io/wulfquest-msx/)
+  runs it in [WebMSX](https://webmsx.org/), as a European (50 Hz) or a
+  Japanese (60 Hz) MSX2.
+- **The files:** the homepage has the latest build; the
+  [releases](https://github.com/boaglio/wulfquest-msx/releases) have tagged
+  versions, each with:
+  - `wulfquest.rom`, a 512 KB **ASCII16** MegaROM;
+  - `wulfquest-saves.dsk`, a blank 720 KB disk for the saves;
+  - `SHA256SUMS`, and screenshots.
+
+## Playing it
+
+- **openMSX** (it brings C-BIOS, a free BIOS, so no system ROM is needed):
+
+  ```bash
+  openmsx -machine C-BIOS_MSX2_EU -carta wulfquest.rom -romtype ASCII16
+  ```
+
+  `C-BIOS_MSX2_JP` is a 60 Hz machine. To save, use a real MSX2 machine
+  with a disk drive in openMSX (C-BIOS's has no disk ROM), with
+  `-diska wulfquest-saves.dsk`.
+- **Other emulators** (blueMSX, fMSX, ...): load the ROM as a cartridge on an
+  MSX2 and choose the ASCII16 mapper if asked.
+- **A real MSX2:** write the ROM to a flash cartridge that can be a 512 KB
+  ASCII16 MegaROM (a MegaFlashROM SCC+, a Carnivore2, ...); saves need a
+  disk drive and a disk (the blank one, or any MSX-DOS disk).
+
+## Controls
+
+| | |
+|---|---|
+| Walk | cursor keys (or `Q` `A` `O` `P`, in the options), or a joystick |
+| Swing the sabre | `Space` or fire |
+| Map | `M` or the second button |
+| Pause | `STOP` or `F1` |
+| Back a step | `ESC` |
+
+## Saves
+
+Three slots on a disk in the machine's drive: saved every minute and from
+the pause menu; the last game is offered first on the title (`CONTINUE`).
+Without a disk drive the game plays the same, without saves. The hi-scores
+are kept with the saves.
+
+## Building it
+
+How to build it and run its tests is in [DEVELOPER.md](DEVELOPER.md); how it
+was made, milestone by milestone, in [AGENTS.md](AGENTS.md).
 
 ## Credits and attribution
 

@@ -1,0 +1,62 @@
+# A release (AGENTS.md §10, M14): pushing a v0.x.y tag builds the ROM,
+# runs every test, makes the blank save disk and the screenshots
+# (tools/release.sh) and attaches them to a GitHub pre-release. Never v1.0
+# until the owner says so: only v0.* tags run it, and a v1 one stops.
+name: Release
+
+on:
+  push:
+    tags: ["v0.*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - name: Not v1.0 (the owner's to say)
+        if: startsWith(github.ref_name, 'v1')
+        run: exit 1
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: openMSX (the tests, the disk, the screenshots)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y openmsx
+          openmsx -v
+          echo 'puts [openmsx_info machines]; exit' > /tmp/machines.tcl
+          SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy openmsx -script /tmp/machines.tcl | tee /tmp/machines.txt
+          grep -q C-BIOS_MSX2_EU /tmp/machines.txt && grep -q C-BIOS_MSX2_JP /tmp/machines.txt
+      - name: Build and test
+        run: ./build.sh test
+      - name: The release's files
+        run: tools/release.sh
+      - uses: softprops/action-gh-release@v2
+        with:
+          prerelease: true
+          name: Wulf Quest for MSX2 ${{ github.ref_name }}
+          body: |
+            Wulf Quest for the MSX2: a 512 KB ASCII16 MegaROM.
+
+            - `wulfquest.rom`: write it to a flash cartridge, or load it in an emulator as an ASCII16 cartridge on an MSX2.
+            - `wulfquest-saves.dsk`: a blank 720 KB disk for the saves; put it in drive A.
+            - Play it in the browser: https://boaglio.github.io/wulfquest-msx/
+            - How to play, the controls and the saves: see the README.
+
+            A pre-release: the busiest rooms can still run a little slow (AGENTS.md M13).
+          files: |
+            build/release/wulfquest.rom
+            build/release/wulfquest-saves.dsk
+            build/release/SHA256SUMS
+            build/release/*.png
