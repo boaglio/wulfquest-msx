@@ -41,13 +41,16 @@ jobs:
       - name: Build the ROM
         run: ./build.sh
       - name: The screenshots (tools/screenshots.sh)
+        # The page and the ROM go up without them if this fails (the page
+        # hides a missing one); its log says why.
+        continue-on-error: true
         run: tools/screenshots.sh
       - name: The page, the ROM and the screenshots
         run: |
           mkdir -p _site
           cp site/* _site/
           cp build/wulfquest.rom _site/wulfquest.rom
-          cp build/shots/*.png _site/
+          cp build/shots/*.png _site/ 2>/dev/null || echo "no screenshots"
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site

@@ -342,7 +342,8 @@ it is, play it in WebMSX, download the ROM, play it in openMSX, the
 controls). `.github/workflows/pages.yml` builds the ROM from each push to
 `main` and publishes the page with `wulfquest.rom` and the screenshots
 (`tools/screenshots.sh`, below) beside it on GitHub Pages (neither is ever
-committed); WebMSX loads the ROM from there
+committed; if the screenshots fail, the page goes up without them and the
+step's log has openMSX's own); WebMSX loads the ROM from there
 (`webmsx.org/?MACHINE=MSX2E&ROM_FORMAT=ASCII16&ROM=...`). Turn it on once in
 the repository's Settings > Pages, Source "GitHub Actions"; it can also be
 run by hand from the Actions tab. To look at it locally:

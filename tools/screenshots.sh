@@ -10,8 +10,12 @@ map=build/msxgl/wulfquest.map
 addr() { awk -v s="_$1" '$2 == s { print "0x" substr($1, length($1) - 3) }' "$map"; }
 rm -rf build/shots
 mkdir -p build/shots
-SHOTS_DIR="$PWD/build/shots" SHOTS_SHELL="$(addr g_Shell)" SHOTS_TICK="$(addr g_ShellTick)" SHOTS_VISIBLE="$(addr g_ValeVisible)" SHOTS_INVULN="$(addr g_ValeInvuln)" timeout 300 \
+if ! SHOTS_DIR="$PWD/build/shots" SHOTS_SHELL="$(addr g_Shell)" SHOTS_TICK="$(addr g_ShellTick)" SHOTS_VISIBLE="$(addr g_ValeVisible)" SHOTS_INVULN="$(addr g_ValeInvuln)" timeout 300 \
     env SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy \
-    openmsx -machine C-BIOS_MSX2_EU -carta build/wulfquest.rom -script tools/screenshots.tcl > build/shots/openmsx.log 2>&1
+    openmsx -machine C-BIOS_MSX2_EU -carta build/wulfquest.rom -script tools/screenshots.tcl > build/shots/openmsx.log 2>&1; then
+    echo "screenshots.sh: openMSX failed ($(openmsx -v 2>&1 | head -1)); its log:" >&2
+    tail -30 build/shots/openmsx.log >&2
+    exit 1
+fi
 python3 tools/screenshots.py build/shots
 [[ -n "${SHOTS_KEEP:-}" ]] || rm -f build/shots/*.regs build/shots/*.pal build/shots/*.vram
