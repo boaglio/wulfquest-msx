@@ -50,4 +50,8 @@ kbd {
   font-family: ui-monospace, Menlo, Consolas, monospace;
   font-size: .88em;
 }
+.shots { display: grid; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); gap: .9rem; }
+.shots figure { margin: 0; }
+.shots img { display: block; width: 100%; height: auto; image-rendering: pixelated; border-radius: 6px; background: #000; }
+.shots figcaption { color: var(--dim); font-size: .9rem; margin-top: .3rem; }
 footer { color: var(--dim); padding-bottom: 3rem; text-align: center; }

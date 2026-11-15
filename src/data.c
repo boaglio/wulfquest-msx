@@ -1838,9 +1838,13 @@ static u16 s_GameSP = 0;
 static u8  s_DiskHook[5];          // H.TIMI as the disk ROM had it: for its calls only
 static u8  s_DiskKeyi[5];          // and H.KEYI
 static u8  s_DiskStack[192];       // the calls' stack, below HIMEM
-// The error handlers MSX-DOS calls (through DISKVE, BREAKV): "abort" (c = 2).
-static u8  s_Abort[3] = { 0x0E, 0x02, 0xC9 };   // ld c, 2; ret
-static u16 s_AbortAt = 0;
+// The error handler MSX-DOS calls (through DISKVE, BREAKV) is not to answer
+// "abort" (c = 2): MSX-DOS then jumps to Disk BASIC's error vector, 0000h
+// with no BASIC (WebMSX's empty drive: the machine reset). It is DiskFail's
+// handler: its pointer and code copied to the bottom of s_DiskStack for
+// each call (RAM: page 1 is the disk ROM then), it puts the cartridge back
+// in and the call ends there, a = FFh (the FCB calls' "failed").
+#define FAIL_LEN	11
 u8  g_BdosC = 0;
 u16 g_BdosDE = 0;
 u16 g_BdosHL = 0;
@@ -1990,9 +1994,11 @@ void Data_DiskCall() __naked
 		ld	de, #0xFD9A
 		ld	bc, #5
 		ldir
-		ld	hl, #_s_Abort
-		ld	(_s_AbortAt), hl
-		ld	hl, #_s_AbortAt
+		ld	hl, #00080$             ; the error handler (FAIL_LEN bytes)
+		ld	de, #_s_DiskStack
+		ld	bc, #FAIL_LEN
+		ldir
+		ld	hl, #_s_DiskStack
 		ld	(DISKVE_ADDR), hl
 		ld	(BREAKV_ADDR), hl
 		ei
@@ -2001,6 +2007,7 @@ void Data_DiskCall() __naked
 		ld	de, (_g_BdosDE)
 		ld	hl, (_g_BdosHL)
 		call	BDOS_ADDR
+	00082$:
 		ld	(_g_BdosA), a
 		ld	(_g_BdosHL), hl
 		di
@@ -2041,6 +2048,16 @@ void Data_DiskCall() __naked
 		ld	sp, (_s_GameSP)
 		ei
 		ret
+	00080$:                         ; the handler, as copied to s_DiskStack:
+		.dw	_s_DiskStack + 2        ;   the pointer DISKVE and BREAKV point to
+		di                              ;   then its code: the game's slots back
+		ld	a, (_s_A8)
+		out	(#0xA8), a
+		jp	00081$
+	00081$:                         ; here the cartridge again: the call failed
+		ld	sp, #_s_DiskStack + 192 - 4
+		ld	a, #0xFF
+		jr	00082$
 	__endasm;
 }
 

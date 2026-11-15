@@ -1092,8 +1092,12 @@ the user adds to openMSX: C-BIOS's disk ROM has no MSX-DOS.
   (its motor's timer would work in that area, the game's now) and takes the
   top of RAM for the stack. Each MSX-DOS call (`Data_DiskCall`) swaps the two
   back for the call: the disk ROM's area and hook in, its own stack below
-  HIMEM, disk errors answered "abort" (a stub in RAM, through DISKVE and
-  BREAKV), the game's after.
+  HIMEM, disk errors caught (a handler copied to the bottom of that stack,
+  through DISKVE and BREAKV: the cartridge back in, the call over with
+  a = FFh, "failed"), the game's after. Not "abort": MSX-DOS 1 then jumps
+  to Disk BASIC's error vector, 0000h without BASIC; WebMSX's empty drive
+  reset the machine over and over that way (fixed 2026-11-14,
+  `test/disk.sh`'s third run has the drive empty).
 - **The file:** `WULFQ.SAV`, four records of 256 bytes (the table, then the
   slots), through MSX-DOS's FCB calls (open or make it, random block read and
   write); a disk with none reads as empty slots. Without a disk ROM (C-BIOS)
@@ -1445,3 +1449,11 @@ map, drawn from the VDP's video RAM, registers and palette, the sprites as
 the V9938 draws them, 512x424), on a pre-release. `README.md` for players,
 the homepage first (`site/`, GitHub Pages). Left: the first tag's run
 watched (the workflow has not run yet).
+- The homepage shows the screenshots too: `pages.yml` installs openMSX and
+  runs `tools/screenshots.sh` on each build, the PNGs beside the page (never
+  committed).
+- WebMSX's MSX2E and MSX2J (a disk interface with two drives by default)
+  rebooted over and over: the title's first disk call, on an empty drive,
+  answered "abort" (see M11's disk calls). Found by running WebMSX in a
+  headless Chromium (DEVELOPER.md, "The page"); both now reach the title,
+  with an empty drive and with a blank disk.

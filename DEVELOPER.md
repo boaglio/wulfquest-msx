@@ -301,7 +301,8 @@ ignores it, so the submodule stays clean.
   after a power cycle (two runs of openMSX on one disk image). The 8245's
   system ROM is not free: put it (`NMS8245SystemROM1.08.bin`, or 1.06, 1.05)
   in `roms/`, which git ignores; the test links it into openMSX's
-  `systemroms` and is skipped without it.
+  `systemroms` and is skipped without it. A third run has the drive empty:
+  every disk call fails, and the game must go on.
 - **`test/endings.sh`** (M12) plays the three endings from a new machine's
   title: each job's game, its reveal, its win brought on (the escape's walk),
   its closing scene, tally, the roll's top and Mr Jones's offer; the title
@@ -339,12 +340,22 @@ developers; the game is not meant to run there.
 `site/` is the project's page for players (`index.html`, `style.css`: what
 it is, play it in WebMSX, download the ROM, play it in openMSX, the
 controls). `.github/workflows/pages.yml` builds the ROM from each push to
-`main` and publishes the page with `wulfquest.rom` beside it on GitHub Pages
-(the ROM is never committed); WebMSX loads it from there
+`main` and publishes the page with `wulfquest.rom` and the screenshots
+(`tools/screenshots.sh`, below) beside it on GitHub Pages (neither is ever
+committed); WebMSX loads the ROM from there
 (`webmsx.org/?MACHINE=MSX2E&ROM_FORMAT=ASCII16&ROM=...`). Turn it on once in
 the repository's Settings > Pages, Source "GitHub Actions"; it can also be
 run by hand from the Actions tab. To look at it locally:
-`mkdir -p /tmp/site && cp site/* build/wulfquest.rom /tmp/site/ && python3 -m http.server -d /tmp/site`.
+`mkdir -p /tmp/site && cp site/* build/wulfquest.rom build/shots/*.png /tmp/site/ && python3 -m http.server -d /tmp/site`.
+
+WebMSX can be run headless to see the ROM there (how its reboot loop on
+an empty drive was found): save `https://webmsx.org/` (one self-contained
+HTML file) beside the ROM, serve the folder, open
+`index.html?MACHINE=MSX2E&ROM_FORMAT=ASCII16&ROM=wulfquest.rom` in a
+headless Chromium with remote debugging, and read the machine through
+`WMSX.room.machine` (`cpu.eval("PC")`, `bus.read(addr)`,
+`bus.getPrimarySlotConfig()`; the power goes on with
+`machine.userPowerOn(true)`). The ROM must be given by a relative path.
 
 ## A release
 

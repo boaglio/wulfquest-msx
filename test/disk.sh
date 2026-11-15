@@ -8,6 +8,9 @@
 # machine with the same disk, must offer that game first (CONTINUE) and load
 # it back to the same room, place, score, lives, quarters, rooms walked and
 # treasures. check_disk.py reads the screens' words and compares the games.
+# A third run has the drive empty: every disk call fails (MSX-DOS's error
+# handler, data.c's DiskFail), and the title, a new game (its save at once)
+# and the game must go on, no reset (WebMSX's empty drive reset it once).
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
@@ -44,13 +47,14 @@ timeout 120 env SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy \
 
 DOWN="key 8 0x40"; SPACE="key 8 0x01"; ESC="key 7 0x04"; F1="key 6 0x20"
 STATE='{[peek g_ValeRoom] [peek g_ValeX 4] [peek g_ValeY 4] [peek g_Score 4] [peek g_ValeLives] [peek g_SimTick 4] [peek g_QuestPieces] [peek g_Visited 4] [peek g_TreasuresTaken 2]}'
+disk=(-diska "$dsk")
 run() {   # output, plan...
     local out=$1; shift
     local plan_tcl=""
     for s in "$@"; do plan_tcl+="{$s} "; done
     SHELL_OUT="$PWD/$out" SHELL_SYMS="$syms" SHELL_JOY="$joy" SHELL_PLAN="$plan_tcl" timeout 900 \
         env SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy \
-        openmsx -machine "$machine" -carta "$rom" -diska "$dsk" -script test/shell.tcl >"$out.log" 2>&1 \
+        openmsx -machine "$machine" -carta "$rom" "${disk[@]}" -script test/shell.tcl >"$out.log" 2>&1 \
         || { echo "disk.sh: openMSX failed (see $out.log)" >&2; exit 1; }
 }
 # Shell states (shell.h): title 0, playing 4, paused 5, save 6, new game 13.
@@ -63,8 +67,12 @@ run build/test/disk-1.txt \
 run build/test/disk-2.txt \
     "wait 0" "log ready {[peek g_DiskReady]}" "pause 0.3" "dump title2" \
     "$SPACE" "wait 4" "log loaded $STATE" "pause 1.6" "dump loaded" "log run2 done"
+disk=()
+run build/test/disk-3.txt \
+    "wait 0" "log ready {[peek g_DiskReady]}" "pause 0.3" \
+    "$SPACE" "wait 13" "pause 0.6" "$SPACE" "wait 4" "pause 2.0" "log empty $STATE" "log run3 done"
 cat build/test/disk-1.txt build/test/disk-2.txt | grep -v "^end ok" > build/test/disk.txt
-for f in build/test/disk-1.txt build/test/disk-2.txt; do
+for f in build/test/disk-1.txt build/test/disk-2.txt build/test/disk-3.txt; do
     grep -q "^end ok" "$f" || { echo "FAIL disk: $(basename "$f"): $(grep '^end' "$f")"; exit 1; }
 done
 echo "end ok" >> build/test/disk.txt
