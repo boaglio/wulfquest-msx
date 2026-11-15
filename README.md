@@ -21,6 +21,9 @@ for tick.
 <img src="site/screenshots/sabre.png" width="400" alt="Vale swings his sabre at a rhino">
 <img src="site/screenshots/natives.png" width="400" alt="Vale and a native by the pool">
 </p>
+<p>
+<img src="site/screenshots/trail.png" width="400" alt="The map with the looking glass's trail to the next quarter">
+</p>
 
 It is a pre-release: the whole game is in, and its tuning for real machines
 is still going on (the busiest rooms can run a little slow).
