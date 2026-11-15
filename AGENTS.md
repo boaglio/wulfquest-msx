@@ -1460,6 +1460,12 @@ watched (the workflow has not run yet).
   next quarter, in `site/screenshots/` (committed: the owner's
   exception to §2, 2026-11-15; made again with `tools/screenshots.sh` when
   the screens change).
+- "Why this game" in the README and on the homepage: the owner's story (an
+  MSX, a cousin's Spectrum, the original too hard without saves and a map),
+  in the owner's words, 2026-11-15. It names the original and Konami's Soccer
+  as the games played then, with a line that they are their owners'
+  trademarks and Wulf Quest is not affiliated; the studio's name stays out
+  (the Java game's §2.4).
 - WebMSX's MSX2E and MSX2J (a disk interface with two drives by default)
   rebooted over and over: the title's first disk call, on an empty drive,
   answered "abort" (see M11's disk calls). Found by running WebMSX in a

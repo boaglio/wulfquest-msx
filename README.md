@@ -28,6 +28,19 @@ for tick.
 It is a pre-release: the whole game is in, and its tuning for real machines
 is still going on (the busiest rooms can run a little slow).
 
+## Why this game
+
+I had an MSX, and my cousin had a ZX Spectrum (a TK90). When he came over,
+we played Konami's Soccer on my MSX; when I visited him, we played Sabre
+Wulf on his Spectrum. Sabre Wulf was very challenging, too hard for me: I
+always wished I could save my game, and that I had a map. So, with Claude's
+help, I made Wulf Quest, this alternate version, with saves and a map, for
+the [PC](https://github.com/boaglio/wulfquest) and for the MSX2. I hope you
+enjoy it!
+
+<sub>Sabre Wulf and Soccer are their owners' trademarks; Wulf Quest is not
+affiliated with them (see the credits below).</sub>
+
 ## What it needs
 
 An **MSX2**, an MSX2+ or a turbo R, 50 Hz or 60 Hz (the game runs at the
